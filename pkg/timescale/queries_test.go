@@ -126,10 +126,16 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
-		expected := "SELECT time_bucket('1d', \"time\") AS \"time\", avg(\"sensor.ENERGY.Total\") AS \"sensor.ENERGY.Total\"," +
-			" percentile_disc(0.5) WITHIN GROUP (ORDER BY \"sensor.ENERGY.Total\") AS \"sensor.ENERGY.Total\"" +
-			" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\"" +
-			" WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC"
+		expected := "SELECT sub0.time AS \"time\", " +
+			"sub0.value AS \"sensor.ENERGY.Total\", " +
+			"sub1.value AS \"sensor.ENERGY.Total\" " +
+			"FROM\n( SELECT time_bucket('1d', \"time\") AS \"time\", " +
+			"avg(\"sensor.ENERGY.Total\") AS value\n  FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
+			"WHERE \"time\" > now() - interval '7d' GROUP BY 1 ORDER BY 1 ASC LIMIT 10) sub0 FULL OUTER JOIN " +
+			"( SELECT time_bucket('1d', \"time\") AS \"time\", percentile_disc(0.5) WITHIN GROUP (ORDER BY " +
+			"\"sensor.ENERGY.Total\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
+			"WHERE \"time\" > now() - interval '7d' GROUP BY 1 ORDER BY 1 ASC LIMIT 10) sub1 on sub0.time = sub1.time " +
+			"ORDER BY 1 ASC"
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
@@ -186,25 +192,22 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
-		expected := "SELECT sub0.timesub0 as \"time\"," +
-			" sub0.value - lag(sub0.value) OVER (ORDER BY 1) AS \"sensor.ENERGY.Total\"," +
-			" sub1.value - lag(sub1.value) OVER (ORDER BY 1) AS \"sensor.ENERGY.Total\"," +
-			" sub2.value AS \"sensor.ENERGY.Total\"," +
-			" sub3.value AS \"sensor.ENERGY.Total\"," +
-			" sub4.value - lag(sub4.value) OVER (ORDER BY 1) AS \"sensor.ENERGY.Total\"" +
-			" FROM (SELECT time_bucket('1d', \"time\") AS \"timesub0\", last(\"sensor.ENERGY.Total\", \"time\")" +
-			" AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > " +
-			"now() - interval '7d' GROUP BY 1 ORDER BY 1 ASC LIMIT 10) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\") AS \"timesub1\"," +
-			"  first(\"sensor.ENERGY.Total\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\"" +
-			" WHERE \"time\" > now() - interval '7d' GROUP BY 1 ORDER BY 1 ASC LIMIT 10) sub1 on sub0.timesub0 = sub1.timesub1" +
-			" FULL OUTER JOIN (SELECT time_bucket('1d', \"time\") AS \"timesub2\", first(\"sensor.ENERGY.Total\", \"time\")" +
-			" AS value  FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - " +
-			"interval '7d' GROUP BY 1 ORDER BY 1 ASC LIMIT 10) sub2 on sub0.timesub0 = sub2.timesub2 FULL OUTER JOIN" +
-			" (SELECT time_bucket('1d', \"time\") AS \"timesub3\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
-			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '7d' GROUP" +
-			" BY 1 ORDER BY 1 ASC LIMIT 10) sub3 on sub0.timesub0 = sub3.timesub3 FULL OUTER JOIN (SELECT time_bucket('1d'," +
-			" \"time\") AS \"timesub4\", avg(\"sensor.ENERGY.Total\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\"" +
-			" WHERE \"time\" > now() - interval '7d' GROUP BY 1 ORDER BY 1 ASC LIMIT 10) sub4 on sub0.timesub0 = sub4.timesub4 ORDER BY 1 DESC LIMIT 10"
+		expected := "SELECT sub0.time as \"time\", sub0.value - lag(sub0.value) OVER (ORDER BY 1) AS \"sensor.ENERGY.Total\"," +
+			" sub1.value - lag(sub1.value) OVER (ORDER BY 1) AS \"sensor.ENERGY.Total\", sub2.value AS \"sensor.ENERGY.Total\"," +
+			" sub3.value AS \"sensor.ENERGY.Total\", sub4.value - lag(sub4.value) OVER (ORDER BY 1) AS \"sensor.ENERGY.Total\" " +
+			"FROM (SELECT time_bucket('1d', \"time\") AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
+			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '7d' GROUP BY " +
+			"1 ORDER BY 1 ASC LIMIT 10) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\") AS \"time\", " +
+			"first(\"sensor.ENERGY.Total\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
+			"WHERE \"time\" > now() - interval '7d' GROUP BY 1 ORDER BY 1 ASC LIMIT 10) sub1 on sub0.time = sub1.time FULL OUTER JOIN " +
+			"(SELECT time_bucket('1d', \"time\") AS \"time\", first(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
+			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '7d' GROUP BY " +
+			"1 ORDER BY 1 ASC LIMIT 10) sub2 on sub0.time = sub2.time FULL OUTER JOIN (SELECT time_bucket('1d', \"time\") AS" +
+			" \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\"" +
+			" WHERE \"time\" > now() - interval '7d' GROUP BY 1 ORDER BY 1 ASC LIMIT 10) sub3 on sub0.time = sub3.time FULL OUTER JOIN" +
+			" (SELECT time_bucket('1d', \"time\") AS \"time\", avg(\"sensor.ENERGY.Total\") AS value FROM " +
+			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '7d' GROUP BY 1" +
+			" ORDER BY 1 ASC LIMIT 10) sub4 on sub0.time = sub4.time ORDER BY 1 DESC LIMIT 10"
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
