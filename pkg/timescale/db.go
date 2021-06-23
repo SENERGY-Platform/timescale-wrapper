@@ -16,39 +16,48 @@
 
 package timescale
 
-import "log"
+import (
+	"log"
+	"sync"
+)
 
-func(wrapper *Wrapper) ExecuteQueries(queries []string) (res [][][]interface{}, err error) {
+func (wrapper *Wrapper) ExecuteQueries(queries []string) (res [][][]interface{}, err error) {
 	res = make([][][]interface{}, len(queries))
+	wg := sync.WaitGroup{} // handle multiple queries in parallel
 	for i, query := range queries {
-		if wrapper.config.Debug {
-			log.Println("DEBUG: Query ", i, query)
-		}
-		rows, err := wrapper.pool.Query(query)
-		if err != nil {
-			return nil, err
-		}
-		subResults := [][]interface{}{}
-		for rows.Next() {
-			values, err := rows.Values()
-			if err != nil {
-				rows.Close()
-				return nil, err
+		wg.Add(1)
+		i := i         // make thread safe
+		query := query // make thread safe
+		go func() {
+			if wrapper.config.Debug {
+				log.Println("DEBUG: Query ", i, query)
 			}
-			subResults = append(subResults, values)
-		}
-		res[i] = subResults
+			resS, errS := wrapper.executeQuery(query)
+			if errS != nil { // Prevents overwriting with nil
+				err = errS
+			} else {
+				res[i] = resS
+			}
+			wg.Done()
+		}()
 	}
+	wg.Wait()
 	return
 }
-  /* TODO
-  SELECT time_bucket('1d', "time") AS "time",
-  (lead(last("sensor.ENERGY.Total", "time"), 1) OVER (PARTITION BY 1 ORDER BY 1 ASC) - last("sensor.ENERGY.Total", "time")) * -1 AS "sensor.ENERGY.Total"
-  FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE "time" > now() - interval '7d' GROUP BY 1 ORDER BY 1 DESC LIMIT 182
 
-  SELECT time_bucket('1d', "time") AS "time",
-  (lead(last("sensor.ENERGY.Total", "time"), 1) OVER (PARTITION BY 1 ORDER BY 1 ASC) - last("sensor.ENERGY.Total", "time")) * -1 AS "sensor.ENERGY.Total"
-  FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE "time" > now() - interval '7d' GROUP BY 1 ORDER BY 1 DESC LIMIT 10
-
-  These queries yield way different results due to query optimization by postgres? Maybe bad SQL statement?
-   */
+func (wrapper *Wrapper) executeQuery(query string) (res [][]interface{}, err error) {
+	rows, err := wrapper.pool.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	res = [][]interface{}{}
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		res = append(res, values)
+	}
+	return res, nil
+}
