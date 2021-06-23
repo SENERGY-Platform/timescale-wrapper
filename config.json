@@ -1,0 +1,12 @@
+{
+  "api_port": "8080",
+  "postgres_host": "localhost",
+  "postgres_port": 5432,
+  "postgres_user": "postgres",
+  "postgres_db": "postgres",
+  "postgres_pw": "pw",
+  "memcached_url": "memcached",
+  "permissionsearch_url": "http://permission-search:8080",
+  "serving_url": "http://serving:8080",
+  "debug": true
+}
