@@ -127,18 +127,18 @@ func TestQueries(t *testing.T) {
 			t.Error("Unexpected number of queries", len(actual))
 		}
 		expected := "SELECT sub0.time AS \"time\", " +
-			"sub0.value AS \"sensor.ENERGY.Total\", " +
-			"sub1.value AS \"sensor.ENERGY.Total\" " +
-			"FROM\n( SELECT time_bucket('1d', \"time\") AS \"time\", " +
-			"avg(\"sensor.ENERGY.Total\") AS value\n  FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
-			"WHERE \"time\" > now() - interval '7d' GROUP BY 1 ORDER BY 1 ASC LIMIT 10) sub0 FULL OUTER JOIN " +
-			"( SELECT time_bucket('1d', \"time\") AS \"time\", percentile_disc(0.5) WITHIN GROUP (ORDER BY " +
+			"(sub0.value) AS \"sensor.ENERGY.Total\", " +
+			"(sub1.value) AS \"sensor.ENERGY.Total\" " +
+			"FROM (SELECT time_bucket('1d', \"time\") AS \"time\", " +
+			"avg(\"sensor.ENERGY.Total\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
+			"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN " +
+			"(SELECT time_bucket('1d', \"time\") AS \"time\", percentile_disc(0.5) WITHIN GROUP (ORDER BY " +
 			"\"sensor.ENERGY.Total\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
-			"WHERE \"time\" > now() - interval '7d' GROUP BY 1 ORDER BY 1 ASC LIMIT 10) sub1 on sub0.time = sub1.time " +
+			"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time " +
 			"ORDER BY 1 ASC"
 
 		if actual[0] != expected {
-			t.Error("Expected/Actual\n", expected, "\n", actual)
+			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
 		}
 	})
 
@@ -156,6 +156,7 @@ func TestQueries(t *testing.T) {
 		dm := "difference-mean"
 		f := "first"
 		l := "last"
+		plus5 := "+5"
 		elements := []model.QueriesRequestElement{{
 			DeviceId:  &deviceId,
 			ServiceId: &serviceId,
@@ -169,6 +170,7 @@ func TestQueries(t *testing.T) {
 				{
 					Name:      "sensor.ENERGY.Total",
 					GroupType: &df,
+					Math:      &plus5,
 				},
 				{
 					Name:      "sensor.ENERGY.Total",
@@ -192,9 +194,9 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
-		expected := "SELECT sub0.time as \"time\", sub0.value - lag(sub0.value) OVER (ORDER BY 1) AS \"sensor.ENERGY.Total\"," +
-			" sub1.value - lag(sub1.value) OVER (ORDER BY 1) AS \"sensor.ENERGY.Total\", sub2.value AS \"sensor.ENERGY.Total\"," +
-			" sub3.value AS \"sensor.ENERGY.Total\", sub4.value - lag(sub4.value) OVER (ORDER BY 1) AS \"sensor.ENERGY.Total\" " +
+		expected := "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY 1)) AS \"sensor.ENERGY.Total\"," +
+			" (sub1.value - lag(sub1.value) OVER (ORDER BY 1)) +5 AS \"sensor.ENERGY.Total\", (sub2.value) AS \"sensor.ENERGY.Total\"," +
+			" (sub3.value) AS \"sensor.ENERGY.Total\", (sub4.value - lag(sub4.value) OVER (ORDER BY 1)) AS \"sensor.ENERGY.Total\" " +
 			"FROM (SELECT time_bucket('1d', \"time\") AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
 			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '7d' GROUP BY " +
 			"1 ORDER BY 1 ASC LIMIT 10) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\") AS \"time\", " +
@@ -210,7 +212,7 @@ func TestQueries(t *testing.T) {
 			" ORDER BY 1 ASC LIMIT 10) sub4 on sub0.time = sub4.time ORDER BY 1 DESC LIMIT 10"
 
 		if actual[0] != expected {
-			t.Error("Expected/Actual\n", expected, "\n", actual)
+			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
 		}
 	})
 

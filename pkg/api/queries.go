@@ -30,7 +30,6 @@ import (
 	"time"
 )
 
-
 func init() {
 	endpoints = append(endpoints, QueriesEndpoint)
 }
@@ -83,7 +82,10 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
+		if config.Debug {
+			log.Println("DEBUG: Query generation took " + time.Since(start).String())
+		}
+		beforeQuery := time.Now()
 		data, err := wrapper.ExecuteQueries(queries)
 		if err != nil {
 			switch err {
@@ -98,6 +100,9 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 				return
 			}
 		}
+		if config.Debug {
+			log.Println("DEBUG: Fetching took " + time.Since(beforeQuery).String())
+		}
 
 		/* TODO timeFormat := request.URL.Query().Get("time_format")
 		response, err := formatResponse(requestedFormat, requestElements, data, orderColumnIndex, orderDirection, timeFormat)
@@ -106,7 +111,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			return
 		}
 
-		 */
+		*/
 
 		writer.Header().Set("Content-Type", "application/json")
 		err = json.NewEncoder(writer).Encode(data)
@@ -115,7 +120,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		}
 
 		if config.Debug {
-			log.Println("Took " + time.Since(start).String())
+			log.Println("DEBUG: Total time  " + time.Since(start).String())
 		}
 	})
 
@@ -172,7 +177,7 @@ func formatResponsePerQuery(request []model.QueriesRequestElement, results [][]i
 		}
 		formatted = append(formatted, result.Series[0].Values)
 	}
-	 */
+	*/
 	return
 }
 
