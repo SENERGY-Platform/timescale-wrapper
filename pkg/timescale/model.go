@@ -1,5 +1,5 @@
 /*
- *    Copyright 2020 InfAI (CC SES)
+ *    Copyright 2021 InfAI (CC SES)
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
 package timescale
 
 import (
-	"errors"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/jackc/pgx"
 )
@@ -38,8 +37,3 @@ type uniqueMeasurementsColumns struct {
 	Columns      map[string]map[string]struct{} //Keys of the outer map are all requested columns.
 	// Keys of the inner maps are all requested math operations. Empty string is no math operation
 }
-
-
-var ErrConnection = errors.New("communication with InfluxDB failed")
-var ErrNotFound = errors.New("not found")
-var ErrNULL = errors.New("NULL response")

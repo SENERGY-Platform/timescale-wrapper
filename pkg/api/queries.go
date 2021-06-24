@@ -88,17 +88,8 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		beforeQuery := time.Now()
 		data, err := wrapper.ExecuteQueries(queries)
 		if err != nil {
-			switch err {
-			case timescale.ErrConnection, timescale.ErrNULL:
-				http.Error(writer, err.Error(), http.StatusBadGateway)
-				return
-			case timescale.ErrNotFound:
-				http.Error(writer, err.Error(), http.StatusNotFound)
-				return
-			default:
-				http.Error(writer, err.Error(), http.StatusInternalServerError)
-				return
-			}
+			http.Error(writer, err.Error(), timescale.GetHTTPErrorCode(err))
+			return
 		}
 		if config.Debug {
 			log.Println("DEBUG: Fetching took " + time.Since(beforeQuery).String())
