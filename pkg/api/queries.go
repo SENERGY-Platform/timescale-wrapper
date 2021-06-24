@@ -94,18 +94,19 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		if config.Debug {
 			log.Println("DEBUG: Fetching took " + time.Since(beforeQuery).String())
 		}
-
-		/* TODO timeFormat := request.URL.Query().Get("time_format")
+		beforePP := time.Now()
+		timeFormat := request.URL.Query().Get("time_format")
 		response, err := formatResponse(requestedFormat, requestElements, data, orderColumnIndex, orderDirection, timeFormat)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		*/
+		if config.Debug {
+			log.Println("DEBUG: Postprocessing took " + time.Since(beforePP).String())
+		}
 
 		writer.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(writer).Encode(data)
+		err = json.NewEncoder(writer).Encode(response)
 		if err != nil {
 			fmt.Println("ERROR: " + err.Error())
 		}
@@ -113,7 +114,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 
 }
 
-func formatResponse(f model.Format, request []model.QueriesRequestElement, results [][]interface{},
+func formatResponse(f model.Format, request []model.QueriesRequestElement, results [][][]interface{},
 	orderColumnIndex int, orderDirection model.Direction, timeFormat string) (data interface{}, err error) {
 
 	switch f {
@@ -140,35 +141,20 @@ func formatResponse(f model.Format, request []model.QueriesRequestElement, resul
 	}
 }
 
-func formatResponsePerQuery(request []model.QueriesRequestElement, results [][]interface{}) (formatted [][][]interface{}, err error) {
-	/* TODO
+func formatResponsePerQuery(request []model.QueriesRequestElement, results [][][]interface{}) (formatted [][][]interface{}, err error) {
+	formatted = make([][][]interface{}, len(results))
 	for index, result := range results {
-		if result.Series == nil {
-			// add empty column
-			formatted = append(formatted, [][]interface{}{})
-			continue
-		}
-		if len(result.Series) != 1 {
-			return nil, errors.New("unexpected number of series")
-		}
-		// add data
-		for rowIndex := range result.Series[0].Values {
-			result.Series[0].Values[rowIndex][0], err = time.Parse(time.RFC3339, result.Series[0].Values[rowIndex][0].(string))
-			if err != nil {
-				return nil, err
-			}
-		}
-		err = model.Sort2D(result.Series[0].Values, *request[index].OrderColumnIndex, *request[index].OrderDirection)
+		err = model.Sort2D(result, *request[index].OrderColumnIndex, *request[index].OrderDirection)
 		if err != nil {
 			return nil, err
 		}
-		formatted = append(formatted, result.Series[0].Values)
+		formatted[index] = result
 	}
-	*/
+
 	return
 }
 
-func formatResponseAsTable(request []model.QueriesRequestElement, results [][]interface{}, orderColumnIndex int, orderDirection model.Direction) (formatted [][]interface{}, err error) {
+func formatResponseAsTable(request []model.QueriesRequestElement, results [][][]interface{}, orderColumnIndex int, orderDirection model.Direction) (formatted [][]interface{}, err error) {
 	data, err := formatResponsePerQuery(request, results)
 	if err != nil {
 		return nil, err
