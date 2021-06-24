@@ -32,7 +32,7 @@ func (wrapper *Wrapper) ExecuteQueries(queries []string) (res [][][]interface{},
 			if wrapper.config.Debug {
 				log.Println("DEBUG: Query ", i, query)
 			}
-			resS, errS := wrapper.executeQuery(query)
+			resS, errS := wrapper.ExecuteQuery(query)
 			if errS != nil { // Prevents overwriting with nil
 				err = errS
 			} else {
@@ -45,7 +45,7 @@ func (wrapper *Wrapper) ExecuteQueries(queries []string) (res [][][]interface{},
 	return
 }
 
-func (wrapper *Wrapper) executeQuery(query string) (res [][]interface{}, err error) {
+func (wrapper *Wrapper) ExecuteQuery(query string) (res [][]interface{}, err error) {
 	rows, err := wrapper.pool.Query(query)
 	if err != nil {
 		return nil, err

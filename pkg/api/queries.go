@@ -118,10 +118,6 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		if err != nil {
 			fmt.Println("ERROR: " + err.Error())
 		}
-
-		if config.Debug {
-			log.Println("DEBUG: Total time  " + time.Since(start).String())
-		}
 	})
 
 }
