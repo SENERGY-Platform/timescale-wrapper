@@ -17,7 +17,6 @@
 package model
 
 import (
-	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -42,7 +41,7 @@ func RemoveElementFrom2D(array [][]interface{}, index int) [][]interface{} {
 }
 
 // Sorts a 2D array by the specified column index in the specified direction. Panics if index is out of bounds.
-// Allowed direction values are Desc and Asc. Supported types are nil, time.Time, string, json.Number and bool.
+// Allowed direction values are Desc and Asc. Supported types are nil, time.Time, string, float64 and bool.
 // Errors are given if direction or type are unknown.
 func Sort2D(array [][]interface{}, index int, direction Direction) error {
 	if direction != Desc && direction != Asc {
@@ -82,15 +81,15 @@ func Sort2D(array [][]interface{}, index int, direction Direction) error {
 				return strings.Compare(array[i][index].(string), array[j][index].(string)) < 0
 			}
 		}
-		_, ok = array[i][index].(json.Number)
+		_, ok = array[i][index].(float64)
 		if ok {
-			valI, err := array[i][index].(json.Number).Float64()
-			if err != nil {
+			valI, ok := array[i][index].(float64)
+			if !ok {
 				errFlag = true
 				return false
 			}
-			valJ, err := array[j][index].(json.Number).Float64()
-			if err != nil {
+			valJ, ok := array[j][index].(float64)
+			if !ok {
 				errFlag = true
 				return false
 			}

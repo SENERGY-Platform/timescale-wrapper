@@ -37,7 +37,7 @@ func translateFunctionName(name string) string {
 	}
 }
 
-func GenerateQueries(elements []model.QueriesRequestElement, timeDirection model.Direction) (queries []string, err error) {
+func GenerateQueries(elements []model.QueriesRequestElement) (queries []string, err error) {
 	queries = make([]string, len(elements))
 	for i, element := range elements {
 		table, err := tableName(element)
@@ -48,6 +48,8 @@ func GenerateQueries(elements []model.QueriesRequestElement, timeDirection model
 		query := ""
 		query += "SELECT "
 		if element.GroupTime != nil {
+			zero := 0
+			asc := model.Asc
 			query += "sub0.time AS \"time\", "
 			for idx, column := range element.Columns {
 				if column.GroupType == nil {
@@ -83,7 +85,7 @@ func GenerateQueries(elements []model.QueriesRequestElement, timeDirection model
 				}
 				query += " AS value"
 				query += " FROM \"" + table + "\""
-				filterString, err := getFilterString(element, model.Asc, true)
+				filterString, err := getFilterString(element, true, &zero, &asc)
 				if err != nil {
 					return nil, err
 				}
@@ -96,7 +98,7 @@ func GenerateQueries(elements []model.QueriesRequestElement, timeDirection model
 				}
 			}
 
-			query += getOrderLimitString(element, timeDirection, false)
+			query += getOrderLimitString(element, false, nil, nil)
 
 		} else {
 			query += "\"time\", "
@@ -114,7 +116,7 @@ func GenerateQueries(elements []model.QueriesRequestElement, timeDirection model
 				query += " AS \"" + column.Name + "\""
 			}
 			query += " FROM \"" + table + "\""
-			filterString, err := getFilterString(element, timeDirection, false)
+			filterString, err := getFilterString(element, false, nil, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -125,7 +127,7 @@ func GenerateQueries(elements []model.QueriesRequestElement, timeDirection model
 	return
 }
 
-func getFilterString(element model.QueriesRequestElement, timeDirection model.Direction, group bool) (query string, err error) {
+func getFilterString(element model.QueriesRequestElement, group bool, overrideSortIndex *int, overrideOrderDirection *model.Direction) (query string, err error) {
 	if element.Filters != nil || element.Time != nil {
 		query += " WHERE "
 	}
@@ -161,15 +163,32 @@ func getFilterString(element model.QueriesRequestElement, timeDirection model.Di
 			query += "\"time\" > '" + *element.Time.Start + "' AND \"time\" < '" + *element.Time.End + "'"
 		}
 	}
-	query += getOrderLimitString(element, timeDirection, group)
+	query += getOrderLimitString(element, group, overrideSortIndex, overrideOrderDirection)
 	return
 }
 
-func getOrderLimitString(element model.QueriesRequestElement, timeDirection model.Direction, group bool) (query string) {
+func getOrderLimitString(element model.QueriesRequestElement, group bool, overrideOrderIndex *int, overrideOrderDirection *model.Direction) (query string) {
 	if group {
 		query += " GROUP BY 1"
 	}
-	query += " ORDER BY 1 " + strings.ToUpper(string(timeDirection))
+	var orderIndex int
+	if overrideOrderIndex != nil {
+		orderIndex = *overrideOrderIndex
+	} else if element.OrderColumnIndex != nil {
+		orderIndex = *element.OrderColumnIndex
+	} else {
+		orderIndex = 0
+	}
+	var orderDirection model.Direction
+	if overrideOrderDirection != nil {
+		orderDirection = *overrideOrderDirection
+	} else if element.OrderDirection != nil {
+		orderDirection = *element.OrderDirection
+	} else {
+		orderDirection = model.Desc
+	}
+
+	query += " ORDER BY " + strconv.Itoa(orderIndex+1) + " " + strings.ToUpper(string(orderDirection))
 	if element.Limit != nil {
 		query += " LIMIT " + strconv.Itoa(*element.Limit)
 	}

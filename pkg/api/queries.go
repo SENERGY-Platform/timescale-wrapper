@@ -66,18 +66,14 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		}
 
 		for i := range requestElements {
-			if !requestElements[i].Valid(requestedFormat) {
+			if !requestElements[i].Valid() {
 				http.Error(writer, "Invalid request body", http.StatusBadRequest)
 				return
 			}
 			// TODO check ownership
 		}
-		timeDirection := model.Desc
-		if orderColumnIndex == 0 {
-			timeDirection = orderDirection
-		}
 
-		queries, err := timescale.GenerateQueries(requestElements, timeDirection)
+		queries, err := timescale.GenerateQueries(requestElements)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
@@ -128,38 +124,16 @@ func formatResponse(f model.Format, request []model.QueriesRequestElement, resul
 		}
 		return formatted, nil
 	default:
-		formatted, err := formatResponsePerQuery(request, results)
-		if err != nil {
-			return nil, err
-		}
 		if len(timeFormat) > 0 {
-			for i := range formatted {
-				formatTime2D(formatted[i], timeFormat)
+			for i := range results {
+				formatTime2D(results[i], timeFormat)
 			}
 		}
-		return formatted, nil
+		return results, nil
 	}
 }
 
-func formatResponsePerQuery(request []model.QueriesRequestElement, results [][][]interface{}) (formatted [][][]interface{}, err error) {
-	formatted = make([][][]interface{}, len(results))
-	for index, result := range results {
-		err = model.Sort2D(result, *request[index].OrderColumnIndex, *request[index].OrderDirection)
-		if err != nil {
-			return nil, err
-		}
-		formatted[index] = result
-	}
-
-	return
-}
-
-func formatResponseAsTable(request []model.QueriesRequestElement, results [][][]interface{}, orderColumnIndex int, orderDirection model.Direction) (formatted [][]interface{}, err error) {
-	data, err := formatResponsePerQuery(request, results)
-	if err != nil {
-		return nil, err
-	}
-
+func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]interface{}, orderColumnIndex int, orderDirection model.Direction) (formatted [][]interface{}, err error) {
 	totalColumns := 1
 	baseIndex := map[int]int{}
 	for requestIndex, element := range request {

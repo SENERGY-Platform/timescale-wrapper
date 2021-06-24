@@ -22,9 +22,9 @@ import (
 )
 
 type QueriesRequestElement struct {
-	ExportId         *string 	// TODO check ID in valid format
-	DeviceId         *string 	// TODO check ID in valid format
-	ServiceId        *string 	// TODO check ID in valid format
+	ExportId         *string // TODO check ID in valid format
+	DeviceId         *string // TODO check ID in valid format
+	ServiceId        *string // TODO check ID in valid format
 	Time             *QueriesRequestElementTime
 	Limit            *int
 	Columns          []QueriesRequestElementColumn
@@ -34,11 +34,11 @@ type QueriesRequestElement struct {
 	OrderDirection   *Direction
 }
 
-func (element *QueriesRequestElement) Valid(format Format) bool {
-	if element.ExportId == nil  && (element.DeviceId == nil || element.ServiceId == nil) {
+func (element *QueriesRequestElement) Valid() bool {
+	if element.ExportId == nil && (element.DeviceId == nil || element.ServiceId == nil) {
 		return false
 	}
-	if element.ExportId != nil  && (element.DeviceId != nil || element.ServiceId != nil) {
+	if element.ExportId != nil && (element.DeviceId != nil || element.ServiceId != nil) {
 		return false
 	}
 	if element.Time != nil && !element.Time.Valid() {
@@ -60,9 +60,6 @@ func (element *QueriesRequestElement) Valid(format Format) bool {
 		}
 	}
 	if element.GroupTime != nil && !timeIntervalValid(*element.GroupTime) {
-		return false
-	}
-	if (element.OrderColumnIndex != nil || element.OrderDirection != nil) && format != PerQuery {
 		return false
 	}
 	if element.OrderDirection != nil && *element.OrderDirection != Asc && *element.OrderDirection != Desc {
@@ -113,7 +110,7 @@ func (elementTime *QueriesRequestElementTime) Valid() bool {
 }
 
 type QueriesRequestElementColumn struct {
-	Name      string 	// TODO valid format
+	Name      string // TODO valid format
 	GroupType *string
 	Math      *string
 }

@@ -23,6 +23,46 @@ import (
 )
 
 func TestQueries(t *testing.T) {
+	deviceId := "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
+	serviceId := "urn:infai:ses:service:97805820-ca0a-46c5-9dcf-16c2e386b050"
+	d1 := "1d"
+	time1d := model.QueriesRequestElementTime{
+		Last: &d1,
+	}
+	ten := 10
+	zero := 0
+	plus5 := "+5"
+	plus10 := "+10"
+	filter := []model.QueriesRequestElementFilter{{
+		Column: "sensor.ENERGY.Total",
+		Math:   &plus5,
+		Type:   ">",
+		Value:  ten,
+	}}
+	d10 := "10d"
+	time10d := model.QueriesRequestElementTime{
+		Last: &d10,
+	}
+	mean := "mean"
+	median := "median"
+	asc := model.Asc
+	desc := model.Desc
+	d7 := "7d"
+	time7d := model.QueriesRequestElementTime{
+		Last: &d7,
+	}
+	df := "difference-first"
+	dl := "difference-last"
+	dm := "difference-mean"
+	f := "first"
+	l := "last"
+	start := "2021-06-20T00:00:00Z"
+	end := "2021-06-22T00:00:00Z"
+	timeFormTo := model.QueriesRequestElementTime{
+		Start: &start,
+		End:   &end,
+	}
+
 	t.Parallel()
 	t.Run("Test ShortenId", func(t *testing.T) {
 		actual, err := shortenId("urn:infai:ses:device:d42d8d24-f2a2-4dd7-8ad3-4cabfb6f8062")
@@ -45,21 +85,6 @@ func TestQueries(t *testing.T) {
 	})
 
 	t.Run("Test GenerateQueries Simple", func(t *testing.T) {
-		deviceId := "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
-		serviceId := "urn:infai:ses:service:97805820-ca0a-46c5-9dcf-16c2e386b050"
-		d1 := "1d"
-		time1d := model.QueriesRequestElementTime{
-			Last: &d1,
-		}
-		ten := 10
-		plus5 := "+5"
-		plus10 := "+10"
-		filter := []model.QueriesRequestElementFilter{{
-			Column: "sensor.ENERGY.Total",
-			Math:   &plus5,
-			Type:   ">",
-			Value:  ten,
-		}}
 		elements := []model.QueriesRequestElement{{
 			DeviceId:  &deviceId,
 			ServiceId: &serviceId,
@@ -74,10 +99,12 @@ func TestQueries(t *testing.T) {
 					Name: "sensor.ENERGY.Total",
 					Math: &plus10,
 				}},
-			Filters: &filter,
+			Filters:          &filter,
+			OrderColumnIndex: &zero,
+			OrderDirection:   &asc,
 		}}
 
-		actual, err := GenerateQueries(elements, model.Asc)
+		actual, err := GenerateQueries(elements)
 		if err != nil {
 			t.Error(err)
 		}
@@ -94,19 +121,10 @@ func TestQueries(t *testing.T) {
 	})
 
 	t.Run("Test GenerateQueries Group", func(t *testing.T) {
-		deviceId := "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
-		serviceId := "urn:infai:ses:service:97805820-ca0a-46c5-9dcf-16c2e386b050"
-		d1 := "1d"
-		d10 := "10d"
-		time1d := model.QueriesRequestElementTime{
-			Last: &d10,
-		}
-		mean := "mean"
-		median := "median"
 		elements := []model.QueriesRequestElement{{
 			DeviceId:  &deviceId,
 			ServiceId: &serviceId,
-			Time:      &time1d,
+			Time:      &time10d,
 			Columns: []model.QueriesRequestElementColumn{
 				{
 					Name:      "sensor.ENERGY.Total",
@@ -116,10 +134,12 @@ func TestQueries(t *testing.T) {
 					Name:      "sensor.ENERGY.Total",
 					GroupType: &median,
 				}},
-			GroupTime: &d1,
+			GroupTime:        &d1,
+			OrderColumnIndex: &zero,
+			OrderDirection:   &asc,
 		}}
 
-		actual, err := GenerateQueries(elements, model.Asc)
+		actual, err := GenerateQueries(elements)
 		if err != nil {
 			t.Error(err)
 		}
@@ -143,20 +163,6 @@ func TestQueries(t *testing.T) {
 	})
 
 	t.Run("Test GenerateQueries Difference Functions", func(t *testing.T) {
-		deviceId := "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
-		serviceId := "urn:infai:ses:service:97805820-ca0a-46c5-9dcf-16c2e386b050"
-		d1 := "1d"
-		d7 := "7d"
-		time7d := model.QueriesRequestElementTime{
-			Last: &d7,
-		}
-		ten := 10
-		df := "difference-first"
-		dl := "difference-last"
-		dm := "difference-mean"
-		f := "first"
-		l := "last"
-		plus5 := "+5"
 		elements := []model.QueriesRequestElement{{
 			DeviceId:  &deviceId,
 			ServiceId: &serviceId,
@@ -184,10 +190,12 @@ func TestQueries(t *testing.T) {
 					Name:      "sensor.ENERGY.Total",
 					GroupType: &dm,
 				}},
-			GroupTime: &d1,
+			GroupTime:        &d1,
+			OrderColumnIndex: &zero,
+			OrderDirection:   &desc,
 		}}
 
-		actual, err := GenerateQueries(elements, model.Desc)
+		actual, err := GenerateQueries(elements)
 		if err != nil {
 			t.Error(err)
 		}
@@ -217,27 +225,19 @@ func TestQueries(t *testing.T) {
 	})
 
 	t.Run("Test GenerateQueries Absolute Timestamps", func(t *testing.T) {
-		deviceId := "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
-		serviceId := "urn:infai:ses:service:97805820-ca0a-46c5-9dcf-16c2e386b050"
-		start := "2021-06-20T00:00:00Z"
-		end := "2021-06-22T00:00:00Z"
-		time1d := model.QueriesRequestElementTime{
-			Start: &start,
-			End:   &end,
-		}
-		ten := 10
-
 		elements := []model.QueriesRequestElement{{
 			DeviceId:  &deviceId,
 			ServiceId: &serviceId,
-			Time:      &time1d,
+			Time:      &timeFormTo,
 			Limit:     &ten,
 			Columns: []model.QueriesRequestElementColumn{{
 				Name: "sensor.ENERGY.Total",
 			}},
+			OrderColumnIndex: &zero,
+			OrderDirection:   &asc,
 		}}
 
-		actual, err := GenerateQueries(elements, model.Asc)
+		actual, err := GenerateQueries(elements)
 		if err != nil {
 			t.Error(err)
 		}
@@ -254,15 +254,6 @@ func TestQueries(t *testing.T) {
 	})
 
 	t.Run("Test GenerateQueries Multiple Queries", func(t *testing.T) {
-		deviceId := "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
-		serviceId := "urn:infai:ses:service:97805820-ca0a-46c5-9dcf-16c2e386b050"
-		d1 := "1d"
-		time1d := model.QueriesRequestElementTime{
-			Last: &d1,
-		}
-		ten := 10
-		plus5 := "+5"
-		plus10 := "+10"
 		filter := []model.QueriesRequestElementFilter{{
 			Column: "sensor.ENERGY.Total",
 			Math:   &plus5,
@@ -284,7 +275,9 @@ func TestQueries(t *testing.T) {
 						Name: "sensor.ENERGY.Total",
 						Math: &plus10,
 					}},
-				Filters: &filter,
+				Filters:          &filter,
+				OrderDirection:   &asc,
+				OrderColumnIndex: &zero,
 			},
 			{
 				DeviceId:  &deviceId,
@@ -298,10 +291,12 @@ func TestQueries(t *testing.T) {
 					{
 						Name: "sensor.ENERGY.Total",
 					}},
-				Filters: &filter,
+				Filters:          &filter,
+				OrderDirection:   &asc,
+				OrderColumnIndex: &zero,
 			}}
 
-		actual, err := GenerateQueries(elements, model.Asc)
+		actual, err := GenerateQueries(elements)
 		if err != nil {
 			t.Error(err)
 		}
@@ -322,13 +317,6 @@ func TestQueries(t *testing.T) {
 	})
 
 	t.Run("Test GenerateQueries Multiple String Filters", func(t *testing.T) {
-		deviceId := "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
-		serviceId := "urn:infai:ses:service:97805820-ca0a-46c5-9dcf-16c2e386b050"
-		d1 := "1d"
-		time1d := model.QueriesRequestElementTime{
-			Last: &d1,
-		}
-		ten := 10
 		isoFormat := "iso_format"
 		invalid := "invalid"
 		filter := []model.QueriesRequestElementFilter{{
@@ -348,10 +336,12 @@ func TestQueries(t *testing.T) {
 			Columns: []model.QueriesRequestElementColumn{{
 				Name: "sensor.ENERGY.Total",
 			}},
-			Filters: &filter,
+			Filters:          &filter,
+			OrderDirection:   &asc,
+			OrderColumnIndex: &zero,
 		}}
 
-		actual, err := GenerateQueries(elements, model.Asc)
+		actual, err := GenerateQueries(elements)
 		if err != nil {
 			t.Error(err)
 		}
