@@ -18,13 +18,14 @@ package model
 
 import (
 	"regexp"
+	"strings"
 	"time"
 )
 
 type QueriesRequestElement struct {
-	ExportId         *string // TODO check ID in valid format
-	DeviceId         *string // TODO check ID in valid format
-	ServiceId        *string // TODO check ID in valid format
+	ExportId         *string
+	DeviceId         *string
+	ServiceId        *string
 	Time             *QueriesRequestElementTime
 	Limit            *int
 	Columns          []QueriesRequestElementColumn
@@ -35,7 +36,7 @@ type QueriesRequestElement struct {
 }
 
 func (element *QueriesRequestElement) Valid() bool {
-	if element.ExportId == nil && (element.DeviceId == nil || element.ServiceId == nil) {
+	if element.ExportId == nil && (element.DeviceId == nil || element.ServiceId == nil || !serviceIdValid(*element.ServiceId)) {
 		return false
 	}
 	if element.ExportId != nil && (element.DeviceId != nil || element.ServiceId != nil) {
@@ -110,13 +111,13 @@ func (elementTime *QueriesRequestElementTime) Valid() bool {
 }
 
 type QueriesRequestElementColumn struct {
-	Name      string // TODO valid format
+	Name      string
 	GroupType *string
 	Math      *string
 }
 
 func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
-	if len(elementColumn.Name) == 0 {
+	if !columnNameValid(elementColumn.Name) {
 		return false
 	}
 	if elementColumn.GroupType != nil && !hasTime {
@@ -138,10 +139,10 @@ func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
 }
 
 type QueriesRequestElementFilter struct {
-	Column string // TODO valid format
+	Column string
 	Math   *string
 	Type   string
-	Value  interface{} // TODO valid format
+	Value  interface{}
 }
 
 func (filter *QueriesRequestElementFilter) Valid() bool {
@@ -150,7 +151,17 @@ func (filter *QueriesRequestElementFilter) Valid() bool {
 	}
 	allowedTypes := []interface{}{}
 	allowedTypes = append(allowedTypes, "=", "<>", "!=", ">", ">=", "<", "<=")
-	return ElementInArray(filter.Type, allowedTypes) && len(filter.Column) > 0 && filter.Value != nil
+	if filter.Value == nil {
+		return false
+	}
+	s, ok := filter.Value.(string)
+	if ok {
+		valueMatcher := regexp.MustCompile("[a-zA-Z0-9äöüß:{}\"\\.\\-_]*")
+		if len(s) != len(valueMatcher.FindString(s)) {
+			return false
+		}
+	}
+	return ElementInArray(filter.Type, allowedTypes) && columnNameValid(filter.Column)
 }
 
 func mathValid(math string) bool {
@@ -161,6 +172,17 @@ func mathValid(math string) bool {
 func timeIntervalValid(timeInterval string) bool {
 	timeMatcher := regexp.MustCompile("\\d+(ns|u|µ|ms|s|m|h|d|w)")
 	return len(timeMatcher.FindString(timeInterval)) == len(timeInterval)
+}
+
+func columnNameValid(column string) bool {
+	columnMatcher := regexp.MustCompile("([a-zA-Z0-9\\.\\-_])+")
+	return len(column) != 0 && len(column) == len(columnMatcher.FindString(column))
+}
+
+func serviceIdValid(serviceId string) bool {
+	splitted := strings.Split(serviceId, "urn:infai:ses:service:")
+	uuidMatcher := regexp.MustCompile("([a-z0-9\\-_])+")
+	return len(splitted) == 2 && len(splitted[1]) == 36 && len(splitted[1]) == len(uuidMatcher.FindString(splitted[1]))
 }
 
 type Format string
