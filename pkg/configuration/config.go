@@ -35,7 +35,7 @@ type ConfigStruct struct {
 	PostgresDb          string `json:"postgres_db"`
 	PostgresPw          string `json:"postgres_pw"`
 	MemcachedUrl        string `json:"memcached_url"`
-	PermissionsearchUrl string `json:"permissionsearch_url"`
+	PermissionSearchUrl string `json:"permission_search_url"`
 	ServingUrl          string `json:"serving_url"`
 	Debug               bool   `json:"debug"`
 }

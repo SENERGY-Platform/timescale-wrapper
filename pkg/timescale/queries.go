@@ -20,8 +20,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/util"
+	"fmt"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"strconv"
 	"strings"
 )
@@ -145,10 +145,7 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 			if valueIsString {
 				query += " '" + filter.Value.(string) + "'"
 			} else {
-				value, err := util.String(filter.Value)
-				if err != nil {
-					return "", err
-				}
+				value := fmt.Sprintf("%v", filter.Value)
 				query += " " + value
 			}
 		}

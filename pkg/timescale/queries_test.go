@@ -17,7 +17,7 @@
 package timescale
 
 import (
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"reflect"
 	"testing"
 )

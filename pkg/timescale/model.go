@@ -25,15 +25,3 @@ type Wrapper struct {
 	config configuration.Config
 	pool   *pgx.ConnPool
 }
-
-type RequestElement struct {
-	Measurement string  `json:"measurement"`
-	ColumnName  string  `json:"columnName"`
-	Math        *string `json:"math"`
-}
-
-type uniqueMeasurementsColumns struct {
-	Measurements map[string]struct{}            //Keys of the map are all requested measurements
-	Columns      map[string]map[string]struct{} //Keys of the outer map are all requested columns.
-	// Keys of the inner maps are all requested math operations. Empty string is no math operation
-}

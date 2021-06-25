@@ -32,9 +32,6 @@ import (
 
 var endpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper){}
 
-const userHeader = "X-UserID"
-
-//starts http server; if wg is not nil it will be set as done when the server is stopped
 func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, wrapper *timescale.Wrapper) (err error) {
 	log.Println("start api")
 	router := Router(config, wrapper)
@@ -64,4 +61,12 @@ func Router(config configuration.Config, influx *timescale.Wrapper) http.Handler
 	log.Println("add logging and cors")
 	corsHandler := util.NewCors(router)
 	return util.NewLogger(corsHandler)
+}
+
+func getToken(request *http.Request) string {
+	return request.Header.Get("Authorization")
+}
+
+func getUserId(request *http.Request) string {
+	return request.Header.Get("X-UserId")
 }
