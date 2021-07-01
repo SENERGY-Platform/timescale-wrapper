@@ -76,6 +76,10 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if config.Debug {
+			log.Println("DEBUG: Verification took " + time.Since(start).String())
+		}
+		beforeQueries := time.Now()
 		if !ok {
 			http.Error(writer, "not found", http.StatusNotFound)
 			return
@@ -87,7 +91,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			return
 		}
 		if config.Debug {
-			log.Println("DEBUG: Query generation took " + time.Since(start).String())
+			log.Println("DEBUG: Query generation took " + time.Since(beforeQueries).String())
 		}
 		beforeQuery := time.Now()
 		data, err := wrapper.ExecuteQueries(queries)

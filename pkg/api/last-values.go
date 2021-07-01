@@ -68,12 +68,12 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if config.Debug {
+			log.Println("DEBUG: Verification took " + time.Since(start).String())
+		}
 		if !ok {
 			http.Error(writer, "not found", http.StatusNotFound)
 			return
-		}
-		if config.Debug {
-			log.Println("DEBUG: Verification took " + time.Since(start).String())
 		}
 		beforeQueries := time.Now()
 
