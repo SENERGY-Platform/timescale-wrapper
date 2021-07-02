@@ -33,7 +33,7 @@ func init() {
 	endpoints = append(endpoints, LastValuesEndpoint)
 }
 
-func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper) {
+func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier) {
 	router.POST("/last-values", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		start := time.Now()
 
@@ -63,7 +63,7 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 				return
 			}
 		}
-		ok, err := verification.VerifyAccess(fullRequestElements, getToken(request), getUserId(request), config)
+		ok, err := verifier.VerifyAccess(fullRequestElements, getToken(request), getUserId(request))
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return

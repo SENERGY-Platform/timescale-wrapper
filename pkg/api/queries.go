@@ -34,7 +34,7 @@ func init() {
 	endpoints = append(endpoints, QueriesEndpoint)
 }
 
-func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper) {
+func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier) {
 	router.POST("/queries", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		start := time.Now()
 		requestedFormat := model.Format(request.URL.Query().Get("format"))
@@ -71,7 +71,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 				return
 			}
 		}
-		ok, err := verification.VerifyAccess(requestElements, getToken(request), getUserId(request), config)
+		ok, err := verifier.VerifyAccess(requestElements, getToken(request), getUserId(request))
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return

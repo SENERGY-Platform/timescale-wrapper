@@ -21,6 +21,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"sync"
 )
 
@@ -30,6 +31,7 @@ func Start(ctx context.Context, config configuration.Config) (wg *sync.WaitGroup
 	if err != nil {
 		return wg, err
 	}
-	err = api.Start(ctx, wg, config, influxClient)
+	verifier := verification.New(config)
+	err = api.Start(ctx, wg, config, influxClient, verifier)
 	return
 }

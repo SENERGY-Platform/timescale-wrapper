@@ -5,7 +5,6 @@
   "postgres_user": "postgres",
   "postgres_db": "postgres",
   "postgres_pw": "pw",
-  "memcached_url": "memcached",
   "permission_search_url": "http://permission-search:8080",
   "serving_url": "http://serving:8080",
   "debug": true

@@ -17,12 +17,25 @@
 package verification
 
 import (
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"sync"
 )
 
-func VerifyAccess(elements []model.QueriesRequestElement, token string, userId string, config configuration.Config) (bool, error) {
+type Verifier struct {
+	c      *cache.LocalCache
+	config configuration.Config
+}
+
+func New(config configuration.Config) *Verifier {
+	return &Verifier{
+		c:      cache.NewLocal(),
+		config: config,
+	}
+}
+
+func (verifier *Verifier) VerifyAccess(elements []model.QueriesRequestElement, token string, userId string) (bool, error) {
 	var err error
 	ok := true
 	wg := &sync.WaitGroup{}
@@ -30,7 +43,7 @@ func VerifyAccess(elements []model.QueriesRequestElement, token string, userId s
 		i := i // thread safe
 		wg.Add(1)
 		go func() {
-			okS, errS := VerifyAccessOnce(elements[i], token, userId, config)
+			okS, errS := verifier.VerifyAccessOnce(elements[i], token, userId)
 			if errS != nil {
 				err = errS
 				ok = false
@@ -44,11 +57,17 @@ func VerifyAccess(elements []model.QueriesRequestElement, token string, userId s
 	return ok, err
 }
 
-func VerifyAccessOnce(element model.QueriesRequestElement, token string, userId string, config configuration.Config) (bool, error) {
+func (verifier *Verifier) VerifyAccessOnce(element model.QueriesRequestElement, token string, userId string) (ok bool, err error) {
 	if element.ExportId != nil {
-		return VerifyExport(*element.ExportId, token, userId, config)
+		err = verifier.c.Use(userId+*element.ExportId, func() (interface{}, error) {
+			return verifier.verifyExport(*element.ExportId, token, userId)
+		}, &ok)
+		return
 	} else if element.DeviceId != nil {
-		return VerifyDevice(*element.DeviceId, token, userId, config)
+		err = verifier.c.Use(userId+*element.DeviceId, func() (interface{}, error) {
+			return verifier.verifyDevice(*element.DeviceId, token, userId)
+		}, &ok)
+		return
 	}
 	return true, nil
 }

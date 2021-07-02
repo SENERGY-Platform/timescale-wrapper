@@ -17,7 +17,6 @@
 package verification
 
 import (
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"io"
 	"log"
 	"net/http"
@@ -25,8 +24,8 @@ import (
 	"strings"
 )
 
-func VerifyDevice(id string, token string, userId string, config configuration.Config) (bool, error) {
-	req, err := http.NewRequest("GET", config.PermissionSearchUrl+"/v3/resources/devices/"+id+"/access?rights=r", nil)
+func (verifier *Verifier) verifyDevice(id string, token string, userId string) (bool, error) {
+	req, err := http.NewRequest("GET", verifier.config.PermissionSearchUrl+"/v3/resources/devices/"+id+"/access?rights=r", nil)
 	if err != nil {
 		return false, err
 	}

@@ -17,12 +17,11 @@
 package verification
 
 import (
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"net/http"
 )
 
-func VerifyExport(id string, token string, userId string, config configuration.Config) (bool, error) {
-	req, err := http.NewRequest("GET", config.ServingUrl+"/instance/"+id, nil)
+func (verifier *Verifier) verifyExport(id string, token string, userId string) (bool, error) {
+	req, err := http.NewRequest("GET", verifier.config.ServingUrl+"/instance/"+id, nil)
 	if err != nil {
 		return false, err
 	}
