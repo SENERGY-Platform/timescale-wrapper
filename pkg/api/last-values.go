@@ -26,11 +26,17 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
 func init() {
 	endpoints = append(endpoints, LastValuesEndpoint)
+}
+
+type queriesRequestElementColumn struct {
+	*model.QueriesRequestElementColumn
+	requestIndex int
 }
 
 func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier) {
@@ -45,24 +51,56 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 		}
 
 		one := 1
-		fullRequestElements := make([]model.QueriesRequestElement, len(requestElements))
+		exportQueriesRequestElementColumnMap := map[string][]queriesRequestElementColumn{}
+		deviceQueriesRequestElementColumnMap := map[string][]queriesRequestElementColumn{}
+
 		for i := range requestElements {
-			fullRequestElements[i] = model.QueriesRequestElement{
-				ExportId:  requestElements[i].ExportId,
-				DeviceId:  requestElements[i].DeviceId,
-				ServiceId: requestElements[i].ServiceId,
-				Time:      nil,
-				Limit:     &one,
-				Columns: []model.QueriesRequestElementColumn{{
-					Name: requestElements[i].ColumnName,
-					Math: requestElements[i].Math,
-				}},
-			}
-			if !fullRequestElements[i].Valid() {
+			if requestElements[i].ExportId != nil {
+				fillColumnMap(exportQueriesRequestElementColumnMap, *requestElements[i].ExportId, i, requestElements[i].ColumnName, requestElements[i].Math)
+			} else if requestElements[i].DeviceId != nil && requestElements[i].ServiceId != nil {
+				fillColumnMap(deviceQueriesRequestElementColumnMap, *requestElements[i].DeviceId+","+*requestElements[i].ServiceId, i, requestElements[i].ColumnName, requestElements[i].Math)
+			} else {
 				http.Error(writer, "Invalid request body", http.StatusBadRequest)
 				return
 			}
 		}
+		fullRequestElements := make([]model.QueriesRequestElement, len(exportQueriesRequestElementColumnMap)+len(deviceQueriesRequestElementColumnMap))
+		outputIndexToInputIndex := map[int]int{} // Remember order of requested columns
+		fullRequestElementsIndex := 0
+		inserted := 0 // Count the number of requested columns
+		for k, v := range exportQueriesRequestElementColumnMap {
+			var cols []model.QueriesRequestElementColumn
+			cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
+			fullRequestElements[fullRequestElementsIndex] = model.QueriesRequestElement{
+				ExportId: &k,
+				Time:     nil,
+				Limit:    &one,
+				Columns:  cols,
+			}
+			if !fullRequestElements[fullRequestElementsIndex].Valid() {
+				http.Error(writer, "Invalid request body", http.StatusBadRequest)
+				return
+			}
+			fullRequestElementsIndex++
+		}
+		for k, v := range deviceQueriesRequestElementColumnMap {
+			s := strings.Split(k, ",")
+			var cols []model.QueriesRequestElementColumn
+			cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
+			fullRequestElements[fullRequestElementsIndex] = model.QueriesRequestElement{
+				DeviceId:  &s[0],
+				ServiceId: &s[1],
+				Time:      nil,
+				Limit:     &one,
+				Columns:   cols,
+			}
+			if !fullRequestElements[fullRequestElementsIndex].Valid() {
+				http.Error(writer, "Invalid request body", http.StatusBadRequest)
+				return
+			}
+			fullRequestElementsIndex++
+		}
+
 		ok, err := verifier.VerifyAccess(fullRequestElements, getToken(request), getUserId(request))
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
@@ -99,28 +137,26 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 		if timeFormat == "" {
 			timeFormat = time.RFC3339Nano
 		}
-		responseElements := make([]model.LastValuesResponseElement, len(data))
+		responseElements := make([]model.LastValuesResponseElement, len(requestElements))
+
+		inserted = 0
 		for i := range data {
-			if len(data[i]) != 1 {
-				responseElements[i] = model.LastValuesResponseElement{
-					Time:  nil,
-					Value: nil,
-				}
-				continue
-			}
-			if len(data[i][0]) != 2 {
-				http.Error(writer, "invalid data from db", http.StatusBadGateway)
-				return
-			}
+			var timeString string
 			dt, ok := data[i][0][0].(time.Time)
-			if !ok {
-				http.Error(writer, "invalid data from db", http.StatusBadGateway)
-				return
+			if ok {
+				timeString = dt.Format(timeFormat)
 			}
-			timeString := dt.Format(timeFormat)
-			responseElements[i] = model.LastValuesResponseElement{
-				Time:  &timeString,
-				Value: data[0][0][1],
+
+			for j := range data[i][0] {
+				if j == 0 {
+					continue
+				}
+				// use known order to insert result at correct location
+				responseElements[outputIndexToInputIndex[inserted]] = model.LastValuesResponseElement{
+					Time:  &timeString,
+					Value: data[i][0][j],
+				}
+				inserted++
 			}
 		}
 
@@ -135,4 +171,34 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 		}
 	})
 
+}
+
+func fillColumnMap(m map[string][]queriesRequestElementColumn, id string, i int, columnName string, columnMath *string) {
+	existing, ok := m[id]
+	if ok {
+		existing = append(existing, queriesRequestElementColumn{
+			requestIndex: i,
+			QueriesRequestElementColumn: &model.QueriesRequestElementColumn{
+				Name: columnName,
+				Math: columnMath,
+			}})
+	} else {
+		existing = []queriesRequestElementColumn{{
+			requestIndex: i,
+			QueriesRequestElementColumn: &model.QueriesRequestElementColumn{
+				Name: columnName,
+				Math: columnMath,
+			}}}
+	}
+	m[id] = existing
+}
+
+func prepColumns(inserted int, outputIndexToInputIndex map[int]int, v []queriesRequestElementColumn) ([]model.QueriesRequestElementColumn, int) {
+	cols := make([]model.QueriesRequestElementColumn, len(v))
+	for j := range v {
+		cols[j] = *v[j].QueriesRequestElementColumn
+		outputIndexToInputIndex[inserted] = v[j].requestIndex
+		inserted++
+	}
+	return cols, inserted
 }
