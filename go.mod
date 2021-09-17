@@ -1,6 +1,6 @@
 module github.com/SENERGY-Platform/timescale-wrapper
 
-go 1.16
+go 1.17
 
 require (
 	github.com/cockroachdb/apd v1.1.0 // indirect
@@ -16,3 +16,5 @@ require (
 	golang.org/x/crypto v0.0.0-20210616213533-5ff15b29337e // indirect
 	golang.org/x/text v0.3.6 // indirect
 )
+
+require github.com/cespare/xxhash v1.1.0 // indirect
