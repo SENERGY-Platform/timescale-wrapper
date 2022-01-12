@@ -142,9 +142,11 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 		inserted = 0
 		for i := range data {
 			var timeString string
-			dt, ok := data[i][0][0].(time.Time)
-			if ok {
-				timeString = dt.Format(timeFormat)
+			if len(data[i]) > 0 && len(data[i][0]) > 0 {
+				dt, ok := data[i][0][0].(time.Time)
+				if ok {
+					timeString = dt.Format(timeFormat)
+				}
 			}
 
 			for j := range data[i][0] {
