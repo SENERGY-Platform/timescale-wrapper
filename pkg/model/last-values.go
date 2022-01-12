@@ -25,6 +25,6 @@ type LastValuesRequestElement struct {
 }
 
 type LastValuesResponseElement struct {
-	Time  *string
-	Value interface{}
+	Time  *string     `json:"time"`
+	Value interface{} `json:"value"`
 }
