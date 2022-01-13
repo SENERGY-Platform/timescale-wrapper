@@ -59,5 +59,8 @@ func (wrapper *Wrapper) ExecuteQuery(query string) (res [][]interface{}, err err
 		}
 		res = append(res, values)
 	}
+	if len(res) == 0 { // no results --> append nil for each requested field
+		res = append(res, make([]interface{}, len(rows.FieldDescriptions())))
+	}
 	return res, nil
 }

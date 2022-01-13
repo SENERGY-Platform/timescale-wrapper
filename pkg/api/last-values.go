@@ -153,9 +153,13 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 				if j == 0 {
 					continue
 				}
+				var timePointer *string
+				if len(timeString) > 0 {
+					timePointer = &timeString
+				}
 				// use known order to insert result at correct location
 				responseElements[outputIndexToInputIndex[inserted]] = model.LastValuesResponseElement{
-					Time:  &timeString,
+					Time:  timePointer,
 					Value: data[i][0][j],
 				}
 				inserted++

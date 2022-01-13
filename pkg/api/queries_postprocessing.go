@@ -57,6 +57,9 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 		for rowIndex := range data[seriesIndex] {
 			formattedRow := make([]interface{}, totalColumns)
 			formattedRow[0] = data[seriesIndex][rowIndex][0]
+			if formattedRow[0] == nil { // no data in series
+				continue
+			}
 			for seriesColumnIndex := range request[seriesIndex].Columns {
 				formattedRow[baseIndex[seriesIndex]+seriesColumnIndex] = data[seriesIndex][rowIndex][seriesColumnIndex+1]
 			}
@@ -64,7 +67,11 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 				if subSeriesIndex <= seriesIndex {
 					continue
 				}
-				subRowIndex, ok := findFirstElementIndex(data[subSeriesIndex], data[seriesIndex][rowIndex][0].(time.Time), 0, len(data[subSeriesIndex])-1)
+				timestamp, ok := data[seriesIndex][rowIndex][0].(time.Time)
+				if !ok {
+					continue
+				}
+				subRowIndex, ok := findFirstElementIndex(data[subSeriesIndex], timestamp, 0, len(data[subSeriesIndex])-1)
 				if ok {
 					if data[subSeriesIndex][subRowIndex][0] == data[seriesIndex][rowIndex][0] {
 						for subSeriesColumnIndex := range request[subSeriesIndex].Columns {
