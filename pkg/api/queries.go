@@ -115,7 +115,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		}
 
 		beforeQueries := time.Now()
-		queries, err := timescale.GenerateQueries(requestElements)
+		queries, err := timescale.GenerateQueries(dbRequestElements)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
