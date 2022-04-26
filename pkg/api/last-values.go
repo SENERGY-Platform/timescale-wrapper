@@ -19,6 +19,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
@@ -26,7 +27,9 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -39,7 +42,7 @@ type queriesRequestElementColumn struct {
 	requestIndex int
 }
 
-func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier) {
+func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.LastValueCache) {
 	router.POST("/last-values", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		start := time.Now()
 
@@ -113,9 +116,37 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 			http.Error(writer, "not found", http.StatusNotFound)
 			return
 		}
-		beforeQueries := time.Now()
 
-		queries, err := timescale.GenerateQueries(fullRequestElements)
+		dbRequestElements := []model.QueriesRequestElement{}
+		dbRequestIndices := []int{}
+
+		beforeCache := time.Now()
+		raw := make([][][]interface{}, len(fullRequestElements))
+
+		wg := sync.WaitGroup{}
+		wg.Add(len(fullRequestElements))
+		for i := range fullRequestElements {
+			i := i
+			go func() {
+				raw[i], err = lastValueCache.GetLastValuesFromCache(fullRequestElements[i])
+				if err != nil {
+					dbRequestElements = append(dbRequestElements, fullRequestElements[i])
+					dbRequestIndices = append(dbRequestIndices, i)
+					if err != cache.NotCachableError {
+						log.Println("WARN: Could not get data from cache: " + err.Error())
+					}
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+		if config.Debug {
+			log.Println("DEBUG: Cache collection took " + time.Since(beforeCache).String())
+			log.Println("DEBUG: Got " + strconv.Itoa(len(fullRequestElements)-len(dbRequestIndices)) + " from cache, requesting " + strconv.Itoa(len(dbRequestIndices)) + " from db")
+		}
+
+		beforeQueries := time.Now()
+		queries, err := timescale.GenerateQueries(dbRequestElements)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
@@ -132,6 +163,10 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 		if config.Debug {
 			log.Println("DEBUG: Fetching took " + time.Since(beforeQuery).String())
 		}
+		// merge DB results with cache results
+		for i := range data {
+			raw[dbRequestIndices[i]] = data[i]
+		}
 		beforePP := time.Now()
 		timeFormat := request.URL.Query().Get("time_format")
 		if timeFormat == "" {
@@ -140,16 +175,16 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 		responseElements := make([]model.LastValuesResponseElement, len(requestElements))
 
 		inserted = 0
-		for i := range data {
+		for i := range raw {
 			var timeString string
-			if len(data[i]) > 0 && len(data[i][0]) > 0 {
-				dt, ok := data[i][0][0].(time.Time)
+			if len(raw[i]) > 0 && len(raw[i][0]) > 0 {
+				dt, ok := raw[i][0][0].(time.Time)
 				if ok {
 					timeString = dt.Format(timeFormat)
 				}
 			}
 
-			for j := range data[i][0] {
+			for j := range raw[i][0] {
 				if j == 0 {
 					continue
 				}
@@ -160,7 +195,7 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 				// use known order to insert result at correct location
 				responseElements[outputIndexToInputIndex[inserted]] = model.LastValuesResponseElement{
 					Time:  timePointer,
-					Value: data[i][0][j],
+					Value: raw[i][0][j],
 				}
 				inserted++
 			}

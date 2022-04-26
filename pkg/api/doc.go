@@ -18,6 +18,7 @@ package api
 
 import (
 	"fmt"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
@@ -33,7 +34,7 @@ func init() {
 	endpoints = append(endpoints, DocEndpoint)
 }
 
-func DocEndpoint(router *httprouter.Router, _ configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier) {
+func DocEndpoint(router *httprouter.Router, _ configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier, _ *cache.LastValueCache) {
 	json, readErr := ioutil.ReadFile(swaggerJSONLocation)
 	if readErr != nil {
 		log.Println("ERROR reading swagger definition from ", swaggerJSONLocation)

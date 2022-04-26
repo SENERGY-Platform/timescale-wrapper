@@ -19,6 +19,7 @@ package pkg
 import (
 	"context"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api"
+	cache "github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
@@ -32,6 +33,7 @@ func Start(ctx context.Context, config configuration.Config) (wg *sync.WaitGroup
 		return wg, err
 	}
 	verifier := verification.New(config)
-	err = api.Start(ctx, wg, config, influxClient, verifier)
+	lastValueCache := cache.NewLastValueCache(config)
+	err = api.Start(ctx, wg, config, influxClient, verifier, lastValueCache)
 	return
 }

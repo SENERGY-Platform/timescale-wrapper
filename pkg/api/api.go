@@ -19,6 +19,7 @@ package api
 import (
 	"context"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api/util"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
@@ -31,11 +32,11 @@ import (
 	"time"
 )
 
-var endpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier){}
+var endpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.LastValueCache){}
 
-func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier) (err error) {
+func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.LastValueCache) (err error) {
 	log.Println("start api")
-	router := Router(config, wrapper, verifier)
+	router := Router(config, wrapper, verifier, cache)
 	server := &http.Server{Addr: ":" + config.ApiPort, Handler: router, WriteTimeout: 10 * time.Second, ReadTimeout: 2 * time.Second, ReadHeaderTimeout: 2 * time.Second}
 	wg.Add(1)
 	go func() {
@@ -53,11 +54,11 @@ func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config,
 	return nil
 }
 
-func Router(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier) http.Handler {
+func Router(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.LastValueCache) http.Handler {
 	router := httprouter.New()
 	for _, e := range endpoints {
 		log.Println("add endpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
-		e(router, config, wrapper, verifier)
+		e(router, config, wrapper, verifier, cache)
 	}
 	log.Println("add logging and cors")
 	corsHandler := util.NewCors(router)

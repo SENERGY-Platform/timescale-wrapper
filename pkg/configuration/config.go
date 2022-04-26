@@ -28,15 +28,16 @@ import (
 )
 
 type ConfigStruct struct {
-	ApiPort             string `json:"api_port"`
-	PostgresHost        string `json:"postgres_host"`
-	PostgresPort        uint16 `json:"postgres_port"`
-	PostgresUser        string `json:"postgres_user"`
-	PostgresDb          string `json:"postgres_db"`
-	PostgresPw          string `json:"postgres_pw"`
-	PermissionSearchUrl string `json:"permission_search_url"`
-	ServingUrl          string `json:"serving_url"`
-	Debug               bool   `json:"debug"`
+	ApiPort             string   `json:"api_port"`
+	PostgresHost        string   `json:"postgres_host"`
+	PostgresPort        uint16   `json:"postgres_port"`
+	PostgresUser        string   `json:"postgres_user"`
+	PostgresDb          string   `json:"postgres_db"`
+	PostgresPw          string   `json:"postgres_pw"`
+	PermissionSearchUrl string   `json:"permission_search_url"`
+	ServingUrl          string   `json:"serving_url"`
+	MemcachedUrls       []string `json:"memcached_urls"`
+	Debug               bool     `json:"debug"`
 }
 
 type Config = *ConfigStruct
