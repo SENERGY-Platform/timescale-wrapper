@@ -123,6 +123,7 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 		beforeCache := time.Now()
 		raw := make([][][]interface{}, len(fullRequestElements))
 
+		m := sync.Mutex{}
 		wg := sync.WaitGroup{}
 		wg.Add(len(fullRequestElements))
 		for i := range fullRequestElements {
@@ -130,6 +131,8 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 			go func() {
 				raw[i], err = lastValueCache.GetLastValuesFromCache(fullRequestElements[i])
 				if err != nil {
+					m.Lock()
+					defer m.Unlock()
 					dbRequestElements = append(dbRequestElements, fullRequestElements[i])
 					dbRequestIndices = append(dbRequestIndices, i)
 					if err != cache.NotCachableError {

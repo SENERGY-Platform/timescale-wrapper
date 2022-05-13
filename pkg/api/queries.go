@@ -92,6 +92,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		beforeCache := time.Now()
 		raw := make([][][]interface{}, len(requestElements))
 
+		m := sync.Mutex{}
 		wg := sync.WaitGroup{}
 		wg.Add(len(requestElements))
 		for i := range requestElements {
@@ -99,6 +100,8 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			go func() {
 				raw[i], err = lastValueCache.GetLastValuesFromCache(requestElements[i])
 				if err != nil {
+					m.Lock()
+					defer m.Unlock()
 					dbRequestElements = append(dbRequestElements, requestElements[i])
 					dbRequestIndices = append(dbRequestIndices, i)
 					if err != cache.NotCachableError {
