@@ -149,7 +149,7 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 		}
 
 		beforeQueries := time.Now()
-		queries, err := timescale.GenerateQueries(dbRequestElements)
+		queries, err := timescale.GenerateQueries(dbRequestElements, getUserId(request))
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return

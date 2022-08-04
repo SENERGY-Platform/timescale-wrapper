@@ -37,10 +37,10 @@ func translateFunctionName(name string) string {
 	}
 }
 
-func GenerateQueries(elements []model.QueriesRequestElement) (queries []string, err error) {
+func GenerateQueries(elements []model.QueriesRequestElement, userId string) (queries []string, err error) {
 	queries = make([]string, len(elements))
 	for i, element := range elements {
-		table, err := tableName(element)
+		table, err := tableName(element, userId)
 		if err != nil {
 			return queries, err
 		}
@@ -192,9 +192,17 @@ func getOrderLimitString(element model.QueriesRequestElement, group bool, overri
 	return
 }
 
-func tableName(element model.QueriesRequestElement) (string, error) {
+func tableName(element model.QueriesRequestElement, userId string) (string, error) {
 	if element.ExportId != nil {
-		return "", errors.New("exports are not supported yet")
+		shortUserId, err := shortenId(userId)
+		if err != nil {
+			return "", err
+		}
+		shortExportId, err := shortenId(*element.ExportId)
+		if err != nil {
+			return "", err
+		}
+		return "userid:" + shortUserId + "_" + "export:" + shortExportId, nil
 	}
 	shortDeviceId, err := shortenId(*element.DeviceId)
 	if err != nil {

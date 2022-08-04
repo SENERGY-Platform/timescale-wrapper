@@ -82,6 +82,14 @@ func TestQueries(t *testing.T) {
 		if actual != expected {
 			t.Error("Mismatched shortId. Expected/Actual\n", expected, "\n", actual)
 		}
+		actual, err = shortenId("e3a9d39f-d833-45df-81c0-e479d17c2e06")
+		if err != nil {
+			t.Error(err.Error())
+		}
+		expected = "46nTn9gzRd-BwOR50XwuBg"
+		if actual != expected {
+			t.Error("Mismatched shortId. Expected/Actual\n", expected, "\n", actual)
+		}
 	})
 
 	t.Run("Test GenerateQueries Simple", func(t *testing.T) {
@@ -104,7 +112,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := GenerateQueries(elements)
+		actual, err := GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -139,7 +147,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := GenerateQueries(elements)
+		actual, err := GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -195,7 +203,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := GenerateQueries(elements)
+		actual, err := GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -237,7 +245,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := GenerateQueries(elements)
+		actual, err := GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -296,7 +304,7 @@ func TestQueries(t *testing.T) {
 				OrderColumnIndex: &zero,
 			}}
 
-		actual, err := GenerateQueries(elements)
+		actual, err := GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -341,7 +349,7 @@ func TestQueries(t *testing.T) {
 			OrderColumnIndex: &zero,
 		}}
 
-		actual, err := GenerateQueries(elements)
+		actual, err := GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -352,6 +360,42 @@ func TestQueries(t *testing.T) {
 			" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\"" +
 			" WHERE \"sensor.Time_unit\" = 'iso_format' AND \"sensor.ENERGY.Total_unit\" != 'invalid'" +
 			" AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10"
+
+		if actual[0] != expected {
+			t.Error("Expected/Actual\n", expected, "\n", actual)
+		}
+	})
+
+	t.Run("Test GenerateQueries Export", func(t *testing.T) {
+		exportId := "97805820-ca0a-46c5-9dcf-16c2e386b050"
+		elements := []model.QueriesRequestElement{{
+			ExportId: &exportId,
+			Time:     &time1d,
+			Limit:    &ten,
+			Columns: []model.QueriesRequestElementColumn{
+				{
+					Name: "sensor.ENERGY.Total",
+					Math: &plus5,
+				},
+				{
+					Name: "sensor.ENERGY.Total",
+					Math: &plus10,
+				}},
+			Filters:          &filter,
+			OrderColumnIndex: &zero,
+			OrderDirection:   &asc,
+		}}
+
+		actual, err := GenerateQueries(elements, "ade1fba6-fa5f-4704-9997-81dc168f62f4")
+		if err != nil {
+			t.Error(err)
+		}
+		if len(actual) != 1 {
+			t.Error("Unexpected number of queries", len(actual))
+		}
+		expected := "SELECT \"time\", \"sensor.ENERGY.Total\"+5 AS \"sensor.ENERGY.Total\", \"sensor.ENERGY.Total\"+10" +
+			" AS \"sensor.ENERGY.Total\" FROM \"userid:reH7pvpfRwSZl4HcFo9i9A_export:l4BYIMoKRsWdzxbC44awUA\" WHERE" +
+			" \"sensor.ENERGY.Total\" +5 > 10 AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10"
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
