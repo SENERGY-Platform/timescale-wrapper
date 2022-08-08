@@ -233,6 +233,54 @@
         }
       }
     },
+    "/raw-value": {
+      "get": {
+        "produces": [
+          "text/plain; charset=utf-8"
+        ],
+        "operationId": "get_raw_value",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "export_id",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "in": "query",
+            "name": "device_id",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "in": "query",
+            "name": "service_id",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "in": "query",
+            "name": "column",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "string"
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "502": {
+            "description": "Bad Gateway"
+          }
+        }
+      }
+    },
     "/queries": {
       "post": {
         "parameters": [

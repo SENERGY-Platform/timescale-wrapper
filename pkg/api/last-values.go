@@ -18,6 +18,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
@@ -43,14 +44,30 @@ type queriesRequestElementColumn struct {
 }
 
 func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.LastValueCache) {
+	handler := lastValueHandler(config, wrapper, verifier, lastValueCache)
+
 	router.POST("/last-values", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+		resp, code, err := handler(request, params)
+		if err != nil {
+			http.Error(writer, err.Error(), code)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(writer).Encode(resp)
+		if err != nil {
+			fmt.Println("ERROR: " + err.Error())
+		}
+	})
+}
+
+func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.LastValueCache) func(request *http.Request, params httprouter.Params) ([]model.LastValuesResponseElement, int, error) {
+	return func(request *http.Request, params httprouter.Params) ([]model.LastValuesResponseElement, int, error) {
 		start := time.Now()
 
 		var requestElements []model.LastValuesRequestElement
 		err := json.NewDecoder(request.Body).Decode(&requestElements)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, err
 		}
 
 		one := 1
@@ -63,8 +80,7 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 			} else if requestElements[i].DeviceId != nil && requestElements[i].ServiceId != nil {
 				fillColumnMap(deviceQueriesRequestElementColumnMap, *requestElements[i].DeviceId+","+*requestElements[i].ServiceId, i, requestElements[i].ColumnName, requestElements[i].Math)
 			} else {
-				http.Error(writer, "Invalid request body", http.StatusBadRequest)
-				return
+				return nil, http.StatusBadRequest, errors.New("invalid request body")
 			}
 		}
 		fullRequestElements := make([]model.QueriesRequestElement, len(exportQueriesRequestElementColumnMap)+len(deviceQueriesRequestElementColumnMap))
@@ -81,8 +97,7 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 				Columns:  cols,
 			}
 			if !fullRequestElements[fullRequestElementsIndex].Valid() {
-				http.Error(writer, "Invalid request body", http.StatusBadRequest)
-				return
+				return nil, http.StatusBadRequest, errors.New("invalid request body")
 			}
 			fullRequestElementsIndex++
 		}
@@ -98,23 +113,20 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 				Columns:   cols,
 			}
 			if !fullRequestElements[fullRequestElementsIndex].Valid() {
-				http.Error(writer, "Invalid request body", http.StatusBadRequest)
-				return
+				return nil, http.StatusBadRequest, errors.New("invalid request body")
 			}
 			fullRequestElementsIndex++
 		}
 
 		ok, err := verifier.VerifyAccess(fullRequestElements, getToken(request), getUserId(request))
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
-			return
+			return nil, http.StatusInternalServerError, err
 		}
 		if config.Debug {
 			log.Println("DEBUG: Verification took " + time.Since(start).String())
 		}
 		if !ok {
-			http.Error(writer, "not found", http.StatusNotFound)
-			return
+			return nil, http.StatusNotFound, errors.New("not found")
 		}
 
 		dbRequestElements := []model.QueriesRequestElement{}
@@ -151,8 +163,7 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 		beforeQueries := time.Now()
 		queries, err := timescale.GenerateQueries(dbRequestElements, getUserId(request))
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
-			return
+			return nil, http.StatusInternalServerError, err
 		}
 		if config.Debug {
 			log.Println("DEBUG: Query generation took " + time.Since(beforeQueries).String())
@@ -160,8 +171,7 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 		beforeQuery := time.Now()
 		data, err := wrapper.ExecuteQueries(queries)
 		if err != nil {
-			http.Error(writer, err.Error(), timescale.GetHTTPErrorCode(err))
-			return
+			return nil, timescale.GetHTTPErrorCode(err), err
 		}
 		if config.Debug {
 			log.Println("DEBUG: Fetching took " + time.Since(beforeQuery).String())
@@ -208,13 +218,8 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 			log.Println("DEBUG: Postprocessing took " + time.Since(beforePP).String())
 		}
 
-		writer.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(writer).Encode(responseElements)
-		if err != nil {
-			fmt.Println("ERROR: " + err.Error())
-		}
-	})
-
+		return responseElements, http.StatusOK, nil
+	}
 }
 
 func fillColumnMap(m map[string][]queriesRequestElementColumn, id string, i int, columnName string, columnMath *string) {
