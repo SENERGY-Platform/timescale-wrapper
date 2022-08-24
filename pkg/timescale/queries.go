@@ -85,7 +85,13 @@ func GenerateQueries(elements []model.QueriesRequestElement, userId string) (que
 				}
 				query += " AS value"
 				query += " FROM \"" + table + "\""
-				filterString, err := getFilterString(element, true, &zero, &asc)
+				filterString := ""
+				if element.Limit != nil {
+					l := *element.Limit + 1
+					filterString, err = getFilterString(element, true, &zero, &asc, &l)
+				} else {
+					filterString, err = getFilterString(element, true, &zero, &asc, nil)
+				}
 				if err != nil {
 					return nil, err
 				}
@@ -98,7 +104,7 @@ func GenerateQueries(elements []model.QueriesRequestElement, userId string) (que
 				}
 			}
 
-			query += getOrderLimitString(element, false, nil, nil)
+			query += getOrderLimitString(element, false, nil, nil, nil)
 
 		} else {
 			query += "\"time\", "
@@ -116,7 +122,7 @@ func GenerateQueries(elements []model.QueriesRequestElement, userId string) (que
 				query += " AS \"" + column.Name + "\""
 			}
 			query += " FROM \"" + table + "\""
-			filterString, err := getFilterString(element, false, nil, nil)
+			filterString, err := getFilterString(element, false, nil, nil, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -127,7 +133,7 @@ func GenerateQueries(elements []model.QueriesRequestElement, userId string) (que
 	return
 }
 
-func getFilterString(element model.QueriesRequestElement, group bool, overrideSortIndex *int, overrideOrderDirection *model.Direction) (query string, err error) {
+func getFilterString(element model.QueriesRequestElement, group bool, overrideSortIndex *int, overrideOrderDirection *model.Direction, overrideLimit *int) (query string, err error) {
 	if element.Filters != nil || element.Time != nil {
 		query += " WHERE "
 	}
@@ -160,11 +166,11 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 			query += "\"time\" > '" + *element.Time.Start + "' AND \"time\" < '" + *element.Time.End + "'"
 		}
 	}
-	query += getOrderLimitString(element, group, overrideSortIndex, overrideOrderDirection)
+	query += getOrderLimitString(element, group, overrideSortIndex, overrideOrderDirection, overrideLimit)
 	return
 }
 
-func getOrderLimitString(element model.QueriesRequestElement, group bool, overrideOrderIndex *int, overrideOrderDirection *model.Direction) (query string) {
+func getOrderLimitString(element model.QueriesRequestElement, group bool, overrideOrderIndex *int, overrideOrderDirection *model.Direction, overrideLimit *int) (query string) {
 	if group {
 		query += " GROUP BY 1"
 	}
@@ -186,7 +192,9 @@ func getOrderLimitString(element model.QueriesRequestElement, group bool, overri
 	}
 
 	query += " ORDER BY " + strconv.Itoa(orderIndex+1) + " " + strings.ToUpper(string(orderDirection))
-	if element.Limit != nil {
+	if overrideLimit != nil {
+		query += " LIMIT " + strconv.Itoa(*overrideLimit)
+	} else if element.Limit != nil {
 		query += " LIMIT " + strconv.Itoa(*element.Limit)
 	}
 	return
