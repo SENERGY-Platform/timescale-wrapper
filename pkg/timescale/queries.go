@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -69,6 +70,7 @@ func GenerateQueries(elements []model.QueriesRequestElement, userId string) (que
 				query += "AS \"" + column.Name + "\""
 			}
 			query += " FROM "
+			elementTimeLastModified := false
 			for idx, column := range element.Columns {
 				query += "(SELECT time_bucket('" + *element.GroupTime + "', \"time\") AS \"time\", "
 				if strings.HasPrefix(*column.GroupType, "difference") {
@@ -77,6 +79,19 @@ func GenerateQueries(elements []model.QueriesRequestElement, userId string) (que
 						query += groupParts[1] + "(\"" + column.Name + "\", \"time\")"
 					} else {
 						query += translateFunctionName(groupParts[1]) + "\"" + column.Name + "\")"
+					}
+					if element.Time.Last != nil && !elementTimeLastModified {
+						// manually increase the last offset by 1 to ensure unified results
+						re := regexp.MustCompile(`\d+`)
+						prefix := string(re.Find([]byte(*element.Time.Last)))
+						num, err := strconv.Atoi(prefix)
+						if err != nil {
+							return nil, err
+						}
+						num++
+						modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Last, prefix)
+						element.Time.Last = &modified
+						elementTimeLastModified = true
 					}
 				} else if *column.GroupType == "first" || *column.GroupType == "last" {
 					query += *column.GroupType + "(\"" + column.Name + "\", \"time\")"

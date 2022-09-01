@@ -17,6 +17,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -108,6 +109,24 @@ func Sort2D(array [][]interface{}, index int, direction Direction) error {
 				return array[i][index].(bool)
 			} else {
 				return !array[i][index].(bool)
+			}
+		}
+		_, ok = array[i][index].(json.Number)
+		if ok {
+			valI, ok := array[i][index].(json.Number)
+			if !ok {
+				errFlag = true
+				return false
+			}
+			valJ, ok := array[j][index].(json.Number)
+			if !ok {
+				errFlag = true
+				return false
+			}
+			if direction == Desc {
+				return valI > valJ
+			} else {
+				return valI < valJ
 			}
 		}
 		errFlag = true

@@ -34,11 +34,19 @@ func formatResponse(f model.Format, request []model.QueriesRequestElement, resul
 		if len(timeFormat) > 0 {
 			formatTime2D(formatted, timeFormat)
 		}
+		for isRowEmpty(formatted[len(formatted)-1]) {
+			formatted = formatted[:len(formatted)-1]
+		}
 		return formatted, nil
 	default:
 		if len(timeFormat) > 0 {
 			for i := range results {
 				formatTime2D(results[i], timeFormat)
+			}
+		}
+		for i := range results {
+			for isRowEmpty(results[i][len(results[i])-1]) {
+				results[i] = results[i][:len(results[i])-1]
 			}
 		}
 		return results, nil
@@ -118,4 +126,16 @@ func formatTime2D(data [][]interface{}, timeFormat string) {
 	for i := range data {
 		data[i][0] = data[i][0].(time.Time).Format(timeFormat)
 	}
+}
+
+func isRowEmpty(data []interface{}) bool {
+	for i := range data {
+		if i == 0 {
+			continue
+		}
+		if data[i] != nil {
+			return false
+		}
+	}
+	return true
 }
