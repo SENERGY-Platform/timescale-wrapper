@@ -99,7 +99,7 @@ func (elementTime *QueriesRequestElementTime) Valid() bool {
 		if elementTime.Start != nil || elementTime.End != nil || elementTime.Last != nil {
 			return false
 		}
-		if !timeIntervalValid(*elementTime.Last) {
+		if !timeIntervalValid(*elementTime.Ahead) {
 			return false
 		}
 	} else {
