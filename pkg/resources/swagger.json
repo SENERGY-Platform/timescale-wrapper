@@ -108,6 +108,10 @@
           "description": "time interval. Format \\d+(ns|u|µ|ms|s|m|h|d|w)",
           "type": "string"
         },
+        "ahead": {
+          "description": "time interval. Format \\d+(ns|u|µ|ms|s|m|h|d|w)",
+          "type": "string"
+        },
         "start": {
           "description": "start time. Format rfc3339",
           "type": "string"
@@ -118,7 +122,7 @@
         }
       },
       "type": "object",
-      "description": "use either last or stand and end"
+      "description": "use either last or ahead or start and end"
     },
     "QueriesRequestElement": {
       "properties": {
