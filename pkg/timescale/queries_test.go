@@ -401,4 +401,42 @@ func TestQueries(t *testing.T) {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
 		}
 	})
+
+	t.Run("Test GenerateQueries Ahead", func(t *testing.T) {
+		elements := []model.QueriesRequestElement{{
+			DeviceId:  &deviceId,
+			ServiceId: &serviceId,
+			Time: &model.QueriesRequestElementTime{
+				Ahead: &d1,
+			},
+			Limit: &ten,
+			Columns: []model.QueriesRequestElementColumn{
+				{
+					Name: "sensor.ENERGY.Total",
+					Math: &plus5,
+				},
+				{
+					Name: "sensor.ENERGY.Total",
+					Math: &plus10,
+				}},
+			Filters:          &filter,
+			OrderColumnIndex: &zero,
+			OrderDirection:   &asc,
+		}}
+
+		actual, err := GenerateQueries(elements, "")
+		if err != nil {
+			t.Error(err)
+		}
+		if len(actual) != 1 {
+			t.Error("Unexpected number of queries", len(actual))
+		}
+		expected := "SELECT \"time\", \"sensor.ENERGY.Total\"+5 AS \"sensor.ENERGY.Total\", \"sensor.ENERGY.Total\"+10" +
+			" AS \"sensor.ENERGY.Total\" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE" +
+			" \"sensor.ENERGY.Total\" +5 > 10 AND \"time\" > now() AND \"time\" < now() + interval '1d' ORDER BY 1 ASC LIMIT 10"
+
+		if actual[0] != expected {
+			t.Error("Expected/Actual\n", expected, "\n", actual)
+		}
+	})
 }

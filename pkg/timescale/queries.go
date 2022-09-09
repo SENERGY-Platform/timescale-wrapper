@@ -70,7 +70,7 @@ func GenerateQueries(elements []model.QueriesRequestElement, userId string) (que
 				query += "AS \"" + column.Name + "\""
 			}
 			query += " FROM "
-			elementTimeLastModified := false
+			elementTimeLastAheadModified := false
 			for idx, column := range element.Columns {
 				query += "(SELECT time_bucket('" + *element.GroupTime + "', \"time\") AS \"time\", "
 				if strings.HasPrefix(*column.GroupType, "difference") {
@@ -80,18 +80,28 @@ func GenerateQueries(elements []model.QueriesRequestElement, userId string) (que
 					} else {
 						query += translateFunctionName(groupParts[1]) + "\"" + column.Name + "\")"
 					}
-					if element.Time.Last != nil && !elementTimeLastModified {
+					if (element.Time.Last != nil || element.Time.Ahead != nil) && !elementTimeLastAheadModified {
 						// manually increase the last offset by 1 to ensure unified results
 						re := regexp.MustCompile(`\d+`)
-						prefix := string(re.Find([]byte(*element.Time.Last)))
+						var prefix string
+						if element.Time.Last != nil {
+							prefix = string(re.Find([]byte(*element.Time.Last)))
+						} else {
+							prefix = string(re.Find([]byte(*element.Time.Ahead)))
+						}
 						num, err := strconv.Atoi(prefix)
 						if err != nil {
 							return nil, err
 						}
 						num++
-						modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Last, prefix)
-						element.Time.Last = &modified
-						elementTimeLastModified = true
+						if element.Time.Last != nil {
+							modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Last, prefix)
+							element.Time.Last = &modified
+						} else {
+							modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Ahead, prefix)
+							element.Time.Ahead = &modified
+						}
+						elementTimeLastAheadModified = true
 					}
 				} else if *column.GroupType == "first" || *column.GroupType == "last" {
 					query += *column.GroupType + "(\"" + column.Name + "\", \"time\")"
@@ -177,6 +187,8 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 		}
 		if element.Time.Last != nil {
 			query += "\"time\" > now() - interval '" + *element.Time.Last + "'"
+		} else if element.Time.Ahead != nil {
+			query += "\"time\" > now() AND \"time\" < now() + interval '" + *element.Time.Ahead + "'"
 		} else {
 			query += "\"time\" > '" + *element.Time.Start + "' AND \"time\" < '" + *element.Time.End + "'"
 		}
