@@ -45,7 +45,7 @@ func formatResponse(f model.Format, request []model.QueriesRequestElement, resul
 			}
 		}
 		for i := range results {
-			for isRowEmpty(results[i][len(results[i])-1]) {
+			for len(results[i]) > 0 && isRowEmpty(results[i][len(results[i])-1]) {
 				results[i] = results[i][:len(results[i])-1]
 			}
 		}
