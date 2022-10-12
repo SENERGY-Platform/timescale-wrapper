@@ -98,6 +98,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		for i := range requestElements {
 			i := i
 			go func() {
+				var err error
 				raw[i], err = lastValueCache.GetLastValuesFromCache(requestElements[i])
 				if err != nil {
 					m.Lock()
