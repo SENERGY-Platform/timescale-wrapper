@@ -9,7 +9,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o app
 
 RUN git log -1 --oneline > version.txt
 
-FROM alpine:latest
+FROM builder AS test 
+WORKDIR /go/src/app
+COPY tests/run_tests.sh run_tests.sh
+ENTRYPOINT [ "sh", "./run_tests.sh" ]
+
+FROM alpine:latest 
 WORKDIR /root/
 COPY --from=builder /go/src/app/app .
 COPY --from=builder /go/src/app/pkg/resources ./pkg/resources

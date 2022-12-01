@@ -17,6 +17,7 @@
 package timescale
 
 import (
+	"fmt"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"reflect"
 	"testing"
@@ -128,47 +129,59 @@ func TestQueries(t *testing.T) {
 		}
 	})
 
-	t.Run("Test GenerateQueries Group", func(t *testing.T) {
-		elements := []model.QueriesRequestElement{{
-			DeviceId:  &deviceId,
-			ServiceId: &serviceId,
-			Time:      &time10d,
-			Columns: []model.QueriesRequestElementColumn{
-				{
-					Name:      "sensor.ENERGY.Total",
-					GroupType: &mean,
-				},
-				{
-					Name:      "sensor.ENERGY.Total",
-					GroupType: &median,
-				}},
-			GroupTime:        &d1,
-			OrderColumnIndex: &zero,
-			OrderDirection:   &asc,
-		}}
+	tt := []struct {
+		GroupTime string
+	}{
+		{
+			GroupTime: "1s",
+		},
+		{
+			GroupTime: "1months",
+		},
+	}
+	for _, tc := range tt {
+		t.Run(fmt.Sprintf("Test GenerateQueries Group %s", tc.GroupTime), func(t *testing.T) {
+			elements := []model.QueriesRequestElement{{
+				DeviceId:  &deviceId,
+				ServiceId: &serviceId,
+				Time:      &time10d,
+				Columns: []model.QueriesRequestElementColumn{
+					{
+						Name:      "sensor.ENERGY.Total",
+						GroupType: &mean,
+					},
+					{
+						Name:      "sensor.ENERGY.Total",
+						GroupType: &median,
+					}},
+				GroupTime:        &tc.GroupTime,
+				OrderColumnIndex: &zero,
+				OrderDirection:   &asc,
+			}}
 
-		actual, err := GenerateQueries(elements, "")
-		if err != nil {
-			t.Error(err)
-		}
-		if len(actual) != 1 {
-			t.Error("Unexpected number of queries", len(actual))
-		}
-		expected := "SELECT sub0.time AS \"time\", " +
-			"(sub0.value) AS \"sensor.ENERGY.Total\", " +
-			"(sub1.value) AS \"sensor.ENERGY.Total\" " +
-			"FROM (SELECT time_bucket('1d', \"time\") AS \"time\", " +
-			"avg(\"sensor.ENERGY.Total\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
-			"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN " +
-			"(SELECT time_bucket('1d', \"time\") AS \"time\", percentile_disc(0.5) WITHIN GROUP (ORDER BY " +
-			"\"sensor.ENERGY.Total\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
-			"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time " +
-			"ORDER BY 1 ASC"
+			actual, err := GenerateQueries(elements, "")
+			if err != nil {
+				t.Error(err)
+			}
+			if len(actual) != 1 {
+				t.Error("Unexpected number of queries", len(actual))
+			}
+			expected := fmt.Sprintf("SELECT sub0.time AS \"time\", "+
+				"(sub0.value) AS \"sensor.ENERGY.Total\", "+
+				"(sub1.value) AS \"sensor.ENERGY.Total\" "+
+				"FROM (SELECT time_bucket('%s', \"time\") AS \"time\", "+
+				"avg(\"sensor.ENERGY.Total\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" "+
+				"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN "+
+				"(SELECT time_bucket('%s', \"time\") AS \"time\", percentile_disc(0.5) WITHIN GROUP (ORDER BY "+
+				"\"sensor.ENERGY.Total\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" "+
+				"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time "+
+				"ORDER BY 1 ASC", tc.GroupTime, tc.GroupTime)
 
-		if actual[0] != expected {
-			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
-		}
-	})
+			if actual[0] != expected {
+				t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
+			}
+		})
+	}
 
 	t.Run("Test GenerateQueries Difference Functions", func(t *testing.T) {
 		elements := []model.QueriesRequestElement{{
