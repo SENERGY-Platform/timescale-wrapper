@@ -43,7 +43,8 @@ func TestFormatTable(t *testing.T) {
 	if err != nil {
 		t.Error(t)
 	}
-	if !reflect.DeepEqual(response, [][]interface{}{{"2022-12-06T06:00:00+0000", 1, 2}}) { //
+	res, _ := time.Parse(time.RFC3339, "2022-12-06T06:00:00Z")
+	if !reflect.DeepEqual(response, [][]interface{}{{res, 1, 2}}) { //
 		t.Error("unexpected result")
 	}
 }
