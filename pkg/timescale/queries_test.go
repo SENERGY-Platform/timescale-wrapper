@@ -64,6 +64,8 @@ func TestQueries(t *testing.T) {
 		End:   &end,
 	}
 
+	t.Error("debug")
+
 	t.Parallel()
 	t.Run("Test ShortenId", func(t *testing.T) {
 		actual, err := shortenId("urn:infai:ses:device:d42d8d24-f2a2-4dd7-8ad3-4cabfb6f8062")
