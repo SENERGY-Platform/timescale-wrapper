@@ -81,17 +81,15 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 				}
 				subRowIndex, ok := findFirstElementIndex(data[subSeriesIndex], timestamp, 0, len(data[subSeriesIndex])-1)
 				if ok {
-					if data[subSeriesIndex][subRowIndex][0] == data[seriesIndex][rowIndex][0] {
-						for subSeriesColumnIndex := range request[subSeriesIndex].Columns {
-							formattedRow[baseIndex[subSeriesIndex]+subSeriesColumnIndex] = data[subSeriesIndex][subRowIndex][subSeriesColumnIndex+1]
-						}
-						data[subSeriesIndex] = model.RemoveElementFrom2D(data[subSeriesIndex], subRowIndex)
-						// sorting required for binary search
-						sort.Slice(data[subSeriesIndex], func(i, j int) bool {
-							return data[subSeriesIndex][i][0].(time.Time).After(data[subSeriesIndex][j][0].(time.Time))
-						})
-						continue
+					for subSeriesColumnIndex := range request[subSeriesIndex].Columns {
+						formattedRow[baseIndex[subSeriesIndex]+subSeriesColumnIndex] = data[subSeriesIndex][subRowIndex][subSeriesColumnIndex+1]
 					}
+					data[subSeriesIndex] = model.RemoveElementFrom2D(data[subSeriesIndex], subRowIndex)
+					// sorting required for binary search
+					sort.Slice(data[subSeriesIndex], func(i, j int) bool {
+						return data[subSeriesIndex][i][0].(time.Time).After(data[subSeriesIndex][j][0].(time.Time))
+					})
+					continue
 				}
 			}
 			formatted = append(formatted, formattedRow)
