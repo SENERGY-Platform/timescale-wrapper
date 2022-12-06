@@ -1,3 +1,3 @@
 go test -v ./...
-TEST_RESULT = $?
+TEST_RESULT=$?
 exit $TEST_RESULT
