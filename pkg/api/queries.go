@@ -148,8 +148,8 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if request.Header.Get("Accept") == "application/csv" {
-			writer.Header().Set("Content-Type", "application/csv")
+		if request.Header.Get("Accept") == "application/csv" || request.Header.Get("Accept") == "text/csv" {
+			writer.Header().Set("Content-Type", request.Header.Get("Accept"))
 			csvWriter := csv.NewWriter(writer)
 			headers := []string{"time"}
 			for i := range requestElements {
