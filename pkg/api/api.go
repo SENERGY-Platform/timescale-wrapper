@@ -37,7 +37,7 @@ var endpoints = []func(router *httprouter.Router, config configuration.Config, w
 func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.LastValueCache) (err error) {
 	log.Println("start api")
 	router := Router(config, wrapper, verifier, cache)
-	server := &http.Server{Addr: ":" + config.ApiPort, Handler: router, WriteTimeout: 10 * time.Second, ReadTimeout: 2 * time.Second, ReadHeaderTimeout: 2 * time.Second}
+	server := &http.Server{Addr: ":" + config.ApiPort, Handler: router, WriteTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, ReadHeaderTimeout: 2 * time.Second}
 	wg.Add(1)
 	go func() {
 		log.Println("Listening on ", server.Addr)

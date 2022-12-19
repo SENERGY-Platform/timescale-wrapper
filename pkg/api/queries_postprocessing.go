@@ -17,8 +17,12 @@
 package api
 
 import (
+	"encoding/csv"
+	"encoding/json"
+	"errors"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -34,7 +38,7 @@ func formatResponse(f model.Format, request []model.QueriesRequestElement, resul
 		if len(timeFormat) > 0 {
 			formatTime2D(formatted, timeFormat)
 		}
-		for isRowEmpty(formatted[len(formatted)-1]) {
+		for len(formatted) > 0 && isRowEmpty(formatted[len(formatted)-1]) {
 			formatted = formatted[:len(formatted)-1]
 		}
 		return formatted, nil
@@ -136,4 +140,48 @@ func isRowEmpty(data []interface{}) bool {
 		}
 	}
 	return true
+}
+
+func writeCsv(data interface{}, writer *csv.Writer) (err error) {
+	data3D, ok := data.([][][]interface{})
+	if ok {
+		for i := range data3D {
+			for j := range data3D[i] {
+				vals := make([]string, len(data3D[i][j]))
+				for k := range data3D[i][j] {
+					b, err := json.Marshal(data3D[i][j][k])
+					if err != nil {
+						return err
+					}
+					vals[k] = strings.Replace(string(b), "\"", "", -1)
+				}
+				err = writer.Write(vals)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		writer.Flush()
+		return nil
+	}
+	data2D, ok := data.([][]interface{})
+	if !ok {
+		return errors.New("data is not 2d or 3d")
+	}
+	for i := range data2D {
+		vals := make([]string, len(data2D[i]))
+		for j := range data2D[i] {
+			b, err := json.Marshal(data2D[i][j])
+			if err != nil {
+				return err
+			}
+			vals[j] = strings.Replace(string(b), "\"", "", -1)
+		}
+		err = writer.Write(vals)
+		if err != nil {
+			return err
+		}
+	}
+	writer.Flush()
+	return nil
 }

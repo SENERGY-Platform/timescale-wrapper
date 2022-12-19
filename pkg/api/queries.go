@@ -17,6 +17,7 @@
 package api
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
@@ -147,15 +148,36 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if request.Header.Get("Accept") == "application/csv" {
+			writer.Header().Set("Content-Type", "application/csv")
+			csvWriter := csv.NewWriter(writer)
+			headers := []string{"time"}
+			for i := range requestElements {
+				for j := range requestElements[i].Columns {
+					headers = append(headers, requestElements[i].Columns[j].Name)
+				}
+			}
+			err = csvWriter.Write(headers)
+			if err != nil {
+				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			err = writeCsv(response, csvWriter)
+			if err != nil {
+				fmt.Println("ERROR: " + err.Error())
+			}
+		} else {
+			writer.Header().Set("Content-Type", "application/json")
+			err = json.NewEncoder(writer).Encode(response)
+			if err != nil {
+				fmt.Println("ERROR: " + err.Error())
+			}
+		}
+
 		if config.Debug {
 			log.Println("DEBUG: Postprocessing took " + time.Since(beforePP).String())
 		}
 
-		writer.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(writer).Encode(response)
-		if err != nil {
-			fmt.Println("ERROR: " + err.Error())
-		}
 	})
 
 }
