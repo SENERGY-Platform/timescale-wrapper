@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/SENERGY-Platform/converter/lib/converter"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
@@ -18,7 +19,7 @@ func init() {
 	endpoints = append(endpoints, RawValueEndpoint)
 }
 
-func RawValueEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.LastValueCache) {
+func RawValueEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.RemoteCache, _ *converter.Converter) {
 	handler := lastValueHandler(config, wrapper, verifier, lastValueCache)
 	router.GET("/raw-value", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		exportId := request.URL.Query().Get("export_id")

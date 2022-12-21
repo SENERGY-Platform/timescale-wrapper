@@ -20,6 +20,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"github.com/SENERGY-Platform/converter/lib/converter"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
@@ -37,7 +38,7 @@ func init() {
 	endpoints = append(endpoints, QueriesEndpoint)
 }
 
-func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.LastValueCache) {
+func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) {
 	router.POST("/queries", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		start := time.Now()
 		requestedFormat := model.Format(request.URL.Query().Get("format"))
@@ -100,14 +101,14 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			i := i
 			go func() {
 				var err error
-				raw[i], err = lastValueCache.GetLastValuesFromCache(requestElements[i])
+				raw[i], err = remoteCache.GetLastValuesFromCache(requestElements[i])
 				if err != nil {
 					m.Lock()
 					defer m.Unlock()
 					dbRequestElements = append(dbRequestElements, requestElements[i])
 					dbRequestIndices = append(dbRequestIndices, i)
 					if err != cache.NotCachableError {
-						log.Println("WARN: Could not get data from cache: " + err.Error())
+						log.Println("WARN: Could not get data from remoteCache: " + err.Error())
 					}
 				}
 				wg.Done()
@@ -116,7 +117,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		wg.Wait()
 		if config.Debug {
 			log.Println("DEBUG: Cache collection took " + time.Since(beforeCache).String())
-			log.Println("DEBUG: Got " + strconv.Itoa(len(requestElements)-len(dbRequestIndices)) + " from cache, requesting " + strconv.Itoa(len(dbRequestIndices)) + " from db")
+			log.Println("DEBUG: Got " + strconv.Itoa(len(requestElements)-len(dbRequestIndices)) + " from remoteCache, requesting " + strconv.Itoa(len(dbRequestIndices)) + " from db")
 		}
 
 		beforeQueries := time.Now()
@@ -137,13 +138,13 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		if config.Debug {
 			log.Println("DEBUG: Fetching took " + time.Since(beforeQuery).String())
 		}
-		// merge DB results with cache results
+		// merge DB results with remoteCache results
 		for i := range data {
 			raw[dbRequestIndices[i]] = data[i]
 		}
 		beforePP := time.Now()
 		timeFormat := request.URL.Query().Get("time_format")
-		response, err := formatResponse(requestedFormat, requestElements, raw, orderColumnIndex, orderDirection, timeFormat)
+		response, err := formatResponse(remoteCache, requestedFormat, requestElements, raw, orderColumnIndex, orderDirection, timeFormat, converter)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return

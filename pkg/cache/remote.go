@@ -20,14 +20,17 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/meta"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/bradfitz/gomemcache/memcache"
+	"log"
 	"strings"
 	"time"
 )
 
-type LastValueCache struct {
-	mc *memcache.Client
+type RemoteCache struct {
+	mc     *memcache.Client
+	config configuration.Config
 }
 
 var NotCachableError = errors.New("not cachable")
@@ -37,11 +40,11 @@ type Entry struct {
 	Value map[string]interface{} `json:"value"`
 }
 
-func NewLastValueCache(config configuration.Config) *LastValueCache {
-	return &LastValueCache{memcache.New(config.MemcachedUrls...)}
+func NewRemote(config configuration.Config) *RemoteCache {
+	return &RemoteCache{mc: memcache.New(config.MemcachedUrls...), config: config}
 }
 
-func (lv *LastValueCache) GetLastValuesFromCache(request model.QueriesRequestElement) ([][]interface{}, error) {
+func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElement) ([][]interface{}, error) {
 	if request.DeviceId == nil || request.ServiceId == nil || request.Limit == nil || *request.Limit != 1 ||
 		request.Time != nil || request.GroupTime != nil || request.Filters != nil {
 		return nil, NotCachableError
@@ -70,6 +73,64 @@ func (lv *LastValueCache) GetLastValuesFromCache(request model.QueriesRequestEle
 	}
 
 	return [][]interface{}{res}, nil
+}
+
+func (this *RemoteCache) GetService(serviceId string) (service meta.Service, err error) {
+	cachedItem, err := this.mc.Get("service_" + serviceId)
+	if err == nil {
+		err = json.Unmarshal(cachedItem.Value, &service)
+		if err != nil {
+			return service, err
+		}
+	} else {
+		service, err = meta.GetService(serviceId, this.config.DeviceRepoUrl)
+		if err != nil {
+			return service, err
+		}
+		bytes, err := json.Marshal(service)
+		if err != nil {
+			return service, err
+		}
+		err = this.mc.Set(&memcache.Item{
+			Key:        "service_" + service.Id,
+			Value:      bytes,
+			Expiration: 5 * 60,
+		})
+		if err != nil {
+			log.Println("WARNING: " + err.Error())
+			err = nil
+		}
+	}
+	return service, err
+}
+
+func (this *RemoteCache) GetConcept(conceptId string) (concept meta.Concept, err error) {
+	cachedItem, err := this.mc.Get("concept_" + conceptId)
+	if err == nil {
+		err = json.Unmarshal(cachedItem.Value, &concept)
+		if err != nil {
+			return
+		}
+	} else {
+		concept, err = meta.GetConcept(conceptId, this.config.DeviceRepoUrl)
+		if err != nil {
+			return
+		}
+		bytes, err := json.Marshal(concept)
+		if err != nil {
+			return concept, err
+		}
+		err = this.mc.Set(&memcache.Item{
+			Key:        "concept_" + concept.Id,
+			Value:      bytes,
+			Expiration: 5 * 60,
+		})
+		if err != nil {
+			log.Println("WARNING: " + err.Error())
+			err = nil
+		}
+	}
+	return
 }
 
 func getDeepEntry(m map[string]interface{}, path string) interface{} {

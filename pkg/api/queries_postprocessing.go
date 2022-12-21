@@ -20,18 +20,62 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"github.com/SENERGY-Platform/converter/lib/converter"
+	convmodel "github.com/SENERGY-Platform/converter/lib/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/meta"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"sort"
 	"strings"
 	"time"
 )
 
-func formatResponse(f model.Format, request []model.QueriesRequestElement, results [][][]interface{},
-	orderColumnIndex int, orderDirection model.Direction, timeFormat string) (data interface{}, err error) {
+func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []model.QueriesRequestElement, results [][][]interface{},
+	orderColumnIndex int, orderDirection model.Direction, timeFormat string, conv *converter.Converter) (data interface{}, err error) {
+
+	sourceCharacteristicIds := map[int]map[int]*string{}           // seriesIndex to seriesColumnIndex to sourceCharacteristicId
+	extensions := map[int]map[int][]convmodel.ConverterExtension{} // seriesIndex to seriesColumnIndex to ConverterExtensions
+	for seriesIndex := range request {
+		sourceCharacteristicIds[seriesIndex] = make(map[int]*string)
+		extensions[seriesIndex] = make(map[int][]convmodel.ConverterExtension)
+		for seriesColumnIndex := range request[seriesIndex].Columns {
+			if request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId != nil {
+				sourceCharId := request[seriesIndex].Columns[seriesColumnIndex].SourceCharacteristicId
+				if sourceCharId == nil {
+					serviceId := request[seriesIndex].ServiceId
+					if serviceId == nil {
+						return nil, errors.New("service id cant be nil")
+					}
+					service, err := remoteCache.GetService(*serviceId)
+					if err != nil {
+						return nil, err
+					}
+					if len(service.Outputs) != 1 {
+						return nil, errors.New("service doesnt have exactly one output")
+					}
+					pathParts := strings.Split(request[seriesIndex].Columns[seriesColumnIndex].Name, ".")
+					if len(pathParts) > 1 {
+						pathParts = pathParts[1:] // skip root
+					}
+					contentVariable := meta.GetDeepContentVariable(service.Outputs[0].ContentVariable, pathParts)
+					sourceCharId = &contentVariable.CharacteristicId
+				}
+				sourceCharacteristicIds[seriesIndex][seriesColumnIndex] = sourceCharId
+				if request[seriesIndex].Columns[seriesColumnIndex].ConceptId == nil {
+					return nil, errors.New("concept id cant be nil")
+				}
+				concept, err := remoteCache.GetConcept(*request[seriesIndex].Columns[seriesColumnIndex].ConceptId)
+				if err != nil {
+					return nil, err
+				}
+				extensions[seriesIndex][seriesColumnIndex] = concept.Conversions
+			}
+		}
+	}
 
 	switch f {
 	case model.Table:
-		formatted, err := formatResponseAsTable(request, results, orderColumnIndex, orderDirection)
+		formatted, err := formatResponseAsTable(request, results, orderColumnIndex, orderDirection, conv, sourceCharacteristicIds, extensions)
 		if err != nil {
 			return nil, err
 		}
@@ -48,16 +92,31 @@ func formatResponse(f model.Format, request []model.QueriesRequestElement, resul
 				formatTime2D(results[i], timeFormat)
 			}
 		}
-		for i := range results {
-			for len(results[i]) > 0 && isRowEmpty(results[i][len(results[i])-1]) {
-				results[i] = results[i][:len(results[i])-1]
+		for seriesIndex := range results {
+			for len(results[seriesIndex]) > 0 && isRowEmpty(results[seriesIndex][len(results[seriesIndex])-1]) {
+				results[seriesIndex] = results[seriesIndex][:len(results[seriesIndex])-1]
+			}
+			for rowIndex := range results[seriesIndex] {
+
+				for j := range results[seriesIndex][rowIndex] {
+					if j == 0 {
+						continue // time column
+					}
+					seriesColumnIndex := j - 1
+					if request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId != nil &&
+						sourceCharacteristicIds[seriesIndex][seriesColumnIndex] != nil &&
+						*sourceCharacteristicIds[seriesIndex][seriesColumnIndex] != *request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId {
+
+						results[seriesIndex][rowIndex][j], err = conv.CastWithExtension(results[seriesIndex][rowIndex][j], *sourceCharacteristicIds[seriesIndex][seriesColumnIndex], *request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId, extensions[seriesIndex][seriesColumnIndex])
+					}
+				}
 			}
 		}
 		return results, nil
 	}
 }
 
-func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]interface{}, orderColumnIndex int, orderDirection model.Direction) (formatted [][]interface{}, err error) {
+func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]interface{}, orderColumnIndex int, orderDirection model.Direction, conv *converter.Converter, sourceCharacteristicIds map[int]map[int]*string, extensions map[int]map[int][]convmodel.ConverterExtension) (formatted [][]interface{}, err error) {
 	totalColumns := 1
 	baseIndex := map[int]int{}
 	for requestIndex, element := range request {
@@ -73,7 +132,17 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 				continue
 			}
 			for seriesColumnIndex := range request[seriesIndex].Columns {
-				formattedRow[baseIndex[seriesIndex]+seriesColumnIndex] = data[seriesIndex][rowIndex][seriesColumnIndex+1]
+				point := data[seriesIndex][rowIndex][seriesColumnIndex+1]
+				if request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId != nil &&
+					sourceCharacteristicIds[seriesIndex][seriesColumnIndex] != nil &&
+					*sourceCharacteristicIds[seriesIndex][seriesColumnIndex] != *request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId {
+					point, err = conv.CastWithExtension(point, *sourceCharacteristicIds[seriesIndex][seriesColumnIndex],
+						*request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId, extensions[seriesIndex][seriesColumnIndex])
+					if err != nil {
+						return nil, err
+					}
+				}
+				formattedRow[baseIndex[seriesIndex]+seriesColumnIndex] = point
 			}
 			for subSeriesIndex := range data {
 				if subSeriesIndex <= seriesIndex {
@@ -86,7 +155,17 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 				subRowIndex, ok := findFirstElementIndex(data[subSeriesIndex], timestamp, 0, len(data[subSeriesIndex])-1)
 				if ok {
 					for subSeriesColumnIndex := range request[subSeriesIndex].Columns {
-						formattedRow[baseIndex[subSeriesIndex]+subSeriesColumnIndex] = data[subSeriesIndex][subRowIndex][subSeriesColumnIndex+1]
+						point := data[subSeriesIndex][subRowIndex][subSeriesColumnIndex+1]
+						if request[subSeriesIndex].Columns[subSeriesColumnIndex].TargetCharacteristicId != nil &&
+							sourceCharacteristicIds[subSeriesIndex][subSeriesColumnIndex] != nil &&
+							*sourceCharacteristicIds[subSeriesIndex][subSeriesColumnIndex] != *request[subSeriesIndex].Columns[subSeriesColumnIndex].TargetCharacteristicId {
+							point, err = conv.CastWithExtension(point, *sourceCharacteristicIds[subSeriesIndex][subSeriesColumnIndex],
+								*request[subSeriesIndex].Columns[subSeriesColumnIndex].TargetCharacteristicId, extensions[subSeriesIndex][subSeriesColumnIndex])
+							if err != nil {
+								return nil, err
+							}
+						}
+						formattedRow[baseIndex[subSeriesIndex]+subSeriesColumnIndex] = point
 					}
 					data[subSeriesIndex] = model.RemoveElementFrom2D(data[subSeriesIndex], subRowIndex)
 					// sorting required for binary search

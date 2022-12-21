@@ -30,7 +30,7 @@ func TestFormatTable(t *testing.T) {
 	t1, _ := time.Parse(time.RFC3339, "2022-12-06T06:00:00Z")
 	t2, _ := time.Parse(time.RFC3339, "2022-12-06T07:00:00+01:00")
 	fmt.Println(t1.Equal(t2))
-	response, err := formatResponse(model.Table, []model.QueriesRequestElement{{
+	response, err := formatResponse(nil, model.Table, []model.QueriesRequestElement{{
 		ExportId: &one,
 		Columns:  []model.QueriesRequestElementColumn{{Name: one}},
 	}, {
@@ -39,7 +39,7 @@ func TestFormatTable(t *testing.T) {
 	}}, [][][]interface{}{
 		{{t1, 1}},
 		{{t2, 2}},
-	}, 0, model.Asc, "")
+	}, 0, model.Asc, "", nil)
 	if err != nil {
 		t.Error(t)
 	}

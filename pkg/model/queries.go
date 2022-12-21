@@ -52,6 +52,9 @@ func (element *QueriesRequestElement) Valid() bool {
 		if !column.Valid(element.GroupTime != nil) {
 			return false
 		}
+		if column.TargetCharacteristicId != nil && column.SourceCharacteristicId == nil && element.ExportId == nil {
+			return false
+		}
 	}
 	if element.Filters != nil {
 		for _, filter := range *element.Filters {
@@ -119,9 +122,12 @@ func (elementTime *QueriesRequestElementTime) Valid() bool {
 }
 
 type QueriesRequestElementColumn struct {
-	Name      string
-	GroupType *string
-	Math      *string
+	Name                   string
+	GroupType              *string
+	Math                   *string
+	SourceCharacteristicId *string
+	TargetCharacteristicId *string
+	ConceptId              *string
 }
 
 func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
@@ -141,6 +147,9 @@ func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
 		}
 	}
 	if elementColumn.Math != nil && !mathValid(*elementColumn.Math) {
+		return false
+	}
+	if elementColumn.TargetCharacteristicId != nil && elementColumn.ConceptId == nil {
 		return false
 	}
 	return true

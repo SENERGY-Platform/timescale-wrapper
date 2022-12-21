@@ -88,6 +88,18 @@
           "description": "column name",
           "type": "string"
         },
+        "sourceCharacteristicId": {
+          "description": "If targetCharacteristicId and exportId are set, this field is required. For device/service requests, this is optional, but will overwrite the characteristic of the device type",
+          "type": "string"
+        },
+        "targetCharacteristicId": {
+          "description": "If set, values will be converted into this characteristic",
+          "type": "string"
+        },
+        "conceptId": {
+          "description": "ID of the concept in which conversion shall be made. Required, if targetCharacteristicId set",
+          "type": "string"
+        },
         "math": {
           "description": "basic math operation. Format (\\+|-|\\*|/)\\d+((\\.|,)\\d+)?",
           "type": "string"

@@ -38,6 +38,7 @@ type ConfigStruct struct {
 	ServingUrl          string   `json:"serving_url"`
 	MemcachedUrls       []string `json:"memcached_urls"`
 	Debug               bool     `json:"debug"`
+	DeviceRepoUrl       string   `json:"device_repo_url"`
 }
 
 type Config = *ConfigStruct

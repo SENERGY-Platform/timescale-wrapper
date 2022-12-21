@@ -18,6 +18,14 @@ require (
 )
 
 require (
-	github.com/bradfitz/gomemcache v0.0.0-20220106215444-fb4bf637b56d // indirect
+	github.com/SENERGY-Platform/converter v0.0.0-20220810123448-27fbbf6ab679
+	github.com/bradfitz/gomemcache v0.0.0-20220106215444-fb4bf637b56d
+)
+
+require (
+	github.com/Knetic/govaluate v3.0.0+incompatible // indirect
+	github.com/RyanCarrier/dijkstra v1.1.0 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
+	github.com/lucasb-eyer/go-colorful v1.0.3 // indirect
+	gopkg.in/go-playground/colors.v1 v1.2.0 // indirect
 )
