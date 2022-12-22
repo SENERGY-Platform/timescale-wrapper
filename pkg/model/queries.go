@@ -52,7 +52,7 @@ func (element *QueriesRequestElement) Valid() bool {
 		if !column.Valid(element.GroupTime != nil) {
 			return false
 		}
-		if column.TargetCharacteristicId != nil && column.SourceCharacteristicId == nil && element.ExportId == nil {
+		if column.TargetCharacteristicId != nil && column.SourceCharacteristicId == nil && element.ExportId != nil {
 			return false
 		}
 	}
