@@ -16,7 +16,11 @@
 
 package meta
 
-func GetDeepContentVariable(root ContentVariable, path []string) *ContentVariable {
+import (
+	"github.com/SENERGY-Platform/models/go/models"
+)
+
+func GetDeepContentVariable(root models.ContentVariable, path []string) *models.ContentVariable {
 	if len(path) == 0 {
 		return &root
 	}

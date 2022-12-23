@@ -19,8 +19,9 @@ package cache
 import (
 	"encoding/json"
 	"errors"
+	"github.com/SENERGY-Platform/device-repository/lib/api"
+	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/meta"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/bradfitz/gomemcache/memcache"
 	"log"
@@ -29,8 +30,9 @@ import (
 )
 
 type RemoteCache struct {
-	mc     *memcache.Client
-	config configuration.Config
+	mc         *memcache.Client
+	config     configuration.Config
+	deviceRepo api.Controller
 }
 
 var NotCachableError = errors.New("not cachable")
@@ -40,8 +42,8 @@ type Entry struct {
 	Value map[string]interface{} `json:"value"`
 }
 
-func NewRemote(config configuration.Config) *RemoteCache {
-	return &RemoteCache{mc: memcache.New(config.MemcachedUrls...), config: config}
+func NewRemote(config configuration.Config, deviceRepo api.Controller) *RemoteCache {
+	return &RemoteCache{mc: memcache.New(config.MemcachedUrls...), config: config, deviceRepo: deviceRepo}
 }
 
 func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElement) ([][]interface{}, error) {
@@ -75,7 +77,7 @@ func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElemen
 	return [][]interface{}{res}, nil
 }
 
-func (this *RemoteCache) GetService(serviceId string) (service meta.Service, err error) {
+func (this *RemoteCache) GetService(serviceId string) (service models.Service, err error) {
 	cachedItem, err := this.mc.Get("service_" + serviceId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &service)
@@ -83,7 +85,7 @@ func (this *RemoteCache) GetService(serviceId string) (service meta.Service, err
 			return service, err
 		}
 	} else {
-		service, err = meta.GetService(serviceId, this.config.DeviceRepoUrl)
+		service, err, _ = this.deviceRepo.GetService(serviceId)
 		if err != nil {
 			return service, err
 		}
@@ -104,7 +106,7 @@ func (this *RemoteCache) GetService(serviceId string) (service meta.Service, err
 	return service, err
 }
 
-func (this *RemoteCache) GetConcept(conceptId string) (concept meta.Concept, err error) {
+func (this *RemoteCache) GetConcept(conceptId string) (concept models.Concept, err error) {
 	cachedItem, err := this.mc.Get("concept_" + conceptId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &concept)
@@ -112,7 +114,7 @@ func (this *RemoteCache) GetConcept(conceptId string) (concept meta.Concept, err
 			return
 		}
 	} else {
-		concept, err = meta.GetConcept(conceptId, this.config.DeviceRepoUrl)
+		concept, err, _ = this.deviceRepo.GetConceptWithoutCharacteristics(conceptId)
 		if err != nil {
 			return
 		}

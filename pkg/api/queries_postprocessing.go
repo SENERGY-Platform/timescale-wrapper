@@ -21,7 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/SENERGY-Platform/converter/lib/converter"
-	convmodel "github.com/SENERGY-Platform/converter/lib/model"
+	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/meta"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
@@ -33,11 +33,11 @@ import (
 func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []model.QueriesRequestElement, results [][][]interface{},
 	orderColumnIndex int, orderDirection model.Direction, timeFormat string, conv *converter.Converter) (data interface{}, err error) {
 
-	sourceCharacteristicIds := map[int]map[int]*string{}           // seriesIndex to seriesColumnIndex to sourceCharacteristicId
-	extensions := map[int]map[int][]convmodel.ConverterExtension{} // seriesIndex to seriesColumnIndex to ConverterExtensions
+	sourceCharacteristicIds := map[int]map[int]*string{}        // seriesIndex to seriesColumnIndex to sourceCharacteristicId
+	extensions := map[int]map[int][]models.ConverterExtension{} // seriesIndex to seriesColumnIndex to ConverterExtensions
 	for seriesIndex := range request {
 		sourceCharacteristicIds[seriesIndex] = make(map[int]*string)
-		extensions[seriesIndex] = make(map[int][]convmodel.ConverterExtension)
+		extensions[seriesIndex] = make(map[int][]models.ConverterExtension)
 		for seriesColumnIndex := range request[seriesIndex].Columns {
 			if request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId != nil {
 				sourceCharId := request[seriesIndex].Columns[seriesColumnIndex].SourceCharacteristicId
@@ -108,6 +108,9 @@ func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []mo
 						*sourceCharacteristicIds[seriesIndex][seriesColumnIndex] != *request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId {
 
 						results[seriesIndex][rowIndex][j], err = conv.CastWithExtension(results[seriesIndex][rowIndex][j], *sourceCharacteristicIds[seriesIndex][seriesColumnIndex], *request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId, extensions[seriesIndex][seriesColumnIndex])
+						if err != nil {
+							return nil, err
+						}
 					}
 				}
 			}
@@ -116,7 +119,7 @@ func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []mo
 	}
 }
 
-func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]interface{}, orderColumnIndex int, orderDirection model.Direction, conv *converter.Converter, sourceCharacteristicIds map[int]map[int]*string, extensions map[int]map[int][]convmodel.ConverterExtension) (formatted [][]interface{}, err error) {
+func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]interface{}, orderColumnIndex int, orderDirection model.Direction, conv *converter.Converter, sourceCharacteristicIds map[int]map[int]*string, extensions map[int]map[int][]models.ConverterExtension) (formatted [][]interface{}, err error) {
 	totalColumns := 1
 	baseIndex := map[int]int{}
 	for requestIndex, element := range request {

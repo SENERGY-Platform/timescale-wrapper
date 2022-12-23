@@ -19,6 +19,7 @@ package pkg
 import (
 	"context"
 	"github.com/SENERGY-Platform/converter/lib/converter"
+	"github.com/SENERGY-Platform/device-repository/lib/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api"
 	cache "github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
@@ -34,7 +35,8 @@ func Start(ctx context.Context, config configuration.Config) (wg *sync.WaitGroup
 		return wg, err
 	}
 	verifier := verification.New(config)
-	lastValueCache := cache.NewRemote(config)
+	deviceRepoClient := client.NewClient(config.DeviceRepoUrl)
+	lastValueCache := cache.NewRemote(config, deviceRepoClient)
 	conv, err := converter.New()
 	if err != nil {
 		return wg, err
