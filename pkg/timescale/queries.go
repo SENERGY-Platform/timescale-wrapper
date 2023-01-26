@@ -162,7 +162,7 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 	if element.Filters != nil || element.Time != nil {
 		query += " WHERE "
 	}
-	if element.Filters != nil {
+	if element.Filters != nil && len(*element.Filters) > 0 {
 		for idx, filter := range *element.Filters {
 			if idx != 0 {
 				query += " AND "
@@ -182,7 +182,7 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 		}
 	}
 	if element.Time != nil {
-		if element.Filters != nil {
+		if element.Filters != nil && len(*element.Filters) > 0 {
 			query += " AND "
 		}
 		if element.Time.Last != nil {
