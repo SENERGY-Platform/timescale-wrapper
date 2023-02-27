@@ -134,6 +134,7 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 			if formattedRow[0] == nil { // no data in series
 				continue
 			}
+			anyData := false
 			for seriesColumnIndex := range request[seriesIndex].Columns {
 				point := data[seriesIndex][rowIndex][seriesColumnIndex+1]
 				if request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId != nil &&
@@ -146,8 +147,8 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 					}
 				}
 				formattedRow[baseIndex[seriesIndex]+seriesColumnIndex] = point
+				anyData = true
 			}
-			anyData := false
 			for subSeriesIndex := range data {
 				if subSeriesIndex <= seriesIndex {
 					continue
