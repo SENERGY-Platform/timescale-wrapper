@@ -173,7 +173,7 @@ func (filter *QueriesRequestElementFilter) Valid() bool {
 	}
 	s, ok := filter.Value.(string)
 	if ok {
-		valueMatcher := regexp.MustCompile("[a-zA-Z0-9äöüß:{}\"\\.\\-_]*")
+		valueMatcher := regexp.MustCompile("[a-zA-Z0-9äöüß:{}\"\\.\\-_\\/ ]*")
 		if len(s) != len(valueMatcher.FindString(s)) {
 			return false
 		}
