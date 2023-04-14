@@ -117,11 +117,11 @@
     "QueriesRequestElementTime": {
       "properties": {
         "last": {
-          "description": "time interval. Format \\d+(ns|u|µ|ms|s|m|h|d|w)",
+          "description": "time interval. Format \\d+(ms|s|months|m|h|d|w|y)",
           "type": "string"
         },
         "ahead": {
-          "description": "time interval. Format \\d+(ns|u|µ|ms|s|m|h|d|w)",
+          "description": "time interval. Format \\d+(ms|s|months|m|h|d|w|y)",
           "type": "string"
         },
         "start": {

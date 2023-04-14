@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -34,14 +35,18 @@ func translateFunctionName(name string) string {
 	case "median":
 		return "percentile_disc(0.5) WITHIN GROUP (ORDER BY "
 	default:
+		if strings.HasPrefix(name, "difference") {
+			parts := strings.Split(name, "-")
+			return parts[1] + "("
+		}
 		return name + "("
 	}
 }
 
-func GenerateQueries(elements []model.QueriesRequestElement, userId string) (queries []string, err error) {
+func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, userId string) (queries []string, err error) {
 	queries = make([]string, len(elements))
 	for i, element := range elements {
-		table, err := tableName(element, userId)
+		table, err := wrapper.tableName(element, userId)
 		if err != nil {
 			return queries, err
 		}
@@ -227,7 +232,7 @@ func getOrderLimitString(element model.QueriesRequestElement, group bool, overri
 	return
 }
 
-func tableName(element model.QueriesRequestElement, userId string) (string, error) {
+func (wrapper *Wrapper) tableName(element model.QueriesRequestElement, userId string) (table string, err error) {
 	if element.ExportId != nil {
 		shortUserId, err := shortenId(userId)
 		if err != nil {
@@ -237,17 +242,38 @@ func tableName(element model.QueriesRequestElement, userId string) (string, erro
 		if err != nil {
 			return "", err
 		}
-		return "userid:" + shortUserId + "_" + "export:" + shortExportId, nil
+		table = "userid:" + shortUserId + "_" + "export:" + shortExportId
+	} else {
+		shortDeviceId, err := shortenId(*element.DeviceId)
+		if err != nil {
+			return "", err
+		}
+		shortServiceId, err := shortenId(*element.ServiceId)
+		if err != nil {
+			return "", err
+		}
+		table = "device:" + shortDeviceId + "_" + "service:" + shortServiceId
 	}
-	shortDeviceId, err := shortenId(*element.DeviceId)
-	if err != nil {
-		return "", err
+	if element.GroupTime != nil && wrapper.pool != nil {
+		// check if CA View available
+		query, err := getCAQuery(element, table)
+		if err != nil {
+			log.Println("WARN: getCAQuery: " + err.Error())
+			return table, nil
+		}
+
+		var caTable string
+		if wrapper.config.Debug {
+			log.Println("DEBUG: Checking for CA View with: " + query)
+		}
+		err = wrapper.pool.QueryRow(query).Scan(&caTable)
+		if err == nil {
+			return caTable, nil
+		} else {
+			return table, nil
+		}
 	}
-	shortServiceId, err := shortenId(*element.ServiceId)
-	if err != nil {
-		return "", err
-	}
-	return "device:" + shortDeviceId + "_" + "service:" + shortServiceId, nil
+	return table, nil
 
 }
 
@@ -260,4 +286,37 @@ func shortenId(uuid string) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(bytes), nil
+}
+
+func getCAQuery(element model.QueriesRequestElement, table string) (string, error) {
+	query := "SELECT view_name FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = '" + table +
+		"' AND view_definition LIKE '%SELECT time_bucket(''' || (SELECT '" + *element.GroupTime + "'::interval) || '''::interval, \"" +
+		table + "\".\"time\")%\n"
+
+	for _, column := range element.Columns {
+		if column.GroupType == nil {
+			return table, errors.New("expected all columns to contain GroupType")
+		}
+		if *column.GroupType == "mean" {
+			// not implemented
+			return table, errors.New("")
+		}
+		query += "AND view_definition LIKE '%" + translateFunctionName(*column.GroupType) + "\"" + table + "\"."
+		containsDot := strings.Contains(column.Name, ".")
+		if containsDot {
+			query += "\"" + column.Name + "\""
+		} else {
+			query += column.Name
+		}
+		query += ", \"" + table + "\".\"time\") AS "
+		if containsDot {
+			query += "\"" + column.Name + "\""
+		} else {
+			query += column.Name
+		}
+		query += "%'\n"
+	}
+	query += "LIMIT 1;"
+
+	return query, nil
 }

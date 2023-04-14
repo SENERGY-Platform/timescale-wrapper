@@ -64,6 +64,7 @@ func TestQueries(t *testing.T) {
 		End:   &end,
 	}
 
+	wrapper := &Wrapper{}
 	t.Parallel()
 	t.Run("Test ShortenId", func(t *testing.T) {
 		actual, err := shortenId("urn:infai:ses:device:d42d8d24-f2a2-4dd7-8ad3-4cabfb6f8062")
@@ -113,7 +114,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -159,7 +160,7 @@ func TestQueries(t *testing.T) {
 				OrderDirection:   &asc,
 			}}
 
-			actual, err := GenerateQueries(elements, "")
+			actual, err := wrapper.GenerateQueries(elements, "")
 			if err != nil {
 				t.Error(err)
 			}
@@ -216,7 +217,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -258,7 +259,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -317,7 +318,7 @@ func TestQueries(t *testing.T) {
 				OrderColumnIndex: &zero,
 			}}
 
-		actual, err := GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -362,7 +363,7 @@ func TestQueries(t *testing.T) {
 			OrderColumnIndex: &zero,
 		}}
 
-		actual, err := GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -399,7 +400,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := GenerateQueries(elements, "ade1fba6-fa5f-4704-9997-81dc168f62f4")
+		actual, err := wrapper.GenerateQueries(elements, "ade1fba6-fa5f-4704-9997-81dc168f62f4")
 		if err != nil {
 			t.Error(err)
 		}
@@ -437,7 +438,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "")
 		if err != nil {
 			t.Error(err)
 		}
@@ -449,6 +450,34 @@ func TestQueries(t *testing.T) {
 			" \"sensor.ENERGY.Total\" +5 > 10 AND \"time\" > now() AND \"time\" < now() + interval '1d' ORDER BY 1 ASC LIMIT 10"
 
 		if actual[0] != expected {
+			t.Error("Expected/Actual\n", expected, "\n", actual)
+		}
+	})
+
+	t.Run("Test CA Query", func(t *testing.T) {
+
+		element := model.QueriesRequestElement{
+			Columns: []model.QueriesRequestElementColumn{{
+				Name:      "test1",
+				GroupType: &f,
+			},
+				{
+					Name:      "test.2",
+					GroupType: &l,
+				},
+			},
+			GroupTime: &d1,
+		}
+
+		actual, err := getCAQuery(element, "table")
+		if err != nil {
+			t.Error(err)
+		}
+		expected := "SELECT view_name FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = 'table' AND view_definition LIKE '%SELECT time_bucket(''' || (SELECT '1d'::interval) || '''::interval, \"table\".\"time\")%\n" +
+			"AND view_definition LIKE '%first(\"table\".test1, \"table\".\"time\") AS test1%'\n" +
+			"AND view_definition LIKE '%last(\"table\".\"test.2\", \"table\".\"time\") AS \"test.2\"%'\n" +
+			"LIMIT 1;"
+		if actual != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
 		}
 	})

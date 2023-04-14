@@ -162,6 +162,8 @@ type QueriesRequestElementFilter struct {
 	Value  interface{}
 }
 
+var valueMatcher = regexp.MustCompile("[a-zA-Z0-9äöüß:{}\"\\.\\-_\\/ ]*")
+
 func (filter *QueriesRequestElementFilter) Valid() bool {
 	if filter.Math != nil && !mathValid(*filter.Math) {
 		return false
@@ -173,7 +175,6 @@ func (filter *QueriesRequestElementFilter) Valid() bool {
 	}
 	s, ok := filter.Value.(string)
 	if ok {
-		valueMatcher := regexp.MustCompile("[a-zA-Z0-9äöüß:{}\"\\.\\-_\\/ ]*")
 		if len(s) != len(valueMatcher.FindString(s)) {
 			return false
 		}
@@ -181,25 +182,29 @@ func (filter *QueriesRequestElementFilter) Valid() bool {
 	return ElementInArray(filter.Type, allowedTypes) && columnNameValid(filter.Column)
 }
 
+var mathMatcher = regexp.MustCompile("([+\\-*/])\\d+(([.,])\\d+)?")
+
 func mathValid(math string) bool {
-	mathMatcher := regexp.MustCompile("([+\\-*/])\\d+(([.,])\\d+)?")
 	return len(mathMatcher.FindString(math)) == len(math)
 }
 
+var timeMatcher = regexp.MustCompile("(\\d)+(ms|s|months|m|h|d|w|y)")
+
 func timeIntervalValid(timeInterval string) bool {
-	timeMatcher := regexp.MustCompile("\\d+(ns|u|µ|ms|s|months|m|h|d|w|y)")
 	lengthOfFoundMatch := len(timeMatcher.FindString(timeInterval))
 	return lengthOfFoundMatch == len(timeInterval) && lengthOfFoundMatch > 0
 }
 
+var columnMatcher = regexp.MustCompile("([a-zA-Z0-9\\.\\-_])+")
+
 func columnNameValid(column string) bool {
-	columnMatcher := regexp.MustCompile("([a-zA-Z0-9\\.\\-_])+")
 	return len(column) != 0 && len(column) == len(columnMatcher.FindString(column))
 }
 
+var uuidMatcher = regexp.MustCompile("([a-z0-9\\-_])+")
+
 func serviceIdValid(serviceId string) bool {
 	splitted := strings.Split(serviceId, "urn:infai:ses:service:")
-	uuidMatcher := regexp.MustCompile("([a-z0-9\\-_])+")
 	return len(splitted) == 2 && len(splitted[1]) == 36 && len(splitted[1]) == len(uuidMatcher.FindString(splitted[1]))
 }
 
