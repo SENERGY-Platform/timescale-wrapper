@@ -44,15 +44,15 @@ func TestTimeIntervalValidators(t *testing.T) {
 		},
 		{
 			GroupTime: "1ns",
-			Expected:  true,
+			Expected:  false,
 		},
 		{
 			GroupTime: "1u",
-			Expected:  true,
+			Expected:  false,
 		},
 		{
 			GroupTime: "1µ",
-			Expected:  true,
+			Expected:  false,
 		},
 		{
 			GroupTime: "10ms",
