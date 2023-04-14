@@ -291,7 +291,7 @@ func shortenId(uuid string) (string, error) {
 func getCAQuery(element model.QueriesRequestElement, table string) (string, error) {
 	query := "SELECT view_name FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = '" + table +
 		"' AND view_definition LIKE '%SELECT time_bucket(''' || (SELECT '" + *element.GroupTime + "'::interval) || '''::interval, \"" +
-		table + "\".\"time\")%\n"
+		table + "\".\"time\")%'\n"
 
 	for _, column := range element.Columns {
 		if column.GroupType == nil {
