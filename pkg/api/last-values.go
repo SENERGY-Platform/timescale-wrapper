@@ -162,7 +162,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		}
 
 		beforeQueries := time.Now()
-		queries, err := timescale.GenerateQueries(dbRequestElements, getUserId(request))
+		queries, err := wrapper.GenerateQueries(dbRequestElements, getUserId(request))
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}
