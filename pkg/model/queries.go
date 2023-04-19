@@ -69,7 +69,7 @@ func (element *QueriesRequestElement) Valid() bool {
 	if element.OrderDirection != nil && *element.OrderDirection != Asc && *element.OrderDirection != Desc {
 		return false
 	}
-	if element.OrderColumnIndex != nil && (*element.OrderColumnIndex < 1 || *element.OrderColumnIndex > len(element.Columns)) {
+	if element.OrderColumnIndex != nil && (*element.OrderColumnIndex < 0 || *element.OrderColumnIndex > len(element.Columns)) {
 		return false
 	}
 	if element.OrderColumnIndex == nil {
@@ -221,3 +221,9 @@ const (
 	Asc  Direction = "asc"
 	Desc Direction = "desc"
 )
+
+type PreparedQueriesRequestElement struct {
+	QueriesRequestElement
+	Token      string
+	TimeFormat string
+}

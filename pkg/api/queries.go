@@ -75,7 +75,12 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 				return
 			}
 		}
-		ok, err := verifier.VerifyAccess(requestElements, getToken(request), getUserId(request))
+		userId, err := getUserId(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		ok, err := verifier.VerifyAccess(requestElements, getToken(request), userId)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
@@ -121,7 +126,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		}
 
 		beforeQueries := time.Now()
-		queries, err := wrapper.GenerateQueries(dbRequestElements, getUserId(request))
+		queries, err := wrapper.GenerateQueries(dbRequestElements, userId)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return

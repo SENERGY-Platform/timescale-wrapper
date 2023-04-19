@@ -24,6 +24,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/bradfitz/gomemcache/memcache"
+	uuid "github.com/satori/go.uuid"
 	"log"
 	"strings"
 	"time"
@@ -133,6 +134,34 @@ func (this *RemoteCache) GetConcept(conceptId string) (concept models.Concept, e
 		}
 	}
 	return
+}
+
+func (this *RemoteCache) StoreSecretQuery(query model.PreparedQueriesRequestElement) (secret string, err error) {
+	bytes, err := json.Marshal(query)
+	if err != nil {
+		return "", err
+	}
+	uid := uuid.NewV4().String()
+	err = this.mc.Set(&memcache.Item{
+		Key:        "secretquery_" + uid,
+		Value:      bytes,
+		Expiration: 30,
+	})
+	return uid, err
+}
+
+func (this *RemoteCache) GetSecretQuery(secret string) (query model.PreparedQueriesRequestElement, err error) {
+	query = model.PreparedQueriesRequestElement{}
+	item, err := this.mc.Get("secretquery_" + secret)
+	if err != nil {
+		return query, err
+	}
+	err = this.mc.Delete("secretquery_" + secret)
+	if err != nil {
+		return query, err
+	}
+	err = json.Unmarshal(item.Value, &query)
+	return query, err
 }
 
 func getDeepEntry(m map[string]interface{}, path string) interface{} {
