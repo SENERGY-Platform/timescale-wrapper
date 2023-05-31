@@ -141,7 +141,7 @@ func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
 		allowedTypes := []interface{}{}
 		allowedTypes = append(allowedTypes, "mean", "sum", "count", "median", "min", "max", "first", "last",
 			"difference-first", "difference-last", "difference-min", "difference-max", "difference-count", "difference-mean",
-			"difference-sum", "difference-median")
+			"difference-sum", "difference-median", "time-weighted-mean-linear", "time-weighted-mean-locf")
 		if !ElementInArray(*elementColumn.GroupType, allowedTypes) {
 			return false
 		}

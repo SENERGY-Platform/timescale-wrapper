@@ -105,7 +105,7 @@
           "type": "string"
         },
         "groupType": {
-          "description": "group type. One of \"mean\", \"sum\", \"count\", \"median\", \"min\", \"max\", \"first\", \"last\", \"difference-first\", \"difference-last\", \"difference-min\", \"difference-max\", \"difference-count\", \"difference-mean\", \"difference-sum\", \"difference-median\"",
+          "description": "group type. One of \"mean\", \"sum\", \"count\", \"median\", \"min\", \"max\", \"first\", \"last\", \"difference-first\", \"difference-last\", \"difference-min\", \"difference-max\", \"difference-count\", \"difference-mean\", \"difference-sum\", \"difference-median\", \"time-weighted-mean-linear\", \"time-weighted-mean-locf\"",
           "type": "string"
         }
       },

@@ -34,6 +34,10 @@ func translateFunctionName(name string) string {
 		return "avg("
 	case "median":
 		return "percentile_disc(0.5) WITHIN GROUP (ORDER BY "
+	case "time-weighted-mean-linear":
+		return "average(time_weight('Linear', \"time\", "
+	case "time-weighted-mean-locf":
+		return "average(time_weight('LOCF', \"time\", "
 	default:
 		if strings.HasPrefix(name, "difference") {
 			parts := strings.Split(name, "-")
@@ -110,6 +114,8 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 					}
 				} else if *column.GroupType == "first" || *column.GroupType == "last" {
 					query += *column.GroupType + "(\"" + column.Name + "\", \"time\")"
+				} else if strings.HasPrefix(*column.GroupType, "time-weighted-") {
+					query += translateFunctionName(*column.GroupType) + "\"" + column.Name + "\"))"
 				} else {
 					query += translateFunctionName(*column.GroupType) + "\"" + column.Name + "\")"
 				}

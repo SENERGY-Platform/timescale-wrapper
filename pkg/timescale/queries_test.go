@@ -246,6 +246,51 @@ func TestQueries(t *testing.T) {
 		}
 	})
 
+	t.Run("Test GenerateQueries Time Weighted Functions", func(t *testing.T) {
+		twavglinear := "time-weighted-mean-linear"
+		twavglocf := "time-weighted-mean-locf"
+		elements := []model.QueriesRequestElement{{
+			DeviceId:  &deviceId,
+			ServiceId: &serviceId,
+			Time:      &time10d,
+			Columns: []model.QueriesRequestElementColumn{
+				{
+					Name:      "sensor.ENERGY.Total",
+					GroupType: &twavglinear,
+				},
+				{
+					Name:      "sensor.ENERGY.Total",
+					GroupType: &twavglocf,
+					Math:      &plus5,
+				},
+			},
+			GroupTime:        &d1,
+			OrderColumnIndex: &zero,
+			OrderDirection:   &desc,
+		}}
+
+		actual, err := wrapper.GenerateQueries(elements, "")
+		if err != nil {
+			t.Error(err)
+		}
+		if len(actual) != 1 {
+			t.Error("Unexpected number of queries", len(actual))
+		}
+		expected := "SELECT sub0.time AS \"time\", " +
+			"(sub0.value) AS \"sensor.ENERGY.Total\", " +
+			"(sub1.value) +5 AS \"sensor.ENERGY.Total\" " +
+			"FROM (SELECT time_bucket('1d', \"time\") AS \"time\", " +
+			"average(time_weight('Linear', \"time\", \"sensor.ENERGY.Total\")) AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
+			"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN " +
+			"(SELECT time_bucket('1d', \"time\") AS \"time\", average(time_weight('LOCF', \"time\", \"sensor.ENERGY.Total\")) AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
+			"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time " +
+			"ORDER BY 1 DESC"
+
+		if actual[0] != expected {
+			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
+		}
+	})
+
 	t.Run("Test GenerateQueries Absolute Timestamps", func(t *testing.T) {
 		elements := []model.QueriesRequestElement{{
 			DeviceId:  &deviceId,
