@@ -17,11 +17,14 @@
 package model
 
 type LastValuesRequestElement struct {
-	ExportId   *string
-	DeviceId   *string
-	ServiceId  *string
-	Math       *string
-	ColumnName string
+	ExportId               *string
+	DeviceId               *string
+	ServiceId              *string
+	Math                   *string
+	SourceCharacteristicId *string
+	TargetCharacteristicId *string
+	ConceptId              *string
+	ColumnName             string
 }
 
 type LastValuesResponseElement struct {

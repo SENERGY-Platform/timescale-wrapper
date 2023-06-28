@@ -44,8 +44,8 @@ type queriesRequestElementColumn struct {
 	requestIndex int
 }
 
-func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.RemoteCache, _ *converter.Converter) {
-	handler := lastValueHandler(config, wrapper, verifier, lastValueCache)
+func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) {
+	handler := lastValueHandler(config, wrapper, verifier, remoteCache, converter)
 
 	router.POST("/last-values", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		resp, code, err := handler(request, params)
@@ -61,7 +61,7 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 	})
 }
 
-func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.RemoteCache) func(request *http.Request, params httprouter.Params) ([]model.LastValuesResponseElement, int, error) {
+func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) func(request *http.Request, params httprouter.Params) ([]model.LastValuesResponseElement, int, error) {
 	return func(request *http.Request, params httprouter.Params) ([]model.LastValuesResponseElement, int, error) {
 		start := time.Now()
 
@@ -77,9 +77,13 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 
 		for i := range requestElements {
 			if requestElements[i].ExportId != nil {
-				fillColumnMap(exportQueriesRequestElementColumnMap, *requestElements[i].ExportId, i, requestElements[i].ColumnName, requestElements[i].Math)
+				fillColumnMap(exportQueriesRequestElementColumnMap, *requestElements[i].ExportId, i,
+					requestElements[i].ColumnName, requestElements[i].Math, requestElements[i].SourceCharacteristicId,
+					requestElements[i].TargetCharacteristicId, requestElements[i].ConceptId)
 			} else if requestElements[i].DeviceId != nil && requestElements[i].ServiceId != nil {
-				fillColumnMap(deviceQueriesRequestElementColumnMap, *requestElements[i].DeviceId+","+*requestElements[i].ServiceId, i, requestElements[i].ColumnName, requestElements[i].Math)
+				fillColumnMap(deviceQueriesRequestElementColumnMap, *requestElements[i].DeviceId+","+*requestElements[i].ServiceId,
+					i, requestElements[i].ColumnName, requestElements[i].Math, requestElements[i].SourceCharacteristicId,
+					requestElements[i].TargetCharacteristicId, requestElements[i].ConceptId)
 			} else {
 				return nil, http.StatusBadRequest, errors.New("invalid request body")
 			}
@@ -145,7 +149,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		for i := range fullRequestElements {
 			i := i
 			go func() {
-				raw[i], err = lastValueCache.GetLastValuesFromCache(fullRequestElements[i])
+				raw[i], err = remoteCache.GetLastValuesFromCache(fullRequestElements[i])
 				if err != nil {
 					m.Lock()
 					defer m.Unlock()
@@ -189,32 +193,32 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		if timeFormat == "" {
 			timeFormat = time.RFC3339Nano
 		}
+
+		responseRawData, err := formatResponse(remoteCache, model.PerQuery, fullRequestElements, raw, 0, model.Desc, timeFormat, converter)
+		if err != nil {
+			return nil, http.StatusInternalServerError, err
+		}
+
+		responseData, ok := responseRawData.([][][]interface{})
+
 		responseElements := make([]model.LastValuesResponseElement, len(requestElements))
-
 		inserted = 0
-		for i := range raw {
-			var timeString string
-			if len(raw[i]) > 0 && len(raw[i][0]) > 0 {
-				dt, ok := raw[i][0][0].(time.Time)
-				if ok {
-					timeString = dt.Format(timeFormat)
-				}
-			}
-
-			for j := range raw[i][0] {
+		var t string
+		for i := range responseData {
+			for j := range responseData[i][0] {
 				if j == 0 {
-					continue
+					t, ok = responseData[i][0][0].(string)
+					if !ok {
+						return nil, http.StatusInternalServerError, err
+					}
+				} else {
+					// use known order to insert result at correct location
+					responseElements[outputIndexToInputIndex[inserted]] = model.LastValuesResponseElement{
+						Time:  &t,
+						Value: responseData[i][0][j],
+					}
+					inserted++
 				}
-				var timePointer *string
-				if len(timeString) > 0 {
-					timePointer = &timeString
-				}
-				// use known order to insert result at correct location
-				responseElements[outputIndexToInputIndex[inserted]] = model.LastValuesResponseElement{
-					Time:  timePointer,
-					Value: raw[i][0][j],
-				}
-				inserted++
 			}
 		}
 
@@ -226,21 +230,27 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 	}
 }
 
-func fillColumnMap(m map[string][]queriesRequestElementColumn, id string, i int, columnName string, columnMath *string) {
+func fillColumnMap(m map[string][]queriesRequestElementColumn, id string, i int, columnName string, columnMath *string, sourceCharacteristicId *string, targetCharacteristicId *string, conceptId *string) {
 	existing, ok := m[id]
 	if ok {
 		existing = append(existing, queriesRequestElementColumn{
 			requestIndex: i,
 			QueriesRequestElementColumn: &model.QueriesRequestElementColumn{
-				Name: columnName,
-				Math: columnMath,
+				Name:                   columnName,
+				Math:                   columnMath,
+				SourceCharacteristicId: sourceCharacteristicId,
+				TargetCharacteristicId: targetCharacteristicId,
+				ConceptId:              conceptId,
 			}})
 	} else {
 		existing = []queriesRequestElementColumn{{
 			requestIndex: i,
 			QueriesRequestElementColumn: &model.QueriesRequestElementColumn{
-				Name: columnName,
-				Math: columnMath,
+				Name:                   columnName,
+				Math:                   columnMath,
+				SourceCharacteristicId: sourceCharacteristicId,
+				TargetCharacteristicId: targetCharacteristicId,
+				ConceptId:              conceptId,
 			}}}
 	}
 	m[id] = existing

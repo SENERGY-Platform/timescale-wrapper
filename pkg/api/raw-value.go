@@ -19,13 +19,16 @@ func init() {
 	endpoints = append(endpoints, RawValueEndpoint)
 }
 
-func RawValueEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.RemoteCache, _ *converter.Converter) {
-	handler := lastValueHandler(config, wrapper, verifier, lastValueCache)
+func RawValueEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.RemoteCache, converter *converter.Converter) {
+	handler := lastValueHandler(config, wrapper, verifier, lastValueCache, converter)
 	router.GET("/raw-value", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		exportId := request.URL.Query().Get("export_id")
 		deviceId := request.URL.Query().Get("device_id")
 		serviceId := request.URL.Query().Get("service_id")
 		math := request.URL.Query().Get("math")
+		sourceCharacteristicId := request.URL.Query().Get("source_characteristic_id")
+		targetCharacteristicId := request.URL.Query().Get("target_characteristic_id")
+		conceptId := request.URL.Query().Get("concept_id")
 
 		elem := model.LastValuesRequestElement{
 			ColumnName: request.URL.Query().Get("column"),
@@ -41,6 +44,15 @@ func RawValueEndpoint(router *httprouter.Router, config configuration.Config, wr
 		}
 		if len(math) > 0 {
 			elem.Math = &math
+		}
+		if len(sourceCharacteristicId) > 0 {
+			elem.SourceCharacteristicId = &sourceCharacteristicId
+		}
+		if len(targetCharacteristicId) > 0 {
+			elem.TargetCharacteristicId = &targetCharacteristicId
+		}
+		if len(conceptId) > 0 {
+			elem.ConceptId = &conceptId
 		}
 
 		b, err := json.Marshal([]model.LastValuesRequestElement{elem})
