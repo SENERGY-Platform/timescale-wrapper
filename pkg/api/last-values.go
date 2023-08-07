@@ -207,6 +207,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		for i := range responseData {
 			if len(responseData[i]) == 0 {
 				responseElements[outputIndexToInputIndex[inserted]] = model.LastValuesResponseElement{}
+				inserted++
 				continue
 			}
 			for j := range responseData[i][0] {
