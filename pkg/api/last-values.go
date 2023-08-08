@@ -208,8 +208,8 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 				inserted += len(fullRequestElements[i].Columns)
 				continue
 			}
+			t := ""
 			for j := range responseData[i][0] {
-				t := ""
 				if j == 0 {
 					t, ok = responseData[i][0][0].(string)
 					if !ok {
