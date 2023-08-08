@@ -203,13 +203,13 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 
 		responseElements := make([]model.LastValuesResponseElement, len(requestElements))
 		inserted = 0
-		var t string
 		for i := range responseData {
 			if len(responseData[i]) == 0 {
 				inserted += len(fullRequestElements[i].Columns)
 				continue
 			}
 			for j := range responseData[i][0] {
+				var t string
 				if j == 0 {
 					t, ok = responseData[i][0][0].(string)
 					if !ok {
