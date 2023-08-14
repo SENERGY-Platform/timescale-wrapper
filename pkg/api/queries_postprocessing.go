@@ -146,8 +146,10 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 						return nil, err
 					}
 				}
-				formattedRow[baseIndex[seriesIndex]+seriesColumnIndex] = point
-				anyData = true
+				if point != nil {
+					formattedRow[baseIndex[seriesIndex]+seriesColumnIndex] = point
+					anyData = true
+				}
 			}
 			for subSeriesIndex := range data {
 				if subSeriesIndex <= seriesIndex {
@@ -170,8 +172,10 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 								return nil, err
 							}
 						}
-						formattedRow[baseIndex[subSeriesIndex]+subSeriesColumnIndex] = point
-						anyData = true
+						if point != nil {
+							formattedRow[baseIndex[subSeriesIndex]+subSeriesColumnIndex] = point
+							anyData = true
+						}
 					}
 					data[subSeriesIndex] = model.RemoveElementFrom2D(data[subSeriesIndex], subRowIndex)
 					// sorting required for binary search
