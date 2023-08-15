@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/SENERGY-Platform/converter v0.0.0-20221223113642-0810e70f4602
 	github.com/SENERGY-Platform/device-repository v0.0.0-20221223122246-7a3decac9204
-	github.com/SENERGY-Platform/models/go v0.0.0-20221223081229-be7eb5ebb37f
+	github.com/SENERGY-Platform/models/go v0.0.0-20230724134144-c26fd506045f
 	github.com/bradfitz/gomemcache v0.0.0-20220106215444-fb4bf637b56d
 	github.com/coocood/freecache v1.1.1
 	github.com/golang-jwt/jwt v3.2.2+incompatible
@@ -35,6 +35,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/snappy v0.0.1 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
+	github.com/google/uuid v1.3.0 // indirect
 	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/jackc/fake v0.0.0-20150926172116-812a484cc733 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect

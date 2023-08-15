@@ -18,6 +18,8 @@ github.com/SENERGY-Platform/device-repository v0.0.0-20221223122246-7a3decac9204
 github.com/SENERGY-Platform/device-repository v0.0.0-20221223122246-7a3decac9204/go.mod h1:4kjvGNN4oOWacRJ7Dftw98+/rscSIyk/gTF/MEcLrk0=
 github.com/SENERGY-Platform/models/go v0.0.0-20221223081229-be7eb5ebb37f h1:nq+SurPs/4hheF2ftRm0VuV2FRa1buxv6LakesiMXac=
 github.com/SENERGY-Platform/models/go v0.0.0-20221223081229-be7eb5ebb37f/go.mod h1:GqfI+440B0Yz7NshAxm4PgVwRGcNqvbxddoB+xUa6HQ=
+github.com/SENERGY-Platform/models/go v0.0.0-20230724134144-c26fd506045f h1:oBq0lbW2zWB5do7DTsLjO+E5Z2AKkYPeRe2CRgb43v0=
+github.com/SENERGY-Platform/models/go v0.0.0-20230724134144-c26fd506045f/go.mod h1:bCREPNRN4P8oxLgpC3/ZKK4jXSy4MSPXoiomhohE+aw=
 github.com/acobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249 h1:fMi9ZZ/it4orHj3xWrM6cLkVFcCbkXQALFUiNtHtCPs=
 github.com/acobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249/go.mod h1:iU1PxQMQwoHZZWmMKrMkrNlY+3+p9vxIjpZOVyxWa0g=
 github.com/albertorestifo/dijkstra v0.0.0-20160910063646-aba76f725f72 h1:uGeGZl8PxSq8VZGG4QK5njJTFA4/G/x5CYORvQVXtAE=
@@ -69,6 +71,8 @@ github.com/google/go-cmp v0.5.4/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/
 github.com/google/go-cmp v0.5.8 h1:e6P7q2lk1O+qJJb4BtCQXlK8vWEO8V1ZeuEdJNOqZyg=
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 h1:El6M4kTTCOh6aBiKaUGG7oYTSPP8MxqL4YI3kZKwcP4=
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510/go.mod h1:pupxD2MaaD3pAXIBCelhxNneeOaAeabZDe5s4K6zSpQ=
+github.com/google/uuid v1.3.0 h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=
+github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/imdario/mergo v0.3.12 h1:b6R2BslTbIEToALKP7LxUvijTsNI9TAe80pLWN2g/HU=
 github.com/imdario/mergo v0.3.12/go.mod h1:jmQim1M+e3UYxmgPu/WyfjB3N3VflVyUjjjwH0dnCYA=
 github.com/jackc/fake v0.0.0-20150926172116-812a484cc733 h1:vr3AYkKovP8uR8AvSGGUK1IDqRa5lAAvEkZG1LKaCRc=

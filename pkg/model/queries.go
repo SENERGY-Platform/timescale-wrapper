@@ -188,7 +188,7 @@ func mathValid(math string) bool {
 	return len(mathMatcher.FindString(math)) == len(math)
 }
 
-var timeMatcher = regexp.MustCompile("(\\d)+(ms|s|months|m|h|d|w|y)")
+var timeMatcher = regexp.MustCompile("(\\d)+\\s*(ms|s|mon|months|m|h|day|d|w|y|:\\d\\d:\\d\\d)")
 
 func timeIntervalValid(timeInterval string) bool {
 	lengthOfFoundMatch := len(timeMatcher.FindString(timeInterval))

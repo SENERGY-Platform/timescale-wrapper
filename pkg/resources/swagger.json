@@ -405,6 +405,41 @@
         ],
         "produces": ["application/csv"]
       }
+    },
+    "/data-availability": {
+      "get": {
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "query",
+            "type": "string",
+            "description": "ID of requested device"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "serviceId": {"type": "string"},
+                  "from": {"type": "string"},
+                  "to": {"type": "string"},
+                  "groupType": {"type": "string"},
+                  "groupTime": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "operationId": "data-availability",
+        "tags": [
+          "default"
+        ],
+        "produces": ["application/json"]
+      }
     }
   },
   "produces": [
