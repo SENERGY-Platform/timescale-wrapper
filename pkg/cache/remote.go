@@ -24,7 +24,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/bradfitz/gomemcache/memcache"
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"log"
 	"strings"
 	"time"
@@ -141,7 +141,7 @@ func (this *RemoteCache) StoreSecretQuery(query model.PreparedQueriesRequestElem
 	if err != nil {
 		return "", err
 	}
-	uid := uuid.NewV4().String()
+	uid := uuid.NewString()
 	err = this.mc.Set(&memcache.Item{
 		Key:        "secretquery_" + uid,
 		Value:      bytes,

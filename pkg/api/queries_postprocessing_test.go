@@ -60,7 +60,7 @@ func TestPostProcessing(t *testing.T) {
 	t.Run("Test With Conversions", func(t *testing.T) {
 		t.Parallel()
 		conf := configuration.ConfigStruct{}
-		deviceRepo, testDb, err := client.NewTestClient()
+		deviceRepo, testDb, _, err := client.NewTestClient()
 		if err != nil {
 			t.Fatal(err)
 		}
