@@ -35,6 +35,7 @@ type ConfigStruct struct {
 	PostgresUser           string   `json:"postgres_user"`
 	PostgresDb             string   `json:"postgres_db"`
 	PostgresPw             string   `json:"postgres_pw"`
+	PostgresUsageSchema    string   `json:"postgres_usage_schema"`
 	PermissionSearchUrl    string   `json:"permission_search_url"`
 	ServingUrl             string   `json:"serving_url"`
 	MemcachedUrls          []string `json:"memcached_urls"`

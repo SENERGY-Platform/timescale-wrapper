@@ -2,3 +2,7 @@
 *.iml
 TODO.txt
 timescale-wrapper
+.run
+.vscode
+*.patch
+__debug*

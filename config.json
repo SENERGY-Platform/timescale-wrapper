@@ -6,6 +6,7 @@
   "postgres_user": "postgres",
   "postgres_db": "postgres",
   "postgres_pw": "pw",
+  "postgres_usage_schema": "usage",
   "permission_search_url": "http://permission-search:8080",
   "serving_url": "http://serving:8080",
   "device_repo_url": "http://api.device-repository:8080",
