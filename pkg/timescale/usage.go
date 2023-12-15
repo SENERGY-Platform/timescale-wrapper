@@ -22,6 +22,7 @@ import (
 
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/jackc/pgx/pgtype"
 )
 
 func (wrapper *Wrapper) GetDeviceUsage(deviceIds []string) (res []model.DeviceUsage, err error) {
@@ -34,18 +35,20 @@ func (wrapper *Wrapper) GetDeviceUsage(deviceIds []string) (res []model.DeviceUs
 		shortDeviceIds = append(shortDeviceIds, "'"+shortId+"'")
 	}
 
-	rows, err := wrapper.pool.Query(fmt.Sprintf("SELECT substring(\"table\", 8, 22) as short_device_id, sum(bytes), min(updated_at) FROM %v.usage WHERE substring(\"table\", 8, 22) IN (%v) GROUP BY short_device_id", wrapper.config.PostgresUsageSchema, strings.Join(shortDeviceIds, ", ")))
+	rows, err := wrapper.pool.Query(fmt.Sprintf("SELECT substring(\"table\", 8, 22) as short_device_id, sum(bytes), min(updated_at), sum(bytes_per_day) FROM %v.usage WHERE substring(\"table\", 8, 22) IN (%v) GROUP BY short_device_id", wrapper.config.PostgresUsageSchema, strings.Join(shortDeviceIds, ", ")))
 	if err != nil {
 		return nil, err
 	}
 
 	res = []model.DeviceUsage{}
 	r := model.DeviceUsage{}
+	var bytesPerDay pgtype.Float8
 	for rows.Next() {
-		err = rows.Scan(&r.DeviceId, &r.Bytes, &r.UpdatedAt)
+		err = rows.Scan(&r.DeviceId, &r.Bytes, &r.UpdatedAt, &bytesPerDay)
 		if err != nil {
 			return nil, err
 		}
+		r.BytesPerDay = bytesPerDay.Float
 		r.DeviceId, err = models.LongId(r.DeviceId)
 		if err != nil {
 			return nil, err
