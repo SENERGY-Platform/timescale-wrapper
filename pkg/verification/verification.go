@@ -68,6 +68,11 @@ func (verifier *Verifier) VerifyAccessOnce(element model.QueriesRequestElement, 
 			return verifier.verifyDevice(*element.DeviceId, token, userId)
 		}, &ok)
 		return
+	} else if element.DeviceGroupId != nil {
+		err = verifier.c.Use(userId+*element.DeviceGroupId, func() (interface{}, error) {
+			return verifier.verifyDeviceGroup(*element.DeviceGroupId, token, userId)
+		}, &ok)
+		return
 	}
 	return true, nil
 }

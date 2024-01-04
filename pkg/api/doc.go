@@ -18,15 +18,17 @@ package api
 
 import (
 	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
+
 	"github.com/SENERGY-Platform/converter/lib/converter"
+	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/julienschmidt/httprouter"
-	"io/ioutil"
-	"log"
-	"net/http"
 )
 
 const swaggerJSONLocation = "pkg/resources/swagger.json"
@@ -35,7 +37,7 @@ func init() {
 	endpoints = append(endpoints, DocEndpoint)
 }
 
-func DocEndpoint(router *httprouter.Router, _ configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter) {
+func DocEndpoint(router *httprouter.Router, _ configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
 	json, readErr := ioutil.ReadFile(swaggerJSONLocation)
 	if readErr != nil {
 		log.Println("ERROR reading swagger definition from ", swaggerJSONLocation)

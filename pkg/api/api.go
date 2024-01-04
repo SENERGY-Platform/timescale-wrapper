@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"github.com/SENERGY-Platform/converter/lib/converter"
+	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api/util"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
@@ -36,14 +37,14 @@ import (
 	"time"
 )
 
-var endpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter){}
-var unauthenticatedEndpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter){}
+var endpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client){}
+var unauthenticatedEndpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client){}
 
-func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter) (err error) {
+func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) (err error) {
 	log.Println("start api")
-	router := Router(config, wrapper, verifier, cache, converter)
+	router := Router(config, wrapper, verifier, cache, converter, deviceSelection)
 	server := &http.Server{Addr: ":" + config.ApiPort, Handler: router, WriteTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, ReadHeaderTimeout: 2 * time.Second}
-	unauthenticatedRouter := UnauthenticatedRouter(config, wrapper, verifier, cache, converter)
+	unauthenticatedRouter := UnauthenticatedRouter(config, wrapper, verifier, cache, converter, deviceSelection)
 	unauthenticatedServer := &http.Server{Addr: ":" + config.UnauthenticatedApiPort, Handler: unauthenticatedRouter, WriteTimeout: 30 * time.Minute, ReadTimeout: 2 * time.Second, ReadHeaderTimeout: 2 * time.Second}
 	wg.Add(1)
 	go func() {
@@ -70,22 +71,22 @@ func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config,
 	return nil
 }
 
-func Router(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter) http.Handler {
+func Router(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) http.Handler {
 	router := httprouter.New()
 	for _, e := range endpoints {
 		log.Println("add endpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
-		e(router, config, wrapper, verifier, cache, converter)
+		e(router, config, wrapper, verifier, cache, converter, deviceSelection)
 	}
 	log.Println("add logging and cors")
 	corsHandler := util.NewCors(router)
 	return util.NewLogger(corsHandler)
 }
 
-func UnauthenticatedRouter(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter) http.Handler {
+func UnauthenticatedRouter(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) http.Handler {
 	router := httprouter.New()
 	for _, e := range unauthenticatedEndpoints {
 		log.Println("add unauthenticatedEndpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
-		e(router, config, wrapper, verifier, cache, converter)
+		e(router, config, wrapper, verifier, cache, converter, deviceSelection)
 	}
 	log.Println("add logging and cors")
 	corsHandler := util.NewCors(router)

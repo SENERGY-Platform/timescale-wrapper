@@ -21,11 +21,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"log"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
 func translateFunctionName(name string) string {
@@ -89,7 +90,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 					} else {
 						query += translateFunctionName(groupParts[1]) + "\"" + column.Name + "\")"
 					}
-					if (element.Time.Last != nil || element.Time.Ahead != nil) && !elementTimeLastAheadModified {
+					if element.Time != nil && (element.Time.Last != nil || element.Time.Ahead != nil) && !elementTimeLastAheadModified {
 						// manually increase the last offset by 1 to ensure unified results
 						re := regexp.MustCompile(`\d+`)
 						var prefix string

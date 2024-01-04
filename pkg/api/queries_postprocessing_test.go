@@ -18,15 +18,17 @@ package api
 
 import (
 	"encoding/json"
+	"reflect"
+	"testing"
+	"time"
+
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	"github.com/SENERGY-Platform/device-repository/lib/client"
+	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"reflect"
-	"testing"
-	"time"
 )
 
 func TestPostProcessing(t *testing.T) {
@@ -89,7 +91,7 @@ func TestPostProcessing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		remoteCache := cache.NewRemote(&conf, deviceRepo)
+		remoteCache := cache.NewRemote(&conf, deviceRepo, deviceSelection.NewTestClient())
 		conv, err := converter.New()
 		if err != nil {
 			t.Fatal(err)

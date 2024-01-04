@@ -20,19 +20,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/SENERGY-Platform/converter/lib/converter"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
-	"github.com/julienschmidt/httprouter"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/SENERGY-Platform/converter/lib/converter"
+	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
+	"github.com/julienschmidt/httprouter"
 )
 
 func init() {
@@ -44,7 +46,7 @@ type queriesRequestElementColumn struct {
 	requestIndex int
 }
 
-func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) {
+func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	handler := lastValueHandler(config, wrapper, verifier, remoteCache, converter)
 
 	router.POST("/last-values", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {

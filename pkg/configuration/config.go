@@ -41,6 +41,7 @@ type ConfigStruct struct {
 	MemcachedUrls          []string `json:"memcached_urls"`
 	Debug                  bool     `json:"debug"`
 	DeviceRepoUrl          string   `json:"device_repo_url"`
+	DeviceSelectionUrl     string   `json:"device_selection_url"`
 }
 
 type Config = *ConfigStruct

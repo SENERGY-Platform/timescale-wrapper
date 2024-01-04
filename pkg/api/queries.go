@@ -19,53 +19,41 @@ package api
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
+	"net/http"
+	"strconv"
+	"sync"
+	"time"
+
 	"github.com/SENERGY-Platform/converter/lib/converter"
+	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/julienschmidt/httprouter"
-	"log"
-	"net/http"
-	"strconv"
-	"sync"
-	"time"
 )
 
 func init() {
 	endpoints = append(endpoints, QueriesEndpoint)
 }
 
-func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) {
+func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	router.POST("/queries", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		start := time.Now()
-		requestedFormat := model.Format(request.URL.Query().Get("format"))
-
-		var requestElements []model.QueriesRequestElement
-		err := json.NewDecoder(request.Body).Decode(&requestElements)
+		requestedFormat, orderColumnIndex, orderDirection, err := queriesParseQueryparams(request)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		paramOrderColumnIndex := request.URL.Query().Get("order_column_index")
-		var orderColumnIndex int
-		if paramOrderColumnIndex == "" {
-			orderColumnIndex = 0
-		} else {
-			orderColumnIndex, err = strconv.Atoi(paramOrderColumnIndex)
-			if err != nil {
-				http.Error(writer, "Invalid param order_column_index", http.StatusBadRequest)
-				return
-			}
-		}
-		orderDirection := model.Direction(request.URL.Query().Get("order_direction"))
-		if orderDirection == "" {
-			orderDirection = model.Desc
-		} else if orderDirection != "asc" && orderDirection != "desc" {
-			http.Error(writer, "Invalid param orderDirection", http.StatusBadRequest)
+		var requestElements []model.QueriesRequestElement
+		err = json.NewDecoder(request.Body).Decode(&requestElements)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -74,56 +62,19 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 				http.Error(writer, "Invalid request body", http.StatusBadRequest)
 				return
 			}
+			if requestElements[i].DeviceGroupId != nil {
+				http.Error(writer, "Setting DeviceGroupId is invalid for /queries, use /queries/v2", http.StatusBadRequest)
+				return
+			}
 		}
-		userId, err := getUserId(request)
+
+		userId, err, code := queriesVerify(requestElements, request, start, verifier, config)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
-			return
-		}
-		ok, err := verifier.VerifyAccess(requestElements, getToken(request), userId)
-		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if config.Debug {
-			log.Println("DEBUG: Verification took " + time.Since(start).String())
-		}
-		if !ok {
-			http.Error(writer, "not found", http.StatusNotFound)
+			http.Error(writer, err.Error(), code)
 			return
 		}
 
-		dbRequestElements := []model.QueriesRequestElement{}
-		dbRequestIndices := []int{}
-
-		beforeCache := time.Now()
-		raw := make([][][]interface{}, len(requestElements))
-
-		m := sync.Mutex{}
-		wg := sync.WaitGroup{}
-		wg.Add(len(requestElements))
-		for i := range requestElements {
-			i := i
-			go func() {
-				var err error
-				raw[i], err = remoteCache.GetLastValuesFromCache(requestElements[i])
-				if err != nil {
-					m.Lock()
-					defer m.Unlock()
-					dbRequestElements = append(dbRequestElements, requestElements[i])
-					dbRequestIndices = append(dbRequestIndices, i)
-					if err != cache.NotCachableError {
-						log.Println("WARN: Could not get data from remoteCache: " + err.Error())
-					}
-				}
-				wg.Done()
-			}()
-		}
-		wg.Wait()
-		if config.Debug {
-			log.Println("DEBUG: Cache collection took " + time.Since(beforeCache).String())
-			log.Println("DEBUG: Got " + strconv.Itoa(len(requestElements)-len(dbRequestIndices)) + " from remoteCache, requesting " + strconv.Itoa(len(dbRequestIndices)) + " from db")
-		}
+		raw, dbRequestElements, dbRequestIndices := queriesGetFromCache(requestElements, remoteCache, config)
 
 		beforeQueries := time.Now()
 		queries, err := wrapper.GenerateQueries(dbRequestElements, userId)
@@ -186,4 +137,82 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 
 	})
 
+}
+
+func queriesParseQueryparams(request *http.Request) (requestedFormat model.Format, orderColumnIndex int, orderDirection model.Direction, err error) {
+	requestedFormat = model.Format(request.URL.Query().Get("format"))
+	paramOrderColumnIndex := request.URL.Query().Get("order_column_index")
+	if paramOrderColumnIndex == "" {
+		orderColumnIndex = 0
+	} else {
+		orderColumnIndex, err = strconv.Atoi(paramOrderColumnIndex)
+		if err != nil {
+			err = errors.New("invalid param order_column_index")
+			return
+		}
+	}
+	orderDirection = model.Direction(request.URL.Query().Get("order_direction"))
+	if orderDirection == "" {
+		orderDirection = model.Desc
+	} else if orderDirection != "asc" && orderDirection != "desc" {
+		err = errors.New("invalid param orderDirection")
+		return
+	}
+	return
+}
+
+func queriesVerify(requestElements []model.QueriesRequestElement, request *http.Request, start time.Time, verifier *verification.Verifier, config configuration.Config) (userId string, err error, code int) {
+	userId, err = getUserId(request)
+	code = http.StatusInternalServerError
+	if err != nil {
+		return
+	}
+	ok, err := verifier.VerifyAccess(requestElements, getToken(request), userId)
+	if err != nil {
+		return
+	}
+	if config.Debug {
+		log.Println("DEBUG: Verification took " + time.Since(start).String())
+	}
+	if !ok {
+		code = http.StatusNotFound
+		err = errors.New("not found")
+		return
+	}
+	return
+}
+
+func queriesGetFromCache(requestElements []model.QueriesRequestElement, remoteCache *cache.RemoteCache, config configuration.Config) (raw [][][]interface{}, dbRequestElements []model.QueriesRequestElement, dbRequestIndices []int) {
+	dbRequestElements = []model.QueriesRequestElement{}
+	dbRequestIndices = []int{}
+
+	beforeCache := time.Now()
+	raw = make([][][]interface{}, len(requestElements))
+
+	m := sync.Mutex{}
+	wg := sync.WaitGroup{}
+	wg.Add(len(requestElements))
+	for i := range requestElements {
+		i := i
+		go func() {
+			var err error
+			raw[i], err = remoteCache.GetLastValuesFromCache(requestElements[i])
+			if err != nil {
+				m.Lock()
+				defer m.Unlock()
+				dbRequestElements = append(dbRequestElements, requestElements[i])
+				dbRequestIndices = append(dbRequestIndices, i)
+				if err != cache.NotCachableError {
+					log.Println("WARN: Could not get data from remoteCache: " + err.Error())
+				}
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	if config.Debug {
+		log.Println("DEBUG: Cache collection took " + time.Since(beforeCache).String())
+		log.Println("DEBUG: Got " + strconv.Itoa(len(requestElements)-len(dbRequestIndices)) + " from remoteCache, requesting " + strconv.Itoa(len(dbRequestIndices)) + " from db")
+	}
+	return
 }

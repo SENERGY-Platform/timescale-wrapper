@@ -20,7 +20,14 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"io"
+	"log"
+	"math"
+	"net/http"
+	"time"
+
 	"github.com/SENERGY-Platform/converter/lib/converter"
+	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api/util"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
@@ -29,11 +36,6 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/julienschmidt/httprouter"
-	"io"
-	"log"
-	"math"
-	"net/http"
-	"time"
 )
 
 func init() {
@@ -41,7 +43,7 @@ func init() {
 	unauthenticatedEndpoints = append(unauthenticatedEndpoints, DownloadEndpoints)
 }
 
-func PrepareDownloadEndpoints(router *httprouter.Router, config configuration.Config, _ *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, _ *converter.Converter) {
+func PrepareDownloadEndpoints(router *httprouter.Router, config configuration.Config, _ *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/download", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		prepared, ok := prepareQueriesRequestElement(writer, request, verifier)
 		if !ok {
@@ -70,7 +72,7 @@ func PrepareDownloadEndpoints(router *httprouter.Router, config configuration.Co
 	})
 }
 
-func DownloadEndpoints(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) {
+func DownloadEndpoints(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/download/:secret", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		prepared, err := remoteCache.GetSecretQuery(params.ByName("secret"))
 		if err != nil {

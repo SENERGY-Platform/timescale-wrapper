@@ -20,6 +20,7 @@ import (
 	"context"
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	"github.com/SENERGY-Platform/device-repository/lib/client"
+	deviceSelectionClient "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api"
 	cache "github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
@@ -36,11 +37,12 @@ func Start(ctx context.Context, config configuration.Config) (wg *sync.WaitGroup
 	}
 	verifier := verification.New(config)
 	deviceRepoClient := client.NewClient(config.DeviceRepoUrl)
-	lastValueCache := cache.NewRemote(config, deviceRepoClient)
+	deviceSelection := deviceSelectionClient.NewClient(config.DeviceSelectionUrl)
+	lastValueCache := cache.NewRemote(config, deviceRepoClient, deviceSelection)
 	conv, err := converter.New()
 	if err != nil {
 		return wg, err
 	}
-	err = api.Start(ctx, wg, config, influxClient, verifier, lastValueCache, conv)
+	err = api.Start(ctx, wg, config, influxClient, verifier, lastValueCache, conv, deviceSelection)
 	return
 }

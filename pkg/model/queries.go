@@ -20,6 +20,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/SENERGY-Platform/models/go/models"
 )
 
 type QueriesRequestElement struct {
@@ -33,13 +35,22 @@ type QueriesRequestElement struct {
 	GroupTime        *string
 	OrderColumnIndex *int
 	OrderDirection   *Direction
+	DeviceGroupId    *string
 }
 
 func (element *QueriesRequestElement) Valid() bool {
-	if element.ExportId == nil && (element.DeviceId == nil || element.ServiceId == nil || !serviceIdValid(*element.ServiceId)) {
+	if element.ExportId == nil && (element.DeviceId == nil || element.ServiceId == nil || !serviceIdValid(*element.ServiceId)) && element.DeviceGroupId == nil {
 		return false
 	}
-	if element.ExportId != nil && (element.DeviceId != nil || element.ServiceId != nil) {
+	if element.ExportId != nil && (element.DeviceId != nil || element.ServiceId != nil || element.DeviceGroupId != nil) {
+		return false
+	}
+	if element.DeviceGroupId != nil && (element.DeviceId != nil || element.ServiceId != nil || element.ExportId != nil) {
+		for _, col := range element.Columns {
+			if !DeviceGroupFilterCriteriaValid(col.Criteria) {
+				return false
+			}
+		}
 		return false
 	}
 	if element.Time != nil && !element.Time.Valid() {
@@ -128,10 +139,16 @@ type QueriesRequestElementColumn struct {
 	SourceCharacteristicId *string
 	TargetCharacteristicId *string
 	ConceptId              *string
+	Criteria               models.DeviceGroupFilterCriteria
 }
 
 func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
-	if !columnNameValid(elementColumn.Name) {
+	nameValid := columnNameValid(elementColumn.Name)
+	criteriaValid := DeviceGroupFilterCriteriaValid(elementColumn.Criteria)
+	if !nameValid && !criteriaValid {
+		return false
+	}
+	if nameValid && criteriaValid {
 		return false
 	}
 	if elementColumn.GroupType != nil && !hasTime {
@@ -149,7 +166,7 @@ func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
 	if elementColumn.Math != nil && !mathValid(*elementColumn.Math) {
 		return false
 	}
-	if elementColumn.TargetCharacteristicId != nil && elementColumn.ConceptId == nil {
+	if elementColumn.TargetCharacteristicId != nil && elementColumn.ConceptId == nil && elementColumn.Criteria.FunctionId == "" {
 		return false
 	}
 	return true
@@ -226,4 +243,14 @@ type PreparedQueriesRequestElement struct {
 	QueriesRequestElement
 	Token      string
 	TimeFormat string
+}
+
+func DeviceGroupFilterCriteriaValid(criteria models.DeviceGroupFilterCriteria) bool {
+	if len(criteria.FunctionId) == 0 {
+		return false
+	}
+	if len(criteria.AspectId) == 0 {
+		return false
+	}
+	return true
 }

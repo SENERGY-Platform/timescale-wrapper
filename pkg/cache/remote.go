@@ -17,23 +17,31 @@
 package cache
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/SENERGY-Platform/device-repository/lib/api"
+	drmodel "github.com/SENERGY-Platform/device-repository/lib/model"
+	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
+	dsmodel "github.com/SENERGY-Platform/device-selection/pkg/model"
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/google/uuid"
-	"log"
-	"strings"
-	"time"
 )
 
 type RemoteCache struct {
-	mc         *memcache.Client
-	config     configuration.Config
-	deviceRepo api.Controller
+	mc              *memcache.Client
+	config          configuration.Config
+	deviceRepo      api.Controller
+	deviceSelection deviceSelection.Client
 }
 
 var NotCachableError = errors.New("not cachable")
@@ -43,13 +51,13 @@ type Entry struct {
 	Value map[string]interface{} `json:"value"`
 }
 
-func NewRemote(config configuration.Config, deviceRepo api.Controller) *RemoteCache {
-	return &RemoteCache{mc: memcache.New(config.MemcachedUrls...), config: config, deviceRepo: deviceRepo}
+func NewRemote(config configuration.Config, deviceRepo api.Controller, deviceSelection deviceSelection.Client) *RemoteCache {
+	return &RemoteCache{mc: memcache.New(config.MemcachedUrls...), config: config, deviceRepo: deviceRepo, deviceSelection: deviceSelection}
 }
 
 func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElement) ([][]interface{}, error) {
 	if request.DeviceId == nil || request.ServiceId == nil || request.Limit == nil || *request.Limit != 1 ||
-		request.Time != nil || request.GroupTime != nil || request.Filters != nil {
+		request.Time != nil || request.GroupTime != nil || request.Filters != nil || request.DeviceGroupId != nil {
 		return nil, NotCachableError
 	}
 
@@ -162,6 +170,146 @@ func (this *RemoteCache) GetSecretQuery(secret string) (query model.PreparedQuer
 	}
 	err = json.Unmarshal(item.Value, &query)
 	return query, err
+}
+
+func (this *RemoteCache) GetDeviceGroup(deviceGroupId string, token string) (deviceGroup models.DeviceGroup, err error) {
+	cachedItem, err := this.mc.Get("device_group_" + deviceGroupId)
+	if err == nil {
+		err = json.Unmarshal(cachedItem.Value, &deviceGroup)
+		if err != nil {
+			return
+		}
+	} else {
+		deviceGroup, err, _ = this.deviceRepo.ReadDeviceGroup(deviceGroupId, token)
+		if err != nil {
+			return
+		}
+		bytes, err := json.Marshal(deviceGroup)
+		if err != nil {
+			return deviceGroup, err
+		}
+		err = this.mc.Set(&memcache.Item{
+			Key:        "device_group_" + deviceGroup.Id,
+			Value:      bytes,
+			Expiration: 5 * 60,
+		})
+		if err != nil {
+			log.Println("WARNING: " + err.Error())
+			err = nil
+		}
+	}
+	return
+}
+
+func (this *RemoteCache) GetDevice(deviceId string, token string) (device models.Device, err error) {
+	cachedItem, err := this.mc.Get("device_" + deviceId)
+	if err == nil {
+		err = json.Unmarshal(cachedItem.Value, &device)
+		if err != nil {
+			return device, err
+		}
+	} else {
+		device, err, _ = this.deviceRepo.ReadDevice(deviceId, token, drmodel.READ)
+		if err != nil {
+			return device, err
+		}
+		bytes, err := json.Marshal(device)
+		if err != nil {
+			return device, err
+		}
+		err = this.mc.Set(&memcache.Item{
+			Key:        "device_" + device.Id,
+			Value:      bytes,
+			Expiration: 5 * 60,
+		})
+		if err != nil {
+			log.Println("WARNING: " + err.Error())
+			err = nil
+		}
+	}
+	return device, err
+}
+
+func (this *RemoteCache) GetFunction(functionId string) (concept models.Function, err error) {
+	cachedItem, err := this.mc.Get("function_" + functionId)
+	if err == nil {
+		err = json.Unmarshal(cachedItem.Value, &concept)
+		if err != nil {
+			return
+		}
+	} else {
+		concept, err, _ = this.deviceRepo.GetFunction(functionId)
+		if err != nil {
+			return
+		}
+		bytes, err := json.Marshal(concept)
+		if err != nil {
+			return concept, err
+		}
+		err = this.mc.Set(&memcache.Item{
+			Key:        "function_" + concept.Id,
+			Value:      bytes,
+			Expiration: 5 * 60,
+		})
+		if err != nil {
+			log.Println("WARNING: " + err.Error())
+			err = nil
+		}
+	}
+	return
+}
+
+func (this *RemoteCache) GetSelectables(userid string, token string, criteria []models.DeviceGroupFilterCriteria, options *deviceSelection.GetSelectablesOptions) (res []dsmodel.Selectable, code int, err error) {
+	hasher := sha256.New()
+	criteriaBytes, err := json.Marshal(criteria)
+	if err != nil {
+		code = http.StatusInternalServerError
+		return
+	}
+	_, err = hasher.Write(criteriaBytes)
+	if err != nil {
+		code = http.StatusInternalServerError
+		return
+	}
+
+	optionsBytes, err := json.Marshal(criteria)
+	if err != nil {
+		code = http.StatusInternalServerError
+		return
+	}
+	_, err = hasher.Write(optionsBytes)
+	if err != nil {
+		code = http.StatusInternalServerError
+		return
+	}
+
+	key := "selectables_" + hex.EncodeToString(hasher.Sum(nil))
+	cachedItem, err := this.mc.Get(key)
+	if err == nil {
+		err = json.Unmarshal(cachedItem.Value, &res)
+		if err != nil {
+			return
+		}
+	} else {
+		res, code, err = this.deviceSelection.GetSelectables(token, criteria, options)
+		if err != nil {
+			return
+		}
+		bytes, err := json.Marshal(res)
+		if err != nil {
+			return res, http.StatusInternalServerError, err
+		}
+		err = this.mc.Set(&memcache.Item{
+			Key:        key,
+			Value:      bytes,
+			Expiration: 5 * 60,
+		})
+		if err != nil {
+			log.Println("WARNING: " + err.Error())
+			err = nil
+		}
+	}
+	return
 }
 
 func getDeepEntry(m map[string]interface{}, path string) interface{} {
