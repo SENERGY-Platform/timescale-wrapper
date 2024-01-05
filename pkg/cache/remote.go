@@ -230,24 +230,24 @@ func (this *RemoteCache) GetDevice(deviceId string, token string) (device models
 	return device, err
 }
 
-func (this *RemoteCache) GetFunction(functionId string) (concept models.Function, err error) {
+func (this *RemoteCache) GetFunction(functionId string) (function models.Function, err error) {
 	cachedItem, err := this.mc.Get("function_" + functionId)
 	if err == nil {
-		err = json.Unmarshal(cachedItem.Value, &concept)
+		err = json.Unmarshal(cachedItem.Value, &function)
 		if err != nil {
 			return
 		}
 	} else {
-		concept, err, _ = this.deviceRepo.GetFunction(functionId)
+		function, err, _ = this.deviceRepo.GetFunction(functionId)
 		if err != nil {
 			return
 		}
-		bytes, err := json.Marshal(concept)
+		bytes, err := json.Marshal(function)
 		if err != nil {
-			return concept, err
+			return function, err
 		}
 		err = this.mc.Set(&memcache.Item{
-			Key:        "function_" + concept.Id,
+			Key:        "function_" + function.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
 		})
@@ -272,7 +272,7 @@ func (this *RemoteCache) GetSelectables(userid string, token string, criteria []
 		return
 	}
 
-	optionsBytes, err := json.Marshal(criteria)
+	optionsBytes, err := json.Marshal(options)
 	if err != nil {
 		code = http.StatusInternalServerError
 		return
