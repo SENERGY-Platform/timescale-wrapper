@@ -21,10 +21,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
+	"github.com/SENERGY-Platform/device-repository/lib/idmodifier"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
@@ -117,7 +119,6 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							OrderDirection:   dbRequestElement.OrderDirection,
 						})
 					}
-					//dbRequestElements = append(dbRequestElements, dbRequestElement)
 				} else {
 					token := getToken(request)
 					deviceGroup, err := remoteCache.GetDeviceGroup(*dbRequestElement.DeviceGroupId, token)
@@ -161,6 +162,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 						selectables, code, err := remoteCache.GetSelectables(userId, token, criteria, &deviceSelection.GetSelectablesOptions{
 							IncludeDevices:     true,
 							WithLocalDeviceIds: localIds,
+							IncludeIdModified:  true,
 						})
 						if err != nil {
 							mux.Lock()
@@ -172,7 +174,12 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							return
 						}
 						for selIdx, selectable := range selectables {
+							if !slices.Contains[[]string](deviceGroup.DeviceIds, selectable.Device.Id) {
+								continue //ensures only correctly modified device ids included
+							}
+							pureDeviceId, _ := idmodifier.SplitModifier(selectable.Device.Id)
 							for serviceId, paths := range selectable.ServicePathOptions {
+								serviceId := serviceId
 								columns := []model.QueriesRequestElementColumn{}
 								for _, path := range paths {
 									columns = append(columns, model.QueriesRequestElementColumn{
@@ -184,18 +191,6 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 										ConceptId:              &f.ConceptId,
 									})
 								}
-								/* TODO
-								found := false
-								for i, dbRequestElement := range dbRequestElements { // TODO is this slow af?
-									if dbRequestElement.DeviceId != nil && *dbRequestElement.DeviceId == selectable.Device.Id {
-										found = true
-										dbRequestElement.Columns = append(dbRequestElement.Columns, columns...)
-										dbRequestElements[i] = dbRequestElement
-										break
-									}
-								}
-								if !found {
-								*/
 								columnMatch[len(dbRequestElements)] = struct {
 									selIdx int
 									colIdx int
@@ -204,7 +199,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 									colIdx: colIdx,
 								}
 								dbRequestElements = append(dbRequestElements, model.QueriesRequestElement{
-									DeviceId:         &selectable.Device.Id,
+									DeviceId:         &pureDeviceId,
 									ServiceId:        &serviceId,
 									Time:             dbRequestElement.Time,
 									Limit:            dbRequestElement.Limit,
