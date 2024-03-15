@@ -180,7 +180,7 @@ func (this *RemoteCache) GetDeviceGroup(deviceGroupId string, token string) (dev
 			return
 		}
 	} else {
-		deviceGroup, err, _ = this.deviceRepo.ReadDeviceGroup(deviceGroupId, token)
+		deviceGroup, err, _ = this.deviceRepo.ReadDeviceGroup(deviceGroupId, token, false)
 		if err != nil {
 			return
 		}
