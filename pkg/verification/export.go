@@ -17,6 +17,7 @@
 package verification
 
 import (
+	"log"
 	"net/http"
 )
 
@@ -30,6 +31,10 @@ func (verifier *Verifier) verifyExport(id string, token string, userId string) (
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return false, err
+	}
+	if resp.StatusCode > 299 {
+		log.Printf("WARN: Could not verify device group access at analytics-serving. upstream status code %v\n", resp.StatusCode)
+		return false, errUnexpectedUpstreamStatuscode
 	}
 	return resp.StatusCode == http.StatusOK, nil
 }

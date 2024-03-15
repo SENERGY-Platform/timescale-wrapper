@@ -17,10 +17,12 @@
 package verification
 
 import (
+	"errors"
+	"sync"
+
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"sync"
 )
 
 type Verifier struct {
@@ -34,6 +36,8 @@ func New(config configuration.Config) *Verifier {
 		config: config,
 	}
 }
+
+var errUnexpectedUpstreamStatuscode = errors.New("unexpected upstream statuscode")
 
 func (verifier *Verifier) VerifyAccess(elements []model.QueriesRequestElement, token string, userId string) (bool, error) {
 	var err error

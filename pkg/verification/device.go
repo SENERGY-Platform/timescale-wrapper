@@ -35,6 +35,10 @@ func (verifier *Verifier) verifyDevice(id string, token string, userId string) (
 	if err != nil {
 		return false, err
 	}
+	if resp.StatusCode > 299 {
+		log.Printf("WARN: Could not verify device group access at permission-search. upstream status code %v\n", resp.StatusCode)
+		return false, errUnexpectedUpstreamStatuscode
+	}
 	if resp.StatusCode != http.StatusOK {
 		return false, nil
 	}
