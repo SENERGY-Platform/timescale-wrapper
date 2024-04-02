@@ -52,7 +52,13 @@ type Entry struct {
 }
 
 func NewRemote(config configuration.Config, deviceRepo api.Controller, deviceSelection deviceSelection.Client) *RemoteCache {
-	return &RemoteCache{mc: memcache.New(config.MemcachedUrls...), config: config, deviceRepo: deviceRepo, deviceSelection: deviceSelection}
+	rc := &RemoteCache{config: config, deviceRepo: deviceRepo, deviceSelection: deviceSelection}
+	rc.initMemcached()
+	return rc
+}
+
+func (lv *RemoteCache) initMemcached() {
+	lv.mc = memcache.New(lv.config.MemcachedUrls...)
 }
 
 func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElement) ([][]interface{}, error) {
@@ -102,15 +108,11 @@ func (this *RemoteCache) GetService(serviceId string) (service models.Service, e
 		if err != nil {
 			return service, err
 		}
-		err = this.mc.Set(&memcache.Item{
+		this.mcSet(&memcache.Item{
 			Key:        "service_" + service.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
 		})
-		if err != nil {
-			log.Println("WARNING: " + err.Error())
-			err = nil
-		}
 	}
 	return service, err
 }
@@ -131,15 +133,11 @@ func (this *RemoteCache) GetConcept(conceptId string) (concept models.Concept, e
 		if err != nil {
 			return concept, err
 		}
-		err = this.mc.Set(&memcache.Item{
+		this.mcSet(&memcache.Item{
 			Key:        "concept_" + concept.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
 		})
-		if err != nil {
-			log.Println("WARNING: " + err.Error())
-			err = nil
-		}
 	}
 	return
 }
@@ -188,15 +186,11 @@ func (this *RemoteCache) GetDeviceGroup(deviceGroupId string, token string) (dev
 		if err != nil {
 			return deviceGroup, err
 		}
-		err = this.mc.Set(&memcache.Item{
+		this.mcSet(&memcache.Item{
 			Key:        "device_group_" + deviceGroup.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
 		})
-		if err != nil {
-			log.Println("WARNING: " + err.Error())
-			err = nil
-		}
 	}
 	return
 }
@@ -217,15 +211,11 @@ func (this *RemoteCache) GetDevice(deviceId string, token string) (device models
 		if err != nil {
 			return device, err
 		}
-		err = this.mc.Set(&memcache.Item{
+		this.mcSet(&memcache.Item{
 			Key:        "device_" + device.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
 		})
-		if err != nil {
-			log.Println("WARNING: " + err.Error())
-			err = nil
-		}
 	}
 	return device, err
 }
@@ -246,15 +236,11 @@ func (this *RemoteCache) GetFunction(functionId string) (function models.Functio
 		if err != nil {
 			return function, err
 		}
-		err = this.mc.Set(&memcache.Item{
+		this.mcSet(&memcache.Item{
 			Key:        "function_" + function.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
 		})
-		if err != nil {
-			log.Println("WARNING: " + err.Error())
-			err = nil
-		}
 	}
 	return
 }
@@ -299,17 +285,24 @@ func (this *RemoteCache) GetSelectables(userid string, token string, criteria []
 		if err != nil {
 			return res, http.StatusInternalServerError, err
 		}
-		err = this.mc.Set(&memcache.Item{
+		this.mcSet(&memcache.Item{
 			Key:        key,
 			Value:      bytes,
 			Expiration: 5 * 60,
 		})
-		if err != nil {
-			log.Println("WARNING: " + err.Error())
-			err = nil
-		}
 	}
 	return
+}
+
+func (rc *RemoteCache) mcSet(item *memcache.Item) {
+	err := rc.mc.Set(item)
+	if err != nil {
+		rc.initMemcached()
+		err := rc.mc.Set(item)
+		if err != nil {
+			log.Println("WARNING: " + err.Error())
+		}
+	}
 }
 
 func getDeepEntry(m map[string]interface{}, path string) interface{} {
