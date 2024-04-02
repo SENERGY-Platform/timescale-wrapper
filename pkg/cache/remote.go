@@ -75,7 +75,7 @@ func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElemen
 	}
 
 	key := "device_" + *request.DeviceId + "_service_" + *request.ServiceId
-	item, err := lv.mc.Get(key)
+	item, err := lv.mcGet(key)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElemen
 }
 
 func (this *RemoteCache) GetService(serviceId string) (service models.Service, err error) {
-	cachedItem, err := this.mc.Get("service_" + serviceId)
+	cachedItem, err := this.mcGet("service_" + serviceId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &service)
 		if err != nil {
@@ -119,7 +119,7 @@ func (this *RemoteCache) GetService(serviceId string) (service models.Service, e
 }
 
 func (this *RemoteCache) GetConcept(conceptId string) (concept models.Concept, err error) {
-	cachedItem, err := this.mc.Get("concept_" + conceptId)
+	cachedItem, err := this.mcGet("concept_" + conceptId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &concept)
 		if err != nil {
@@ -149,7 +149,7 @@ func (this *RemoteCache) StoreSecretQuery(query model.PreparedQueriesRequestElem
 		return "", err
 	}
 	uid := uuid.NewString()
-	err = this.mc.Set(&memcache.Item{
+	err = this.mc.Set(&memcache.Item{ //not using mcSet to ensure error propagates
 		Key:        "secretquery_" + uid,
 		Value:      bytes,
 		Expiration: 30,
@@ -159,7 +159,7 @@ func (this *RemoteCache) StoreSecretQuery(query model.PreparedQueriesRequestElem
 
 func (this *RemoteCache) GetSecretQuery(secret string) (query model.PreparedQueriesRequestElement, err error) {
 	query = model.PreparedQueriesRequestElement{}
-	item, err := this.mc.Get("secretquery_" + secret)
+	item, err := this.mcGet("secretquery_" + secret)
 	if err != nil {
 		return query, err
 	}
@@ -172,7 +172,7 @@ func (this *RemoteCache) GetSecretQuery(secret string) (query model.PreparedQuer
 }
 
 func (this *RemoteCache) GetDeviceGroup(deviceGroupId string, token string) (deviceGroup models.DeviceGroup, err error) {
-	cachedItem, err := this.mc.Get("device_group_" + deviceGroupId)
+	cachedItem, err := this.mcGet("device_group_" + deviceGroupId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &deviceGroup)
 		if err != nil {
@@ -197,7 +197,7 @@ func (this *RemoteCache) GetDeviceGroup(deviceGroupId string, token string) (dev
 }
 
 func (this *RemoteCache) GetDevice(deviceId string, token string) (device models.Device, err error) {
-	cachedItem, err := this.mc.Get("device_" + deviceId)
+	cachedItem, err := this.mcGet("device_" + deviceId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &device)
 		if err != nil {
@@ -222,7 +222,7 @@ func (this *RemoteCache) GetDevice(deviceId string, token string) (device models
 }
 
 func (this *RemoteCache) GetFunction(functionId string) (function models.Function, err error) {
-	cachedItem, err := this.mc.Get("function_" + functionId)
+	cachedItem, err := this.mcGet("function_" + functionId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &function)
 		if err != nil {
@@ -271,7 +271,7 @@ func (this *RemoteCache) GetSelectables(userid string, token string, criteria []
 	}
 
 	key := "selectables_" + hex.EncodeToString(hasher.Sum(nil))
-	cachedItem, err := this.mc.Get(key)
+	cachedItem, err := this.mcGet(key)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &res)
 		if err != nil {
@@ -304,6 +304,18 @@ func (rc *RemoteCache) mcSet(item *memcache.Item) {
 			log.Println("WARNING: " + err.Error())
 		}
 	}
+}
+
+func (rc *RemoteCache) mcGet(key string) (item *memcache.Item, err error) {
+	item, err = rc.mc.Get(key)
+	if err != nil && err != memcache.ErrCacheMiss && err != memcache.ErrCASConflict && err != memcache.ErrNotStored && err != memcache.ErrServerError && err != memcache.ErrNoStats && err != memcache.ErrMalformedKey && err != memcache.ErrNoServers {
+		rc.initMemcached()
+		item, err = rc.mc.Get(key)
+		if err != nil {
+			log.Println("WARNING: " + err.Error())
+		}
+	}
+	return
 }
 
 func getDeepEntry(m map[string]interface{}, path string) interface{} {
