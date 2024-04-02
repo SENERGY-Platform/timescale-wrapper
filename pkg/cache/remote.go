@@ -308,7 +308,7 @@ func (rc *RemoteCache) mcSet(item *memcache.Item) {
 
 func (rc *RemoteCache) mcGet(key string) (item *memcache.Item, err error) {
 	item, err = rc.mc.Get(key)
-	if err != nil && err != memcache.ErrCacheMiss && err != memcache.ErrCASConflict && err != memcache.ErrNotStored && err != memcache.ErrServerError && err != memcache.ErrNoStats && err != memcache.ErrMalformedKey && err != memcache.ErrNoServers {
+	if err != nil && err != memcache.ErrCacheMiss && err != memcache.ErrCASConflict && err != memcache.ErrNotStored && err != memcache.ErrServerError && err != memcache.ErrNoStats && err != memcache.ErrMalformedKey {
 		rc.initMemcached()
 		item, err = rc.mc.Get(key)
 		if err != nil {
