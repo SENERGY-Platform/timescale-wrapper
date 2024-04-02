@@ -58,6 +58,7 @@ func NewRemote(config configuration.Config, deviceRepo api.Controller, deviceSel
 }
 
 func (lv *RemoteCache) initMemcached() {
+	log.Println("(Re-)init memcached Client")
 	lv.mc = memcache.New(lv.config.MemcachedUrls...)
 }
 
