@@ -18,7 +18,10 @@ package timescale
 
 import (
 	"log"
+	"math"
 	"sync"
+
+	"github.com/jackc/pgx/pgtype"
 )
 
 func (wrapper *Wrapper) ExecuteQueries(queries []string) (res [][][]interface{}, err error) {
@@ -56,6 +59,16 @@ func (wrapper *Wrapper) ExecuteQuery(query string) (res [][]interface{}, err err
 		if err != nil {
 			rows.Close()
 			return nil, err
+		}
+		for i, v := range values {
+			numeric, ok := v.(*pgtype.Numeric)
+			if ok {
+				if numeric.Status == pgtype.Present {
+					values[i] = int64(float64(numeric.Int.Int64()) * math.Pow10(int(numeric.Exp)))
+				} else {
+					values[i] = nil
+				}
+			}
 		}
 		res = append(res, values)
 	}
