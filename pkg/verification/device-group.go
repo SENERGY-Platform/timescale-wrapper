@@ -17,44 +17,20 @@
 package verification
 
 import (
-	"io"
-	"log"
-	"net/http"
-	"strconv"
-	"strings"
+	"errors"
+	"github.com/SENERGY-Platform/permission-search/lib/client"
 )
 
-func (verifier *Verifier) verifyDeviceGroup(id string, token string, userId string) (bool, error) {
-	req, err := http.NewRequest("GET", verifier.config.PermissionSearchUrl+"/v3/resources/device-groups/"+id+"/access?rights=r", nil)
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("Authorization", token)
-	req.Header.Set("X-UserId", userId)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return false, err
-	}
-	if resp.StatusCode > 299 {
-		log.Printf("WARN: Could not verify device group access at permission-search. upstream status code %v\n", resp.StatusCode)
-		return false, errUnexpectedUpstreamStatuscode
-	}
-	if resp.StatusCode != http.StatusOK {
+func (verifier *Verifier) verifyDeviceGroup(id string, token string) (bool, error) {
+	err := verifier.permSearchClient.CheckUserOrGroup(token, "device-groups", id, "r")
+	if errors.Is(err, client.ErrAccessDenied) {
 		return false, nil
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Println("verifyDevice: could not close response body", err.Error())
-		}
-	}(resp.Body)
-	body, err := io.ReadAll(resp.Body)
+	if errors.Is(err, client.ErrNotFound) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
-	ok, err := strconv.ParseBool(strings.ReplaceAll(string(body), "\n", ""))
-	if err != nil {
-		return false, err
-	}
-	return ok, nil
+	return true, nil
 }

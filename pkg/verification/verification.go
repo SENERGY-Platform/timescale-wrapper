@@ -18,6 +18,9 @@ package verification
 
 import (
 	"errors"
+	permSearchClient "github.com/SENERGY-Platform/permission-search/lib/client"
+	permClient "github.com/SENERGY-Platform/permissions-v2/pkg/client"
+
 	"sync"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
@@ -26,14 +29,22 @@ import (
 )
 
 type Verifier struct {
-	c      *cache.LocalCache
-	config configuration.Config
+	c                *cache.LocalCache
+	config           configuration.Config
+	permClient       permClient.Client
+	permSearchClient permSearchClient.Client
 }
 
 func New(config configuration.Config) *Verifier {
+	var client permClient.Client
+	if config.PermissionsUrl != "" && config.PermissionsUrl != "-" {
+		client = permClient.New(config.PermissionsUrl)
+	}
 	return &Verifier{
-		c:      cache.NewLocal(),
-		config: config,
+		c:                cache.NewLocal(),
+		config:           config,
+		permClient:       client,
+		permSearchClient: permSearchClient.NewClient(config.PermissionSearchUrl),
 	}
 }
 
@@ -69,12 +80,12 @@ func (verifier *Verifier) VerifyAccessOnce(element model.QueriesRequestElement, 
 		return
 	} else if element.DeviceId != nil {
 		err = verifier.c.Use(userId+*element.DeviceId, func() (interface{}, error) {
-			return verifier.verifyDevice(*element.DeviceId, token, userId)
+			return verifier.verifyDevice(*element.DeviceId, token)
 		}, &ok)
 		return
 	} else if element.DeviceGroupId != nil {
 		err = verifier.c.Use(userId+*element.DeviceGroupId, func() (interface{}, error) {
-			return verifier.verifyDeviceGroup(*element.DeviceGroupId, token, userId)
+			return verifier.verifyDeviceGroup(*element.DeviceGroupId, token)
 		}, &ok)
 		return
 	}
