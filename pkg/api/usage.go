@@ -74,4 +74,43 @@ func UsageEndpoint(router *httprouter.Router, _ configuration.Config, wrapper *t
 			fmt.Println("ERROR: " + err.Error())
 		}
 	})
+
+	router.POST("/usage/exports", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+		exportIds := []string{}
+		err := json.NewDecoder(request.Body).Decode(&exportIds)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		elems := []model.QueriesRequestElement{}
+		for _, exportId := range exportIds {
+			elems = append(elems, model.QueriesRequestElement{
+				ExportId: &exportId,
+			})
+		}
+		userId, err := getUserId(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		ok, err := verifier.VerifyAccess(elems, getToken(request), userId)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(writer, "not found", http.StatusNotFound)
+			return
+		}
+		response, err := wrapper.GetExportUsage(exportIds)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(writer).Encode(response)
+		if err != nil {
+			fmt.Println("ERROR: " + err.Error())
+		}
+	})
 }

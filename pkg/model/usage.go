@@ -18,8 +18,9 @@ package model
 
 import "time"
 
-type DeviceUsage struct {
-	DeviceId    string    `json:"deviceId"`
+type Usage struct {
+	DeviceId    string    `json:"deviceId,omitempty"`
+	ExportId    string    `json:"exportId,omitempty"`
 	Bytes       uint64    `json:"bytes"`
 	BytesPerDay float64   `json:"bytesPerDay"`
 	UpdatedAt   time.Time `json:"updatedAt"`

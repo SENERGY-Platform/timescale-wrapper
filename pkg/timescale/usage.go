@@ -25,7 +25,7 @@ import (
 	"github.com/jackc/pgx/pgtype"
 )
 
-func (wrapper *Wrapper) GetDeviceUsage(deviceIds []string) (res []model.DeviceUsage, err error) {
+func (wrapper *Wrapper) GetDeviceUsage(deviceIds []string) (res []model.Usage, err error) {
 	shortDeviceIds := []string{}
 	for _, deviceId := range deviceIds {
 		shortId, err := models.ShortenId(deviceId)
@@ -40,8 +40,8 @@ func (wrapper *Wrapper) GetDeviceUsage(deviceIds []string) (res []model.DeviceUs
 		return nil, err
 	}
 
-	res = []model.DeviceUsage{}
-	r := model.DeviceUsage{}
+	res = []model.Usage{}
+	r := model.Usage{}
 	var bytesPerDay pgtype.Float8
 	for rows.Next() {
 		err = rows.Scan(&r.DeviceId, &r.Bytes, &r.UpdatedAt, &bytesPerDay)
@@ -54,6 +54,40 @@ func (wrapper *Wrapper) GetDeviceUsage(deviceIds []string) (res []model.DeviceUs
 			return nil, err
 		}
 		r.DeviceId = "urn:infai:ses:device:" + r.DeviceId
+		res = append(res, r)
+	}
+
+	return res, nil
+}
+
+func (wrapper *Wrapper) GetExportUsage(exportIds []string) (res []model.Usage, err error) {
+	shortExportIds := []string{}
+	for _, exportId := range exportIds {
+		shortId, err := models.ShortenId(exportId)
+		if err != nil {
+			return nil, err
+		}
+		shortExportIds = append(shortExportIds, "'"+shortId+"'")
+	}
+
+	rows, err := wrapper.pool.Query(fmt.Sprintf("SELECT substring(\"table\", 38, 60) as short_export_id, bytes, updated_at, bytes_per_day FROM %v.usage WHERE substring(\"table\", 38, 60) IN (%v)", wrapper.config.PostgresUsageSchema, strings.Join(shortExportIds, ", ")))
+	if err != nil {
+		return nil, err
+	}
+
+	res = []model.Usage{}
+	r := model.Usage{}
+	var bytesPerDay pgtype.Float8
+	for rows.Next() {
+		err = rows.Scan(&r.ExportId, &r.Bytes, &r.UpdatedAt, &bytesPerDay)
+		if err != nil {
+			return nil, err
+		}
+		r.BytesPerDay = bytesPerDay.Float
+		r.ExportId, err = models.LongId(r.ExportId)
+		if err != nil {
+			return nil, err
+		}
 		res = append(res, r)
 	}
 
