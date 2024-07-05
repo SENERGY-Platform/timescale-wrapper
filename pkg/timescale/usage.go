@@ -26,6 +26,10 @@ import (
 )
 
 func (wrapper *Wrapper) GetDeviceUsage(deviceIds []string) (res []model.Usage, err error) {
+	res = []model.Usage{}
+	if len(deviceIds) == 0 {
+		return res, err
+	}
 	shortDeviceIds := []string{}
 	for _, deviceId := range deviceIds {
 		shortId, err := models.ShortenId(deviceId)
@@ -40,7 +44,6 @@ func (wrapper *Wrapper) GetDeviceUsage(deviceIds []string) (res []model.Usage, e
 		return nil, err
 	}
 
-	res = []model.Usage{}
 	r := model.Usage{}
 	var bytesPerDay pgtype.Float8
 	for rows.Next() {
@@ -61,6 +64,10 @@ func (wrapper *Wrapper) GetDeviceUsage(deviceIds []string) (res []model.Usage, e
 }
 
 func (wrapper *Wrapper) GetExportUsage(exportIds []string) (res []model.Usage, err error) {
+	res = []model.Usage{}
+	if len(exportIds) == 0 {
+		return res, err
+	}
 	shortExportIds := []string{}
 	for _, exportId := range exportIds {
 		shortId, err := models.ShortenId(exportId)
@@ -75,7 +82,6 @@ func (wrapper *Wrapper) GetExportUsage(exportIds []string) (res []model.Usage, e
 		return nil, err
 	}
 
-	res = []model.Usage{}
 	r := model.Usage{}
 	var bytesPerDay pgtype.Float8
 	for rows.Next() {
