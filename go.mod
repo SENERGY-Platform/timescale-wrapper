@@ -5,12 +5,12 @@ go 1.22
 toolchain go1.22.1
 
 require (
-	github.com/SENERGY-Platform/converter v0.0.7
-	github.com/SENERGY-Platform/device-repository v0.0.28
-	github.com/SENERGY-Platform/device-selection v0.0.10
+	github.com/SENERGY-Platform/converter v0.0.8
+	github.com/SENERGY-Platform/device-repository v0.0.30
+	github.com/SENERGY-Platform/device-selection v0.0.11
 	github.com/SENERGY-Platform/models/go v0.0.0-20240627082833-157bd627a94f
-	github.com/SENERGY-Platform/permission-search v0.0.14
-	github.com/SENERGY-Platform/permissions-v2 v0.0.12
+	github.com/SENERGY-Platform/permission-search v0.0.16
+	github.com/SENERGY-Platform/permissions-v2 v0.0.14
 	github.com/bradfitz/gomemcache v0.0.0-20230905024940-24af94b03874
 	github.com/coocood/freecache v1.2.4
 	github.com/golang-jwt/jwt v3.2.2+incompatible
@@ -30,7 +30,7 @@ require (
 	github.com/Microsoft/hcsshim v0.12.4 // indirect
 	github.com/RyanCarrier/dijkstra v1.4.0 // indirect
 	github.com/SENERGY-Platform/developer-notifications v0.0.4 // indirect
-	github.com/SENERGY-Platform/service-commons v0.0.0-20240423132428-8eccbc027e71 // indirect
+	github.com/SENERGY-Platform/service-commons v0.0.0-20240708085423-94423a495d7f // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cockroachdb/apd v1.1.0 // indirect
