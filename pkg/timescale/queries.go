@@ -308,7 +308,7 @@ func getCAQuery(element model.QueriesRequestElement, table string) (string, erro
 			// not implemented
 			return table, errors.New("")
 		}
-		query += "AND view_definition LIKE '%" + translateFunctionName(*column.GroupType) + "\"" + table + "\"."
+		query += "AND view_definition LIKE '%" + strings.ReplaceAll(translateFunctionName(*column.GroupType), "'", "''") + "\"" + table + "\"."
 		containsDot := strings.Contains(column.Name, ".")
 		if containsDot {
 			query += "\"" + column.Name + "\""
