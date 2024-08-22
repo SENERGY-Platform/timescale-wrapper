@@ -25,17 +25,17 @@ import (
 )
 
 type QueriesRequestElement struct {
-	ExportId         *string
-	DeviceId         *string
-	ServiceId        *string
-	Time             *QueriesRequestElementTime
-	Limit            *int
-	Columns          []QueriesRequestElementColumn
-	Filters          *[]QueriesRequestElementFilter
-	GroupTime        *string
-	OrderColumnIndex *int
-	OrderDirection   *Direction
-	DeviceGroupId    *string
+	ExportId         *string                        `json:"exportId,omitempty"`
+	DeviceId         *string                        `json:"deviceId,omitempty"`
+	ServiceId        *string                        `json:"serviceId,omitempty"`
+	Time             *QueriesRequestElementTime     `json:"time,omitempty"`
+	Limit            *int                           `json:"limit,omitempty"`
+	Columns          []QueriesRequestElementColumn  `json:"columns,omitempty"`
+	Filters          *[]QueriesRequestElementFilter `json:"filters,omitempty"`
+	GroupTime        *string                        `json:"groupTime,omitempty"`
+	OrderColumnIndex *int                           `json:"orderColumnIndex,omitempty"`
+	OrderDirection   *Direction                     `json:"orderDirection,omitempty"`
+	DeviceGroupId    *string                        `json:"deviceGroupId,omitempty"`
 }
 
 func (element *QueriesRequestElement) Valid() bool {
@@ -95,10 +95,10 @@ func (element *QueriesRequestElement) Valid() bool {
 }
 
 type QueriesRequestElementTime struct {
-	Last  *string
-	Ahead *string
-	Start *string
-	End   *string
+	Last  *string `json:"last,omitempty"`
+	Ahead *string `json:"ahead,omitempty"`
+	Start *string `json:"start,omitempty"`
+	End   *string `json:"end,omitempty"`
 }
 
 func (elementTime *QueriesRequestElementTime) Valid() bool {
@@ -133,13 +133,13 @@ func (elementTime *QueriesRequestElementTime) Valid() bool {
 }
 
 type QueriesRequestElementColumn struct {
-	Name                   string
-	GroupType              *string
-	Math                   *string
-	SourceCharacteristicId *string
-	TargetCharacteristicId *string
-	ConceptId              *string
-	Criteria               models.DeviceGroupFilterCriteria
+	Name                   string                           `json:"name,omitempty"`
+	GroupType              *string                          `json:"groupType,omitempty"`
+	Math                   *string                          `json:"math,omitempty"`
+	SourceCharacteristicId *string                          `json:"sourceCharacteristicId,omitempty"`
+	TargetCharacteristicId *string                          `json:"targetCharacteristicId,omitempty"`
+	ConceptId              *string                          `json:"conceptId,omitempty"`
+	Criteria               models.DeviceGroupFilterCriteria `json:"criteria,omitempty"`
 }
 
 func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
@@ -173,10 +173,10 @@ func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
 }
 
 type QueriesRequestElementFilter struct {
-	Column string
-	Math   *string
-	Type   string
-	Value  interface{}
+	Column string      `json:"column,omitempty"`
+	Math   *string     `json:"math,omitempty"`
+	Type   string      `json:"type,omitempty"`
+	Value  interface{} `json:"value,omitempty"`
 }
 
 var valueMatcher = regexp.MustCompile("[a-zA-Z0-9äöüß:{}\"\\.\\-_\\/ ]*")
@@ -241,8 +241,8 @@ const (
 
 type PreparedQueriesRequestElement struct {
 	QueriesRequestElement
-	Token      string
-	TimeFormat string
+	Token      string `json:"token,omitempty"`
+	TimeFormat string `json:"timeFormat,omitempty"`
 }
 
 func DeviceGroupFilterCriteriaValid(criteria models.DeviceGroupFilterCriteria) bool {

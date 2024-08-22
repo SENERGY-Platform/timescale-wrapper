@@ -17,14 +17,14 @@
 package model
 
 type LastValuesRequestElement struct {
-	ExportId               *string
-	DeviceId               *string
-	ServiceId              *string
-	Math                   *string
-	SourceCharacteristicId *string
-	TargetCharacteristicId *string
-	ConceptId              *string
-	ColumnName             string
+	ExportId               *string `json:"exportId,omitempty"`
+	DeviceId               *string `json:"deviceId,omitempty"`
+	ServiceId              *string `json:"serviceId,omitempty"`
+	Math                   *string `json:"math,omitempty"`
+	SourceCharacteristicId *string `json:"sourceCharacteristicId,omitempty"`
+	TargetCharacteristicId *string `json:"targetCharacteristicId,omitempty"`
+	ConceptId              *string `json:"conceptId,omitempty"`
+	ColumnName             string  `json:"columnName,omitempty"`
 }
 
 type LastValuesResponseElement struct {
