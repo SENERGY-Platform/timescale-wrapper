@@ -21,8 +21,8 @@ import (
 	"github.com/SENERGY-Platform/permission-search/lib/client"
 )
 
-func (verifier *Verifier) verifyDevice(id string, token string) (bool, error) {
-	err := verifier.permSearchClient.CheckUserOrGroup(token, "devices", id, "rx")
+func (verifier *Verifier) verifyLocation(id string, token string) (bool, error) {
+	err := verifier.permSearchClient.CheckUserOrGroup(token, "locations", id, "rx")
 	if errors.Is(err, client.ErrAccessDenied) {
 		return false, nil
 	}

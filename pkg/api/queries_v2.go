@@ -97,7 +97,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 			go func() {
 				defer wg.Done()
 				dbRequestElements := []model.QueriesRequestElement{}
-				if dbRequestElement.DeviceGroupId == nil {
+				if dbRequestElement.DeviceGroupId == nil && dbRequestElement.LocationId == nil {
 					for colIdx, col := range dbRequestElement.Columns {
 						columnMatch[len(dbRequestElements)] = struct {
 							selIdx int
@@ -121,18 +121,41 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 					}
 				} else {
 					token := getToken(request)
-					deviceGroup, err := remoteCache.GetDeviceGroup(*dbRequestElement.DeviceGroupId, token)
-					if err != nil {
-						mux.Lock()
-						defer mux.Unlock()
-						if !raised {
-							http.Error(writer, err.Error(), http.StatusInternalServerError)
-							raised = true
+					deviceGroupIds := []string{}
+					deviceIds := []string{}
+					if dbRequestElement.DeviceGroupId != nil {
+						deviceGroupIds = append(deviceGroupIds, *dbRequestElement.DeviceGroupId)
+					}
+					if dbRequestElement.LocationId != nil {
+						location, err := remoteCache.GetLocation(*dbRequestElement.LocationId, token)
+						if err != nil {
+							mux.Lock()
+							defer mux.Unlock()
+							if !raised {
+								http.Error(writer, err.Error(), http.StatusInternalServerError)
+								raised = true
+							}
+							return
 						}
-						return
+						deviceIds = append(deviceIds, location.DeviceIds...)
+						deviceGroupIds = append(deviceGroupIds, location.DeviceGroupIds...)
+					}
+
+					for _, deviceGroupid := range deviceGroupIds {
+						deviceGroup, err := remoteCache.GetDeviceGroup(deviceGroupid, token)
+						if err != nil {
+							mux.Lock()
+							defer mux.Unlock()
+							if !raised {
+								http.Error(writer, err.Error(), http.StatusInternalServerError)
+								raised = true
+							}
+							return
+						}
+						deviceIds = append(deviceIds, deviceGroup.DeviceIds...)
 					}
 					localIds := []string{}
-					for _, deviceId := range deviceGroup.DeviceIds {
+					for _, deviceId := range deviceIds {
 						device, err := remoteCache.GetDevice(deviceId, token)
 						if err != nil {
 							mux.Lock()
@@ -174,7 +197,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							return
 						}
 						for selIdx, selectable := range selectables {
-							if !slices.Contains[[]string](deviceGroup.DeviceIds, selectable.Device.Id) {
+							if !slices.Contains(deviceIds, selectable.Device.Id) {
 								continue //ensures only correctly modified device ids included
 							}
 							pureDeviceId, _ := idmodifier.SplitModifier(selectable.Device.Id)
@@ -267,11 +290,6 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 				mux.Lock()
 				defer mux.Unlock()
 				for j := range subResponseCasted {
-					/* TODO
-					if len(subResponseCasted[j]) == 0 {
-						continue
-					}
-					*/
 					if len(columnMatch) == 0 {
 						response = append(response, model.QueriesV2ResponseElement{
 							RequestIndex: dbRequestIndices[i],

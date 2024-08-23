@@ -246,6 +246,31 @@ func (this *RemoteCache) GetFunction(functionId string) (function models.Functio
 	return
 }
 
+func (this *RemoteCache) GetLocation(locationId string, token string) (location models.Location, err error) {
+	cachedItem, err := this.mcGet("location_" + locationId)
+	if err == nil {
+		err = json.Unmarshal(cachedItem.Value, &location)
+		if err != nil {
+			return
+		}
+	} else {
+		location, err, _ = this.deviceRepo.GetLocation(locationId, token)
+		if err != nil {
+			return
+		}
+		bytes, err := json.Marshal(location)
+		if err != nil {
+			return location, err
+		}
+		this.mcSet(&memcache.Item{
+			Key:        "location_" + location.Id,
+			Value:      bytes,
+			Expiration: 5 * 60,
+		})
+	}
+	return
+}
+
 func (this *RemoteCache) GetSelectables(userid string, token string, criteria []models.DeviceGroupFilterCriteria, options *deviceSelection.GetSelectablesOptions) (res []dsmodel.Selectable, code int, err error) {
 	hasher := sha256.New()
 	criteriaBytes, err := json.Marshal(criteria)

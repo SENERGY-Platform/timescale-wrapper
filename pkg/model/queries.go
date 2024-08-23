@@ -36,16 +36,25 @@ type QueriesRequestElement struct {
 	OrderColumnIndex *int                           `json:"orderColumnIndex,omitempty"`
 	OrderDirection   *Direction                     `json:"orderDirection,omitempty"`
 	DeviceGroupId    *string                        `json:"deviceGroupId,omitempty"`
+	LocationId       *string                        `json:"locationId,omitempty"`
 }
 
 func (element *QueriesRequestElement) Valid() bool {
-	if element.ExportId == nil && (element.DeviceId == nil || element.ServiceId == nil || !serviceIdValid(*element.ServiceId)) && element.DeviceGroupId == nil {
+	if element.ExportId == nil && (element.DeviceId == nil || element.ServiceId == nil || !serviceIdValid(*element.ServiceId)) && element.DeviceGroupId == nil && element.LocationId == nil {
 		return false
 	}
-	if element.ExportId != nil && (element.DeviceId != nil || element.ServiceId != nil || element.DeviceGroupId != nil) {
+	if element.ExportId != nil && (element.DeviceId != nil || element.ServiceId != nil || element.DeviceGroupId != nil || element.LocationId != nil) {
 		return false
 	}
-	if element.DeviceGroupId != nil && (element.DeviceId != nil || element.ServiceId != nil || element.ExportId != nil) {
+	if element.DeviceGroupId != nil && (element.DeviceId != nil || element.ServiceId != nil || element.ExportId != nil || element.LocationId != nil) {
+		for _, col := range element.Columns {
+			if !DeviceGroupFilterCriteriaValid(col.Criteria) {
+				return false
+			}
+		}
+		return false
+	}
+	if element.LocationId != nil && (element.DeviceId != nil || element.ServiceId != nil || element.ExportId != nil || element.DeviceGroupId != nil) {
 		for _, col := range element.Columns {
 			if !DeviceGroupFilterCriteriaValid(col.Criteria) {
 				return false

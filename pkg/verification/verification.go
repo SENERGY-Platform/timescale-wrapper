@@ -18,6 +18,7 @@ package verification
 
 import (
 	"errors"
+
 	permSearchClient "github.com/SENERGY-Platform/permission-search/lib/client"
 	permClient "github.com/SENERGY-Platform/permissions-v2/pkg/client"
 
@@ -86,6 +87,11 @@ func (verifier *Verifier) VerifyAccessOnce(element model.QueriesRequestElement, 
 	} else if element.DeviceGroupId != nil {
 		err = verifier.c.Use(userId+*element.DeviceGroupId, func() (interface{}, error) {
 			return verifier.verifyDeviceGroup(*element.DeviceGroupId, token)
+		}, &ok)
+		return
+	} else if element.LocationId != nil {
+		err = verifier.c.Use(userId+*element.LocationId, func() (interface{}, error) {
+			return verifier.verifyLocation(*element.LocationId, token)
 		}, &ok)
 		return
 	}
