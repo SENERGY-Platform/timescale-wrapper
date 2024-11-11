@@ -121,7 +121,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							colIdx: colIdx,
 							elem:   &elem,
 						}
-						dbRequestElements = append(dbRequestElements)
+						dbRequestElements = append(dbRequestElements, elem)
 					}
 				} else {
 					token := getToken(request)
