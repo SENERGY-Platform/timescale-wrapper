@@ -93,20 +93,14 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 			columnMatch := map[int]struct {
 				selIdx int
 				colIdx int
+				elem   *model.QueriesRequestElement
 			}{}
 			go func() {
 				defer wg.Done()
 				dbRequestElements := []model.QueriesRequestElement{}
 				if dbRequestElement.DeviceGroupId == nil && dbRequestElement.LocationId == nil {
 					for colIdx, col := range dbRequestElement.Columns {
-						columnMatch[len(dbRequestElements)] = struct {
-							selIdx int
-							colIdx int
-						}{
-							selIdx: 0,
-							colIdx: colIdx,
-						}
-						dbRequestElements = append(dbRequestElements, model.QueriesRequestElement{
+						elem := model.QueriesRequestElement{
 							ExportId:         dbRequestElement.ExportId,
 							DeviceId:         dbRequestElement.DeviceId,
 							ServiceId:        dbRequestElement.ServiceId,
@@ -117,7 +111,17 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							GroupTime:        dbRequestElement.GroupTime,
 							OrderColumnIndex: dbRequestElement.OrderColumnIndex,
 							OrderDirection:   dbRequestElement.OrderDirection,
-						})
+						}
+						columnMatch[len(dbRequestElements)] = struct {
+							selIdx int
+							colIdx int
+							elem   *model.QueriesRequestElement
+						}{
+							selIdx: 0,
+							colIdx: colIdx,
+							elem:   &elem,
+						}
+						dbRequestElements = append(dbRequestElements)
 					}
 				} else {
 					token := getToken(request)
@@ -214,14 +218,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 										ConceptId:              &f.ConceptId,
 									})
 								}
-								columnMatch[len(dbRequestElements)] = struct {
-									selIdx int
-									colIdx int
-								}{
-									selIdx: selIdx,
-									colIdx: colIdx,
-								}
-								dbRequestElements = append(dbRequestElements, model.QueriesRequestElement{
+								elem := model.QueriesRequestElement{
 									DeviceId:         &pureDeviceId,
 									ServiceId:        &serviceId,
 									Time:             dbRequestElement.Time,
@@ -231,9 +228,17 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 									GroupTime:        dbRequestElement.GroupTime,
 									OrderColumnIndex: dbRequestElement.OrderColumnIndex,
 									OrderDirection:   dbRequestElement.OrderDirection,
-								})
-								//}
-
+								}
+								columnMatch[len(dbRequestElements)] = struct {
+									selIdx int
+									colIdx int
+									elem   *model.QueriesRequestElement
+								}{
+									selIdx: selIdx,
+									colIdx: colIdx,
+									elem:   &elem,
+								}
+								dbRequestElements = append(dbRequestElements, elem)
 							}
 						}
 					}
@@ -291,7 +296,15 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 				defer mux.Unlock()
 				for j := range subResponseCasted {
 					if len(columnMatch) == 0 {
+						columnNames := []string{}
+						for _, col := range dbRequestElement.Columns {
+							columnNames = append(columnNames, col.Name)
+						}
 						response = append(response, model.QueriesV2ResponseElement{
+							DeviceId:     dbRequestElement.DeviceId,
+							ServiceId:    dbRequestElement.ServiceId,
+							ExportId:     dbRequestElement.ExportId,
+							ColumnNames:  columnNames,
 							RequestIndex: dbRequestIndices[i],
 							Data:         [][][]interface{}{subResponseCasted[j]},
 						})
@@ -308,8 +321,16 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							}
 						}
 						if !found {
+							columnNames := []string{}
+							for _, col := range columnMatch[j].elem.Columns {
+								columnNames = append(columnNames, col.Name)
+							}
 							respElem = model.QueriesV2ResponseElement{
 								RequestIndex: dbRequestIndices[i],
+								DeviceId:     columnMatch[j].elem.DeviceId,
+								ServiceId:    columnMatch[j].elem.ServiceId,
+								ExportId:     columnMatch[j].elem.ExportId,
+								ColumnNames:  columnNames,
 								Data:         [][][]interface{}{},
 							}
 							respIdx = len(response)

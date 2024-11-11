@@ -259,8 +259,26 @@
     "QueriesResponseElementV2": {
       "properties": {
         "requestindex": {
+          "description": "matches the index of the requested elements",
+          "type": "string"
+        },
+        "deviceId": {
+          "description": "ID of requested device",
+          "type": "string"
+        },
+        "serviceId": {
+          "description": "ID of requested service",
+          "type": "string"
+        },
+        "exportId": {
           "description": "ID of requested export",
           "type": "string"
+        },
+        "columnNames": {
+          "type": "array",
+          "items": {
+             "type": "string"
+          }
         },
         "data": {
           "type": "array",

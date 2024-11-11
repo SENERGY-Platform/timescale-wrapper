@@ -20,4 +20,8 @@ type QueriesV2ResponseElement struct {
 	RequestIndex int               `json:"requestIndex"`
 	SelIdx       int               `json:"-"`
 	Data         [][][]interface{} `json:"data"`
+	DeviceId     *string           `json:"deviceId,omitempty"`
+	ServiceId    *string           `json:"serviceId,omitempty"`
+	ExportId     *string           `json:"exportId,omitempty"`
+	ColumnNames  []string          `json:"columnNames,omitempty"`
 }
