@@ -214,6 +214,10 @@
           "description": "ID of requested device group",
           "type": "string"
         },
+        "locationId": {
+          "description": "ID of requested location",
+          "type": "string"
+        },
         "serviceId": {
           "description": "ID of requested service",
           "type": "string"
