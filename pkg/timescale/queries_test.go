@@ -18,9 +18,10 @@ package timescale
 
 import (
 	"fmt"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"reflect"
 	"testing"
+
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
 func TestQueries(t *testing.T) {
@@ -114,7 +115,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "", []string{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -160,7 +161,7 @@ func TestQueries(t *testing.T) {
 				OrderDirection:   &asc,
 			}}
 
-			actual, err := wrapper.GenerateQueries(elements, "")
+			actual, err := wrapper.GenerateQueries(elements, "", []string{})
 			if err != nil {
 				t.Error(err)
 			}
@@ -217,7 +218,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "", []string{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -269,7 +270,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "", []string{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -304,7 +305,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "", []string{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -363,7 +364,7 @@ func TestQueries(t *testing.T) {
 				OrderColumnIndex: &zero,
 			}}
 
-		actual, err := wrapper.GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "", []string{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -408,7 +409,7 @@ func TestQueries(t *testing.T) {
 			OrderColumnIndex: &zero,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "", []string{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -445,7 +446,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "ade1fba6-fa5f-4704-9997-81dc168f62f4")
+		actual, err := wrapper.GenerateQueries(elements, "ade1fba6-fa5f-4704-9997-81dc168f62f4", []string{"ade1fba6-fa5f-4704-9997-81dc168f62f4"})
 		if err != nil {
 			t.Error(err)
 		}
@@ -483,7 +484,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "")
+		actual, err := wrapper.GenerateQueries(elements, "", []string{})
 		if err != nil {
 			t.Error(err)
 		}
