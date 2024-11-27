@@ -115,7 +115,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
 		if err != nil {
 			t.Error(err)
 		}
@@ -161,7 +161,7 @@ func TestQueries(t *testing.T) {
 				OrderDirection:   &asc,
 			}}
 
-			actual, err := wrapper.GenerateQueries(elements, "", []string{})
+			actual, err := wrapper.GenerateQueries(elements, "", []string{""})
 			if err != nil {
 				t.Error(err)
 			}
@@ -218,7 +218,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
 		if err != nil {
 			t.Error(err)
 		}
@@ -270,7 +270,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
 		if err != nil {
 			t.Error(err)
 		}
@@ -305,7 +305,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
 		if err != nil {
 			t.Error(err)
 		}
@@ -364,7 +364,7 @@ func TestQueries(t *testing.T) {
 				OrderColumnIndex: &zero,
 			}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{"", ""})
 		if err != nil {
 			t.Error(err)
 		}
@@ -409,7 +409,7 @@ func TestQueries(t *testing.T) {
 			OrderColumnIndex: &zero,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
 		if err != nil {
 			t.Error(err)
 		}
@@ -484,7 +484,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
 		if err != nil {
 			t.Error(err)
 		}
