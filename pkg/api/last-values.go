@@ -128,7 +128,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		if err != nil {
 			return nil, http.StatusBadRequest, err
 		}
-		ok, err := verifier.VerifyAccess(fullRequestElements, getToken(request), userId)
+		ok, ownerUserIds, err := verifier.VerifyAccess(fullRequestElements, getToken(request), userId)
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}
@@ -171,7 +171,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		}
 
 		beforeQueries := time.Now()
-		queries, err := wrapper.GenerateQueries(dbRequestElements, userId)
+		queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds)
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}

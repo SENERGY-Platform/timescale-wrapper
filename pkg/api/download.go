@@ -137,7 +137,7 @@ func prepareQueriesRequestElement(writer http.ResponseWriter, request *http.Requ
 		http.Error(writer, err.Error(), http.StatusBadRequest)
 		return elem, false
 	}
-	ok, err = verifier.VerifyAccess([]model.QueriesRequestElement{requestElement}, getToken(request), userId)
+	ok, _, err = verifier.VerifyAccess([]model.QueriesRequestElement{requestElement}, getToken(request), userId)
 	if err != nil {
 		http.Error(writer, err.Error(), http.StatusInternalServerError)
 		return elem, false

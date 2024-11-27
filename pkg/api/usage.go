@@ -54,7 +54,7 @@ func UsageEndpoint(router *httprouter.Router, _ configuration.Config, wrapper *t
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
-		ok, err := verifier.VerifyAccess(elems, getToken(request), userId)
+		ok, _, err := verifier.VerifyAccess(elems, getToken(request), userId)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
@@ -93,7 +93,7 @@ func UsageEndpoint(router *httprouter.Router, _ configuration.Config, wrapper *t
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
-		ok, err := verifier.VerifyAccess(elems, getToken(request), userId)
+		ok, _, err := verifier.VerifyAccess(elems, getToken(request), userId)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return

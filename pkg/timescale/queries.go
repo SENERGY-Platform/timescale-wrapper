@@ -48,10 +48,10 @@ func translateFunctionName(name string) string {
 	}
 }
 
-func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, userId string) (queries []string, err error) {
+func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, userId string, ownerUserIds []string) (queries []string, err error) {
 	queries = make([]string, len(elements))
 	for i, element := range elements {
-		table, err := wrapper.tableName(element, userId)
+		table, err := wrapper.tableName(element, ownerUserIds[i])
 		if err != nil {
 			return queries, err
 		}

@@ -5,12 +5,13 @@ go 1.22
 toolchain go1.22.1
 
 require (
+	github.com/SENERGY-Platform/analytics-serving v0.0.14
 	github.com/SENERGY-Platform/converter v0.0.8
 	github.com/SENERGY-Platform/device-repository v0.0.30
 	github.com/SENERGY-Platform/device-selection v0.0.11
 	github.com/SENERGY-Platform/models/go v0.0.0-20240627082833-157bd627a94f
-	github.com/SENERGY-Platform/permission-search v0.0.16
-	github.com/SENERGY-Platform/permissions-v2 v0.0.14
+	github.com/SENERGY-Platform/permission-search v0.0.19
+	github.com/SENERGY-Platform/permissions-v2 v0.0.19
 	github.com/bradfitz/gomemcache v0.0.0-20230905024940-24af94b03874
 	github.com/coocood/freecache v1.2.4
 	github.com/golang-jwt/jwt v3.2.2+incompatible
@@ -22,6 +23,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/IBM/sarama v1.43.2 // indirect
 	github.com/Knetic/govaluate v3.0.0+incompatible // indirect
@@ -30,7 +32,7 @@ require (
 	github.com/Microsoft/hcsshim v0.12.4 // indirect
 	github.com/RyanCarrier/dijkstra v1.4.0 // indirect
 	github.com/SENERGY-Platform/developer-notifications v0.0.4 // indirect
-	github.com/SENERGY-Platform/service-commons v0.0.0-20240708085423-94423a495d7f // indirect
+	github.com/SENERGY-Platform/service-commons v0.0.0-20240813072046-91b3195dd8fc // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cockroachdb/apd v1.1.0 // indirect
@@ -54,18 +56,22 @@ require (
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
 	github.com/go-openapi/spec v0.21.0 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
+	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/influxdata/influxdb1-client v0.0.0-20220302092344-a9ab5670611c // indirect
 	github.com/jackc/fake v0.0.0-20150926172116-812a484cc733 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/gofork v1.7.6 // indirect
 	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
+	github.com/jinzhu/gorm v1.9.16 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/lib/pq v1.10.2 // indirect
@@ -87,6 +93,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/segmentio/kafka-go v0.4.47 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect

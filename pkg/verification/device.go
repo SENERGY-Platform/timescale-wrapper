@@ -20,7 +20,8 @@ import (
 	"github.com/SENERGY-Platform/permissions-v2/pkg/client"
 )
 
-func (verifier *Verifier) verifyDevice(id string, token string) (bool, error) {
+func (verifier *Verifier) verifyDevice(id string, token string) (result VerifierCacheEntry, err error) {
 	access, err, _ := verifier.permClient.CheckPermission(token, "devices", id, client.Execute)
-	return access, err
+	result.Ok = access
+	return result, err
 }

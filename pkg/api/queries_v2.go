@@ -65,7 +65,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 			}
 		}
 
-		userId, err, code := queriesVerify(requestElements, request, start, verifier, config)
+		userId, ownerUserIds, err, code := queriesVerify(requestElements, request, start, verifier, config)
 		if err != nil {
 			http.Error(writer, err.Error(), code)
 			return
@@ -244,7 +244,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 					}
 				}
 
-				queries, err := wrapper.GenerateQueries(dbRequestElements, userId)
+				queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds)
 				if err != nil {
 					mux.Lock()
 					defer mux.Unlock()

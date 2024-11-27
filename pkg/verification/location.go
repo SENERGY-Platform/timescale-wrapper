@@ -18,19 +18,21 @@ package verification
 
 import (
 	"errors"
+
 	"github.com/SENERGY-Platform/permission-search/lib/client"
 )
 
-func (verifier *Verifier) verifyLocation(id string, token string) (bool, error) {
-	err := verifier.permSearchClient.CheckUserOrGroup(token, "locations", id, "rx")
+func (verifier *Verifier) verifyLocation(id string, token string) (result VerifierCacheEntry, err error) {
+	err = verifier.permSearchClient.CheckUserOrGroup(token, "locations", id, "rx")
 	if errors.Is(err, client.ErrAccessDenied) {
-		return false, nil
+		return result, nil
 	}
 	if errors.Is(err, client.ErrNotFound) {
-		return false, nil
+		return result, nil
 	}
 	if err != nil {
-		return false, err
+		return result, err
 	}
-	return true, nil
+	result.Ok = true
+	return result, nil
 }

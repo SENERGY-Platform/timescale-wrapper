@@ -20,7 +20,8 @@ import (
 	"github.com/SENERGY-Platform/permissions-v2/pkg/client"
 )
 
-func (verifier *Verifier) verifyDeviceGroup(id string, token string) (bool, error) {
+func (verifier *Verifier) verifyDeviceGroup(id string, token string) (result VerifierCacheEntry, err error) {
 	access, err, _ := verifier.permClient.CheckPermission(token, "device-groups", id, client.Execute)
-	return access, err
+	result.Ok = access
+	return result, err
 }

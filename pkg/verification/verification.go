@@ -19,6 +19,7 @@ package verification
 import (
 	"errors"
 
+	serving "github.com/SENERGY-Platform/analytics-serving/client"
 	permSearchClient "github.com/SENERGY-Platform/permission-search/lib/client"
 	permClient "github.com/SENERGY-Platform/permissions-v2/pkg/client"
 
@@ -34,66 +35,73 @@ type Verifier struct {
 	config           configuration.Config
 	permClient       permClient.Client
 	permSearchClient permSearchClient.Client
+	servingClient    *serving.Client
+}
+
+type VerifierCacheEntry struct {
+	Ok          bool
+	OwnerUserId string
 }
 
 func New(config configuration.Config) *Verifier {
-	var client permClient.Client
-	if config.PermissionsUrl != "" && config.PermissionsUrl != "-" {
-		client = permClient.New(config.PermissionsUrl)
-	}
+	permClient := permClient.New(config.PermissionsUrl)
+	servingClient := serving.New(config.ServingUrl)
 	return &Verifier{
 		c:                cache.NewLocal(),
 		config:           config,
-		permClient:       client,
+		permClient:       permClient,
 		permSearchClient: permSearchClient.NewClient(config.PermissionSearchUrl),
+		servingClient:    servingClient,
 	}
 }
 
 var errUnexpectedUpstreamStatuscode = errors.New("unexpected upstream statuscode")
 
-func (verifier *Verifier) VerifyAccess(elements []model.QueriesRequestElement, token string, userId string) (bool, error) {
-	var err error
-	ok := true
+func (verifier *Verifier) VerifyAccess(elements []model.QueriesRequestElement, token string, userId string) (ok bool, userIds []string, err error) {
+	ok = true
+	userIds = make([]string, len(elements))
 	wg := &sync.WaitGroup{}
 	for i := range elements {
 		i := i // thread safe
 		wg.Add(1)
 		go func() {
-			okS, errS := verifier.VerifyAccessOnce(elements[i], token, userId)
+			result, errS := verifier.VerifyAccessOnce(elements[i], token, userId)
 			if errS != nil {
 				err = errS
 				ok = false
-			} else if !okS {
+			} else if !result.Ok {
 				ok = false
+			} else {
+				userIds[i] = result.OwnerUserId
 			}
 			wg.Done()
 		}()
 	}
 	wg.Wait()
-	return ok, err
+	return ok, userIds, err
 }
 
-func (verifier *Verifier) VerifyAccessOnce(element model.QueriesRequestElement, token string, userId string) (ok bool, err error) {
+func (verifier *Verifier) VerifyAccessOnce(element model.QueriesRequestElement, token string, userId string) (result VerifierCacheEntry, err error) {
 	if element.ExportId != nil {
 		err = verifier.c.Use(userId+*element.ExportId, func() (interface{}, error) {
 			return verifier.verifyExport(*element.ExportId, token, userId)
-		}, &ok)
+		}, &result)
 		return
 	} else if element.DeviceId != nil {
 		err = verifier.c.Use(userId+*element.DeviceId, func() (interface{}, error) {
 			return verifier.verifyDevice(*element.DeviceId, token)
-		}, &ok)
+		}, &result)
 		return
 	} else if element.DeviceGroupId != nil {
 		err = verifier.c.Use(userId+*element.DeviceGroupId, func() (interface{}, error) {
 			return verifier.verifyDeviceGroup(*element.DeviceGroupId, token)
-		}, &ok)
+		}, &result)
 		return
 	} else if element.LocationId != nil {
 		err = verifier.c.Use(userId+*element.LocationId, func() (interface{}, error) {
 			return verifier.verifyLocation(*element.LocationId, token)
-		}, &ok)
+		}, &result)
 		return
 	}
-	return true, nil
+	return result, nil
 }

@@ -43,14 +43,14 @@ func DataAvailabilityEndpoint(router *httprouter.Router, _ configuration.Config,
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
-		ok, err := verifier.VerifyAccessOnce(model.QueriesRequestElement{
+		access, err := verifier.VerifyAccessOnce(model.QueriesRequestElement{
 			DeviceId: &deviceId,
 		}, getToken(request), userId)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if !ok {
+		if !access.Ok {
 			http.Error(writer, "not found", http.StatusNotFound)
 			return
 		}

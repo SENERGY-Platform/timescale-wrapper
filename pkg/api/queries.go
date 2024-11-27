@@ -68,7 +68,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			}
 		}
 
-		userId, err, code := queriesVerify(requestElements, request, start, verifier, config)
+		userId, ownerUserIds, err, code := queriesVerify(requestElements, request, start, verifier, config)
 		if err != nil {
 			http.Error(writer, err.Error(), code)
 			return
@@ -77,7 +77,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		raw, dbRequestElements, dbRequestIndices := queriesGetFromCache(requestElements, remoteCache, config)
 
 		beforeQueries := time.Now()
-		queries, err := wrapper.GenerateQueries(dbRequestElements, userId)
+		queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds)
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
@@ -161,13 +161,13 @@ func queriesParseQueryparams(request *http.Request) (requestedFormat model.Forma
 	return
 }
 
-func queriesVerify(requestElements []model.QueriesRequestElement, request *http.Request, start time.Time, verifier *verification.Verifier, config configuration.Config) (userId string, err error, code int) {
+func queriesVerify(requestElements []model.QueriesRequestElement, request *http.Request, start time.Time, verifier *verification.Verifier, config configuration.Config) (userId string, ownerUserIds []string, err error, code int) {
 	userId, err = getUserId(request)
 	code = http.StatusInternalServerError
 	if err != nil {
 		return
 	}
-	ok, err := verifier.VerifyAccess(requestElements, getToken(request), userId)
+	ok, ownerUserIds, err := verifier.VerifyAccess(requestElements, getToken(request), userId)
 	if err != nil {
 		return
 	}
