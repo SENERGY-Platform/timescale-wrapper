@@ -92,16 +92,20 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		}
 		fullRequestElements := make([]model.QueriesRequestElement, len(exportQueriesRequestElementColumnMap)+len(deviceQueriesRequestElementColumnMap))
 		outputIndexToInputIndex := map[int]int{} // Remember order of requested columns
+		zero := 0
+		desc := model.Desc
 		fullRequestElementsIndex := 0
 		inserted := 0 // Count the number of requested columns
 		for k, v := range exportQueriesRequestElementColumnMap {
 			var cols []model.QueriesRequestElementColumn
 			cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
 			fullRequestElements[fullRequestElementsIndex] = model.QueriesRequestElement{
-				ExportId: &k,
-				Time:     nil,
-				Limit:    &one,
-				Columns:  cols,
+				ExportId:         &k,
+				Time:             nil,
+				Limit:            &one,
+				Columns:          cols,
+				OrderColumnIndex: &zero,
+				OrderDirection:   &desc,
 			}
 			if !fullRequestElements[fullRequestElementsIndex].Valid() {
 				return nil, http.StatusBadRequest, errors.New("invalid request body")
@@ -113,11 +117,13 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 			var cols []model.QueriesRequestElementColumn
 			cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
 			fullRequestElements[fullRequestElementsIndex] = model.QueriesRequestElement{
-				DeviceId:  &s[0],
-				ServiceId: &s[1],
-				Time:      nil,
-				Limit:     &one,
-				Columns:   cols,
+				DeviceId:         &s[0],
+				ServiceId:        &s[1],
+				Time:             nil,
+				Limit:            &one,
+				Columns:          cols,
+				OrderColumnIndex: &zero,
+				OrderDirection:   &desc,
 			}
 			if !fullRequestElements[fullRequestElementsIndex].Valid() {
 				return nil, http.StatusBadRequest, errors.New("invalid request body")
