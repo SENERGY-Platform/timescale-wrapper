@@ -43,6 +43,7 @@ type ConfigStruct struct {
 	Debug                  bool     `json:"debug"`
 	DeviceRepoUrl          string   `json:"device_repo_url"`
 	DeviceSelectionUrl     string   `json:"device_selection_url"`
+	ImportRepoUrl          string   `json:"import_repo_url"`
 }
 
 type Config = *ConfigStruct

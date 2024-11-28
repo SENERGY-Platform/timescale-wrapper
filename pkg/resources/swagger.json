@@ -281,7 +281,7 @@
         "columnNames": {
           "type": "array",
           "items": {
-             "type": "string"
+            "type": "string"
           }
         },
         "data": {
@@ -511,6 +511,18 @@
             "in": "query",
             "type": "string",
             "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+          },
+          {
+            "name": "locate_lat",
+            "in": "query",
+            "type": "number",
+            "description": "Used to automatically select the clostest location on a multivalued import export. Only works with exportId set to an export of an import. User needs read access to the import type."
+          },
+          {
+            "name": "locate_lon",
+            "in": "query",
+            "type": "number",
+            "description": "Used to automatically select the clostest location on a multivalued import export. Only works with exportId set to an export of an import. User needs read access to the import type."
           }
         ],
         "responses": {

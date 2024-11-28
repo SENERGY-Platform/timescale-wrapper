@@ -31,7 +31,11 @@ import (
 
 func Start(ctx context.Context, config configuration.Config) (wg *sync.WaitGroup, err error) {
 	wg = &sync.WaitGroup{}
-	influxClient, err := timescale.NewWrapper(ctx, wg, config)
+	wrapper, err := timescale.NewWrapper(ctx, wg, config)
+	if err != nil {
+		return wg, err
+	}
+	err = wrapper.Migrate()
 	if err != nil {
 		return wg, err
 	}
@@ -43,6 +47,6 @@ func Start(ctx context.Context, config configuration.Config) (wg *sync.WaitGroup
 	if err != nil {
 		return wg, err
 	}
-	err = api.Start(ctx, wg, config, influxClient, verifier, lastValueCache, conv, deviceSelection)
+	err = api.Start(ctx, wg, config, wrapper, verifier, lastValueCache, conv, deviceSelection)
 	return
 }

@@ -92,14 +92,16 @@ func (element *QueriesRequestElement) Valid() bool {
 	if element.OrderColumnIndex != nil && (*element.OrderColumnIndex < 0 || *element.OrderColumnIndex > len(element.Columns)) {
 		return false
 	}
-	if element.OrderColumnIndex == nil {
-		zero := 0
-		element.OrderColumnIndex = &zero
-	}
-	if element.OrderDirection == nil {
-		desc := Desc
-		element.OrderDirection = &desc
-	}
+	/*
+		if element.OrderColumnIndex == nil {
+			zero := 0
+			element.OrderColumnIndex = &zero
+		}
+		if element.OrderDirection == nil {
+			desc := Desc
+			element.OrderDirection = &desc
+		}
+	*/
 	return true
 }
 

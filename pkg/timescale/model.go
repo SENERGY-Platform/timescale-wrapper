@@ -17,11 +17,18 @@
 package timescale
 
 import (
+	serving "github.com/SENERGY-Platform/analytics-serving/client"
+	importRepo "github.com/SENERGY-Platform/import-repository/lib/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/jackc/pgx"
 )
 
+const wrapperMaterializedViewPrefix = "_wmv_"
+const wrapperMaterializedViewProcedureName = "ts_wrapper_refresh_mat_view"
+
 type Wrapper struct {
-	config configuration.Config
-	pool   *pgx.ConnPool
+	config           configuration.Config
+	pool             *pgx.ConnPool
+	importRepoClient importRepo.Interface
+	servingClient    *serving.Client
 }

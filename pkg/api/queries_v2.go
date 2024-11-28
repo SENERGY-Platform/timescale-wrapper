@@ -22,6 +22,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -82,6 +83,25 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 			}
 		}
 
+		locateLat := request.URL.Query().Get("locate_lat")
+		var locateLatFloat float64
+		if len(locateLat) > 0 {
+			locateLatFloat, err = strconv.ParseFloat(locateLat, 64)
+			if err != nil {
+				http.Error(writer, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		locateLon := request.URL.Query().Get("locate_lon")
+		var locateLonFloat float64
+		if len(locateLon) > 0 {
+			locateLonFloat, err = strconv.ParseFloat(locateLon, 64)
+			if err != nil {
+				http.Error(writer, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+
 		beforeQueries := time.Now()
 		mux := sync.Mutex{}
 		wg := sync.WaitGroup{}
@@ -100,6 +120,20 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 				dbRequestElements := []model.QueriesRequestElement{}
 				if dbRequestElement.DeviceGroupId == nil && dbRequestElement.LocationId == nil {
 					for colIdx, col := range dbRequestElement.Columns {
+						filters := []model.QueriesRequestElementFilter{}
+						if dbRequestElement.Filters != nil {
+							filters = append(filters, *dbRequestElement.Filters...)
+						}
+						if dbRequestElement.ExportId != nil && len(locateLat) > 0 && len(locateLon) > 0 {
+							token := getToken(request)
+							importFilters, err := wrapper.CreateFiltersForImport(*dbRequestElement.ExportId, userId, token, locateLatFloat, locateLonFloat)
+							if err != nil {
+								http.Error(writer, err.Error(), http.StatusBadRequest)
+								return
+							}
+							filters = append(filters, importFilters...)
+						}
+
 						elem := model.QueriesRequestElement{
 							ExportId:         dbRequestElement.ExportId,
 							DeviceId:         dbRequestElement.DeviceId,
@@ -107,7 +141,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							Time:             dbRequestElement.Time,
 							Limit:            dbRequestElement.Limit,
 							Columns:          []model.QueriesRequestElementColumn{col},
-							Filters:          dbRequestElement.Filters,
+							Filters:          &filters,
 							GroupTime:        dbRequestElement.GroupTime,
 							OrderColumnIndex: dbRequestElement.OrderColumnIndex,
 							OrderDirection:   dbRequestElement.OrderDirection,

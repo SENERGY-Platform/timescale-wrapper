@@ -18,12 +18,19 @@ package timescale
 
 import (
 	"context"
+	"log"
+	"sync"
+	"time"
+
+	serving "github.com/SENERGY-Platform/analytics-serving/client"
+	importRepo "github.com/SENERGY-Platform/import-repository/lib/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/jackc/pgx"
-	"sync"
 )
 
 func NewWrapper(ctx context.Context, wg *sync.WaitGroup, config configuration.Config) (wrapper *Wrapper, err error) {
+	servingClient := serving.New(config.ServingUrl)
+	importRepoClient := importRepo.NewClient(config.ImportRepoUrl)
 	pool, err := pgx.NewConnPool(pgx.ConnPoolConfig{
 		ConnConfig: pgx.ConnConfig{
 			Host:     config.PostgresHost,
@@ -44,5 +51,15 @@ func NewWrapper(ctx context.Context, wg *sync.WaitGroup, config configuration.Co
 		pool.Close()
 		wg.Done()
 	}()
-	return &Wrapper{config: config, pool: pool}, nil
+	return &Wrapper{config: config, pool: pool, servingClient: servingClient, importRepoClient: importRepoClient}, nil
+}
+
+func (wrapper *Wrapper) Migrate() error {
+	if wrapper.config.Debug {
+		defer func() {
+			start := time.Now()
+			log.Printf("DEBUG: Migration took %v\n", time.Since(start))
+		}()
+	}
+	return wrapper.removeOutdatedMaterializedRefreshJobs()
 }

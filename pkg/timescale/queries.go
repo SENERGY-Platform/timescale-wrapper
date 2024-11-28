@@ -219,7 +219,7 @@ func getOrderLimitString(element model.QueriesRequestElement, group bool, overri
 	} else if element.OrderColumnIndex != nil {
 		orderIndex = *element.OrderColumnIndex
 	} else {
-		orderIndex = 0
+		orderIndex = -1
 	}
 	var orderDirection model.Direction
 	if overrideOrderDirection != nil {
@@ -230,7 +230,9 @@ func getOrderLimitString(element model.QueriesRequestElement, group bool, overri
 		orderDirection = model.Desc
 	}
 
-	query += " ORDER BY " + strconv.Itoa(orderIndex+1) + " " + strings.ToUpper(string(orderDirection))
+	if orderIndex != -1 {
+		query += " ORDER BY " + strconv.Itoa(orderIndex+1) + " " + strings.ToUpper(string(orderDirection))
+	}
 	if overrideLimit != nil {
 		query += " LIMIT " + strconv.Itoa(*overrideLimit)
 	} else if element.Limit != nil {
