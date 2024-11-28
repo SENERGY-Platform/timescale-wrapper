@@ -11,7 +11,7 @@
   "serving_url": "http://serving:8080",
   "device_repo_url": "http://api.device-repository:8080",
   "device_selection_url": "http://api.device-selection:8080",
-  "import_repo_url": "http://repository.import-meta:8080",
+  "import_repo_url": "http://repo.import-meta:8080",
   "memcached_urls": ["memcached-1", "memcached-2"],
   "debug": true
 }
