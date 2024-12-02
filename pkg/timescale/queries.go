@@ -174,7 +174,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 }
 
 func getFilterString(element model.QueriesRequestElement, group bool, overrideSortIndex *int, overrideOrderDirection *model.Direction, overrideLimit *int) (query string, err error) {
-	if element.Filters != nil || element.Time != nil {
+	if (element.Filters != nil && len(*element.Filters) > 0) || element.Time != nil {
 		query += " WHERE "
 	}
 	if element.Filters != nil && len(*element.Filters) > 0 {
