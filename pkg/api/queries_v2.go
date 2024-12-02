@@ -156,6 +156,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							elem:   &elem,
 						}
 						dbRequestElements = append(dbRequestElements, elem)
+						ownerUserIds = append(ownerUserIds, userId)
 					}
 				} else {
 					token := getToken(request)
@@ -273,6 +274,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 									elem:   &elem,
 								}
 								dbRequestElements = append(dbRequestElements, elem)
+								ownerUserIds = append(ownerUserIds, userId)
 							}
 						}
 					}
