@@ -143,6 +143,28 @@ func (elementTime *QueriesRequestElementTime) Valid() bool {
 	return true
 }
 
+func (elementTime *QueriesRequestElementTime) Copy() QueriesRequestElementTime {
+	cpy := QueriesRequestElementTime{}
+	if elementTime.Last != nil {
+		s := *elementTime.Last
+		cpy.Last = &s
+	}
+	if elementTime.Ahead != nil {
+		s := *elementTime.Ahead
+		cpy.Ahead = &s
+	}
+
+	if elementTime.Start != nil {
+		s := *elementTime.Start
+		cpy.Start = &s
+	}
+	if elementTime.End != nil {
+		s := *elementTime.End
+		cpy.End = &s
+	}
+	return cpy
+}
+
 type QueriesRequestElementColumn struct {
 	Name                   string                           `json:"name,omitempty"`
 	GroupType              *string                          `json:"groupType,omitempty"`

@@ -92,6 +92,9 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 					}
 					if element.Time != nil && (element.Time.Last != nil || element.Time.Ahead != nil) && !elementTimeLastAheadModified {
 						// manually increase the last offset by 1 to ensure unified results
+						copy := element.Time.Copy() // ensure no other elements are affected that share this pointer
+						element.Time = &copy
+						elements[i] = element
 						re := regexp.MustCompile(`\d+`)
 						var prefix string
 						if element.Time.Last != nil {
