@@ -20,7 +20,6 @@ import (
 	"errors"
 
 	serving "github.com/SENERGY-Platform/analytics-serving/client"
-	permSearchClient "github.com/SENERGY-Platform/permission-search/lib/client"
 	permClient "github.com/SENERGY-Platform/permissions-v2/pkg/client"
 
 	"sync"
@@ -31,11 +30,10 @@ import (
 )
 
 type Verifier struct {
-	c                *cache.LocalCache
-	config           configuration.Config
-	permClient       permClient.Client
-	permSearchClient permSearchClient.Client
-	servingClient    *serving.Client
+	c             *cache.LocalCache
+	config        configuration.Config
+	permClient    permClient.Client
+	servingClient *serving.Client
 }
 
 type VerifierCacheEntry struct {
@@ -47,11 +45,10 @@ func New(config configuration.Config) *Verifier {
 	permClient := permClient.New(config.PermissionsUrl)
 	servingClient := serving.New(config.ServingUrl)
 	return &Verifier{
-		c:                cache.NewLocal(),
-		config:           config,
-		permClient:       permClient,
-		permSearchClient: permSearchClient.NewClient(config.PermissionSearchUrl),
-		servingClient:    servingClient,
+		c:             cache.NewLocal(),
+		config:        config,
+		permClient:    permClient,
+		servingClient: servingClient,
 	}
 }
 

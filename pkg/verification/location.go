@@ -17,22 +17,11 @@
 package verification
 
 import (
-	"errors"
-
-	"github.com/SENERGY-Platform/permission-search/lib/client"
+	"github.com/SENERGY-Platform/permissions-v2/pkg/client"
 )
 
 func (verifier *Verifier) verifyLocation(id string, token string) (result VerifierCacheEntry, err error) {
-	err = verifier.permSearchClient.CheckUserOrGroup(token, "locations", id, "rx")
-	if errors.Is(err, client.ErrAccessDenied) {
-		return result, nil
-	}
-	if errors.Is(err, client.ErrNotFound) {
-		return result, nil
-	}
-	if err != nil {
-		return result, err
-	}
-	result.Ok = true
-	return result, nil
+	access, err, _ := verifier.permClient.CheckPermission(token, "locations", id, client.Read, client.Execute)
+	result.Ok = access
+	return result, err
 }
