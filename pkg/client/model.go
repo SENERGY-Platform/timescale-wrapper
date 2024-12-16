@@ -19,3 +19,5 @@ package client
 import "github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 
 type Usage = model.Usage
+type QueriesRequestElement = model.QueriesRequestElement
+type QueriesV2ResponseElement = model.QueriesV2ResponseElement

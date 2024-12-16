@@ -29,6 +29,7 @@ import (
 type Client interface {
 	GetDeviceUsage(token string, deviceIds []string) (result []Usage, code int, err error)
 	GetExportUsage(token string, exportIds []string) (result []Usage, code int, err error)
+	GetQueriesV2(token string, requestElements []QueriesRequestElement, options *QueriesV2Options) (result []QueriesV2ResponseElement, code int, err error)
 }
 
 type impl struct {
