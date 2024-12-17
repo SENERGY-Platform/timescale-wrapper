@@ -54,10 +54,10 @@ func (c impl) GetQueriesV2(token string, requestElements []QueriesRequestElement
 			q.Add("order_column_index", strconv.Itoa(*options.OrderColumnIndex))
 		}
 		if options.OrderDirection != nil {
-			q.Add("order_direction", *options.Format)
+			q.Add("order_direction", *options.OrderDirection)
 		}
 		if options.TimeFormat != nil {
-			q.Add("time_format", *options.Format)
+			q.Add("time_format", *options.TimeFormat)
 		}
 		if options.LocateLat != nil {
 			q.Add("locate_lat", strconv.FormatFloat(*options.LocateLat, 'f', -1, 64))
