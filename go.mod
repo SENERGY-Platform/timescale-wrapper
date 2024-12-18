@@ -5,10 +5,10 @@ go 1.23
 toolchain go1.23.3
 
 require (
-	github.com/SENERGY-Platform/analytics-serving v0.0.14
-	github.com/SENERGY-Platform/converter v0.0.9
-	github.com/SENERGY-Platform/device-repository v0.1.44
-	github.com/SENERGY-Platform/device-selection v0.0.16
+	github.com/SENERGY-Platform/analytics-serving v0.0.15
+	github.com/SENERGY-Platform/converter v0.0.10
+	github.com/SENERGY-Platform/device-repository v0.1.51
+	github.com/SENERGY-Platform/device-selection v0.0.17
 	github.com/SENERGY-Platform/models/go v0.0.0-20241007061544-de7132ae94e4
 	github.com/SENERGY-Platform/permissions-v2 v0.0.27
 	github.com/bradfitz/gomemcache v0.0.0-20230905024940-24af94b03874
@@ -32,7 +32,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/RyanCarrier/dijkstra v1.4.0 // indirect
 	github.com/SENERGY-Platform/developer-notifications v0.0.4 // indirect
-	github.com/SENERGY-Platform/import-repository v0.0.10
+	github.com/SENERGY-Platform/import-repository v0.0.11
 	github.com/SENERGY-Platform/service-commons v0.0.0-20240813072046-91b3195dd8fc
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
