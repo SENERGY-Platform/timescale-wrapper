@@ -40,7 +40,7 @@ func Start(ctx context.Context, config configuration.Config) (wg *sync.WaitGroup
 		return wg, err
 	}
 	verifier := verification.New(config)
-	deviceRepoClient := client.NewClient(config.DeviceRepoUrl)
+	deviceRepoClient := client.NewClient(config.DeviceRepoUrl, nil)
 	deviceSelection := deviceSelectionClient.NewClient(config.DeviceSelectionUrl)
 	lastValueCache := cache.NewRemote(config, deviceRepoClient, deviceSelection)
 	conv, err := converter.New()
