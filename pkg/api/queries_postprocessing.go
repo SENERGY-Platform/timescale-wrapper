@@ -20,14 +20,15 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/meta"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"sort"
-	"strings"
-	"time"
 )
 
 func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []model.QueriesRequestElement, results [][][]interface{},
@@ -96,8 +97,14 @@ func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []mo
 			for len(results[seriesIndex]) > 0 && isRowEmpty(results[seriesIndex][len(results[seriesIndex])-1]) {
 				results[seriesIndex] = results[seriesIndex][:len(results[seriesIndex])-1]
 			}
+			err = model.Sort2D(results[seriesIndex], orderColumnIndex, orderDirection)
+			if err != nil {
+				return nil, err
+			}
+			if request[seriesIndex].Limit != nil {
+				results[seriesIndex] = results[seriesIndex][:*request[seriesIndex].Limit]
+			}
 			for rowIndex := range results[seriesIndex] {
-
 				for j := range results[seriesIndex][rowIndex] {
 					if j == 0 {
 						continue // time column

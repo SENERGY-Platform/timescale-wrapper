@@ -307,7 +307,16 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 				if config.Debug {
 					log.Println("DEBUG: Fetching took " + time.Since(beforeQuery).String())
 				}
-				subResponse, err := formatResponse(remoteCache, model.PerQuery, dbRequestElements, data, 0, model.Asc, timeFormat, converter)
+				orderColumnIndex := 0
+				if dbRequestElement.OrderColumnIndex != nil {
+					orderColumnIndex = *dbRequestElement.OrderColumnIndex
+				}
+				orderDirection := model.Asc
+				if dbRequestElement.OrderDirection != nil {
+					orderDirection = *dbRequestElement.OrderDirection
+				}
+
+				subResponse, err := formatResponse(remoteCache, model.PerQuery, dbRequestElements, data, orderColumnIndex, orderDirection, timeFormat, converter)
 				if err != nil {
 					mux.Lock()
 					defer mux.Unlock()

@@ -81,6 +81,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 			}
 			query += " FROM "
 			elementTimeLastAheadModified := false
+			var l *int
 			for idx, column := range element.Columns {
 				query += "(SELECT time_bucket('" + *element.GroupTime + "', \"time\") AS \"time\", "
 				if strings.HasPrefix(*column.GroupType, "difference") {
@@ -106,6 +107,8 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 						if err != nil {
 							return nil, err
 						}
+						n := num
+						l = &n
 						num++
 						if element.Time.Last != nil {
 							modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Last, prefix)
@@ -126,9 +129,10 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 				query += " AS value"
 				query += " FROM \"" + table + "\""
 				filterString := ""
-				if element.Limit != nil {
-					l := *element.Limit + 1
-					filterString, err = getFilterString(element, true, &zero, &asc, &l)
+				if l != nil {
+					n := *l
+					n++
+					filterString, err = getFilterString(element, true, &zero, &asc, &n)
 				} else {
 					filterString, err = getFilterString(element, true, &zero, &asc, nil)
 				}
@@ -144,7 +148,16 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 				}
 			}
 
-			query += getOrderLimitString(element, false, nil, nil, nil)
+			var limit *int
+			var order *model.Direction
+			var orderIndex *int
+			if l != nil {
+				limit = l
+				desc := model.Desc
+				order = &desc
+				orderIndex = &zero
+			}
+			query += getOrderLimitString(element, false, orderIndex, order, limit)
 
 		} else {
 			query += "\"time\", "
