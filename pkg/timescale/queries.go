@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
@@ -118,6 +119,61 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 							element.Time.Ahead = &modified
 						}
 						elementTimeLastAheadModified = true
+					} else if element.Time != nil && element.Time.Start != nil && element.Time.End != nil && element.GroupTime != nil && !elementTimeLastAheadModified {
+						copy := element.Time.Copy() // ensure no other elements are affected that share this pointer
+						element.Time = &copy
+						re := regexp.MustCompile(`\D+`)
+						suffix := re.Find([]byte(*element.GroupTime))
+						if suffix == nil {
+							return nil, fmt.Errorf("could not parse GroupTime %v", *element.GroupTime)
+						}
+						endT, err := time.Parse(time.RFC3339, *element.Time.End)
+						if err != nil {
+							return nil, err
+						}
+						startT, err := time.Parse(time.RFC3339, *element.Time.Start)
+						if err != nil {
+							return nil, err
+						}
+						diff := endT.Sub(startT)
+						diffT := 0
+						dur := time.Hour
+						switch string(suffix) {
+						case "ms":
+							diffT = int(diff.Milliseconds())
+							dur = time.Millisecond
+						case "s":
+							diffT = int(diff.Seconds())
+							dur = time.Second
+						case "months":
+							fallthrough
+						case "mon":
+							diffT = int(diff.Hours() / 24 / 30) // this is inaccurate, ok? TODO
+							dur = time.Hour * 24 * 30
+						case "m":
+							diffT = int(diff.Minutes())
+							dur = time.Minute
+						case "h":
+							diffT = int(diff.Hours())
+							dur = time.Hour
+						case "day":
+							fallthrough
+						case "d":
+							diffT = int(diff.Hours() / 24)
+							dur = time.Hour * 24
+						case "w":
+							diffT = int(diff.Hours() / 24 / 7)
+							dur = time.Hour * 24 * 7
+						case "y":
+							diffT = int(diff.Hours() / 24 / 365) // this is inaccurate, ok? TODO
+							dur = time.Hour * 24 * 365
+						}
+						l = &diffT
+						start := startT.Add(-2 * dur).Format(time.RFC3339)
+						element.Time.Start = &start
+						end := endT.Add(dur).Format(time.RFC3339)
+						element.Time.End = &end
+						elements[i] = element
 					}
 				} else if *column.GroupType == "first" || *column.GroupType == "last" {
 					query += *column.GroupType + "(\"" + column.Name + "\", \"time\")"
