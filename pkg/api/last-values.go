@@ -219,14 +219,20 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 			t := ""
 			for j := range responseData[i][0] {
 				if j == 0 {
-					t, ok = responseData[i][0][0].(string)
-					if !ok {
-						return nil, http.StatusInternalServerError, err
+					if responseData[i][0][0] != nil {
+						t, ok = responseData[i][0][0].(string)
+						if !ok {
+							return nil, http.StatusInternalServerError, err
+						}
 					}
 				} else {
 					// use known order to insert result at correct location
+					var tP *string
+					if responseData[i][0][0] != nil {
+						tP = &t
+					}
 					responseElements[outputIndexToInputIndex[inserted]] = model.LastValuesResponseElement{
-						Time:  &t,
+						Time:  tP,
 						Value: responseData[i][0][j],
 					}
 					inserted++
