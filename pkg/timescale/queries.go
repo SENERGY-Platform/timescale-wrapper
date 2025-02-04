@@ -172,6 +172,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 						start := startT.Add(-2 * dur).Format(time.RFC3339)
 						element.Time.Start = &start
 						end := endT.Add(dur).Format(time.RFC3339)
+						element.Time.EndOriginal = element.Time.End
 						element.Time.End = &end
 						elements[i] = element
 					}

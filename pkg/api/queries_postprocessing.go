@@ -104,6 +104,28 @@ func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []mo
 			if request[seriesIndex].Limit != nil {
 				results[seriesIndex] = results[seriesIndex][:*request[seriesIndex].Limit]
 			}
+			if request[seriesIndex].Time != nil && (request[seriesIndex].Time.EndOriginal != nil || request[seriesIndex].Time.End != nil) {
+				// if tables do not contain enough data, LIMIT clauses miss their intention.
+				// therefore, result are filtered in this post-processing step again
+				var ts time.Time
+				if request[seriesIndex].Time.EndOriginal != nil {
+					ts, err = time.Parse(time.RFC3339, *request[seriesIndex].Time.EndOriginal)
+				} else if request[seriesIndex].Time.End != nil {
+					ts, err = time.Parse(time.RFC3339, *request[seriesIndex].Time.End)
+				}
+				if err != nil {
+					return nil, err
+				}
+				for {
+					if len(results[seriesIndex][len(results[seriesIndex])-1]) == 0 || results[seriesIndex][len(results[seriesIndex])-1][0] == nil {
+						break
+					}
+					if ts.After(results[seriesIndex][len(results[seriesIndex])-1][0].(time.Time)) {
+						break
+					}
+					results[seriesIndex] = results[seriesIndex][:len(results[seriesIndex])-1]
+				}
+			}
 			for rowIndex := range results[seriesIndex] {
 				for j := range results[seriesIndex][rowIndex] {
 					if j == 0 {
