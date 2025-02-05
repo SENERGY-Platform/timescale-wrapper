@@ -30,6 +30,7 @@ type QueriesV2Options struct {
 	TimeFormat       *string
 	LocateLat        *float64
 	LocateLon        *float64
+	ForceTz          *string
 }
 
 func (c impl) GetQueriesV2(token string, requestElements []QueriesRequestElement, options *QueriesV2Options) (result []QueriesV2ResponseElement, code int, err error) {
@@ -64,6 +65,9 @@ func (c impl) GetQueriesV2(token string, requestElements []QueriesRequestElement
 		}
 		if options.LocateLon != nil {
 			q.Add("locate_lon", strconv.FormatFloat(*options.LocateLon, 'f', -1, 64))
+		}
+		if options.ForceTz != nil {
+			q.Add("force_tz", *options.ForceTz)
 		}
 	}
 	req.URL.RawQuery = q.Encode()
