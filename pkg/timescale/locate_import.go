@@ -100,7 +100,7 @@ func (wrapper *Wrapper) CreateFiltersForImport(exportId string, userId string, t
 		return nil, errors.New("missing identifier, lat or lon path in export")
 	}
 
-	tableName, err := wrapper.tableName(model.QueriesRequestElement{ExportId: &exportId}, exportInstance.UserId)
+	tableName, err := wrapper.tableName(model.QueriesRequestElement{ExportId: &exportId}, exportInstance.UserId, wrapper.config.DefaultTimezone)
 	if err != nil {
 		return nil, err
 	}

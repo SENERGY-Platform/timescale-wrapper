@@ -29,6 +29,7 @@ import (
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
+	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
@@ -74,10 +75,10 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			return
 		}
 
-		raw, dbRequestElements, dbRequestIndices := queriesGetFromCache(requestElements, remoteCache, config)
+		raw, dbRequestElements, dbRequestIndices := queriesGetFromCache(requestElements, remoteCache, config, nil)
 
 		beforeQueries := time.Now()
-		queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds)
+		queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds, "", []models.Device{})
 		if err != nil {
 			http.Error(writer, err.Error(), http.StatusInternalServerError)
 			return
@@ -182,7 +183,7 @@ func queriesVerify(requestElements []model.QueriesRequestElement, request *http.
 	return
 }
 
-func queriesGetFromCache(requestElements []model.QueriesRequestElement, remoteCache *cache.RemoteCache, config configuration.Config) (raw [][][]interface{}, dbRequestElements []model.QueriesRequestElement, dbRequestIndices []int) {
+func queriesGetFromCache(requestElements []model.QueriesRequestElement, remoteCache *cache.RemoteCache, config configuration.Config, forceTz *string) (raw [][][]interface{}, dbRequestElements []model.QueriesRequestElement, dbRequestIndices []int) {
 	dbRequestElements = []model.QueriesRequestElement{}
 	dbRequestIndices = []int{}
 
@@ -196,7 +197,7 @@ func queriesGetFromCache(requestElements []model.QueriesRequestElement, remoteCa
 		i := i
 		go func() {
 			var err error
-			raw[i], err = remoteCache.GetLastValuesFromCache(requestElements[i])
+			raw[i], err = remoteCache.GetLastValuesFromCache(requestElements[i], forceTz)
 			if err != nil {
 				m.Lock()
 				defer m.Unlock()

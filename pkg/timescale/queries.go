@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
@@ -49,10 +50,20 @@ func translateFunctionName(name string) string {
 	}
 }
 
-func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, userId string, ownerUserIds []string) (queries []string, err error) {
+func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, userId string, ownerUserIds []string, forceTz string, devices []models.Device) (queries []string, err error) {
 	queries = make([]string, len(elements))
 	for i, element := range elements {
-		table, err := wrapper.tableName(element, ownerUserIds[i])
+		var timezone string
+		if len(forceTz) > 0 {
+			timezone = forceTz
+		} else {
+			if element.DeviceId != nil {
+				timezone = getTZ(*element.DeviceId, devices, wrapper.config.DefaultTimezone)
+			} else {
+				timezone = wrapper.config.DefaultTimezone // no special tz support for exports
+			}
+		}
+		table, err := wrapper.tableName(element, ownerUserIds[i], timezone)
 		if err != nil {
 			return queries, err
 		}
@@ -84,7 +95,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 			elementTimeLastAheadModified := false
 			var l *int
 			for idx, column := range element.Columns {
-				query += "(SELECT time_bucket('" + *element.GroupTime + "', \"time\") AS \"time\", "
+				query += "(SELECT time_bucket('" + *element.GroupTime + "', \"time\", '" + timezone + "') AS \"time\", "
 				if strings.HasPrefix(*column.GroupType, "difference") {
 					groupParts := strings.Split(*column.GroupType, "-")
 					if groupParts[1] == "first" || groupParts[1] == "last" {
@@ -148,7 +159,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 						case "months":
 							fallthrough
 						case "mon":
-							diffT = int(diff.Hours() / 24 / 30) // this is inaccurate, ok? TODO
+							diffT = int(diff.Hours() / 24 / 30)
 							dur = time.Hour * 24 * 30
 						case "m":
 							diffT = int(diff.Minutes())
@@ -165,7 +176,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 							diffT = int(diff.Hours() / 24 / 7)
 							dur = time.Hour * 24 * 7
 						case "y":
-							diffT = int(diff.Hours() / 24 / 365) // this is inaccurate, ok? TODO
+							diffT = int(diff.Hours() / 24 / 365)
 							dur = time.Hour * 24 * 365
 						}
 						l = &diffT
@@ -314,7 +325,7 @@ func getOrderLimitString(element model.QueriesRequestElement, group bool, overri
 	return
 }
 
-func (wrapper *Wrapper) tableName(element model.QueriesRequestElement, userId string) (table string, err error) {
+func (wrapper *Wrapper) tableName(element model.QueriesRequestElement, userId string, timezone string) (table string, err error) {
 	if element.ExportId != nil {
 		shortUserId, err := shortenId(userId)
 		if err != nil {
@@ -338,7 +349,7 @@ func (wrapper *Wrapper) tableName(element model.QueriesRequestElement, userId st
 	}
 	if element.GroupTime != nil && wrapper.pool != nil {
 		// check if CA View available
-		query, err := getCAQuery(element, table)
+		query, err := getCAQuery(element, table, timezone)
 		if err != nil {
 			log.Println("WARN: getCAQuery: " + err.Error())
 			return table, nil
@@ -370,10 +381,10 @@ func shortenId(uuid string) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }
 
-func getCAQuery(element model.QueriesRequestElement, table string) (string, error) {
+func getCAQuery(element model.QueriesRequestElement, table string, timezone string) (string, error) {
 	query := "SELECT view_name FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = '" + table +
 		"' AND view_definition LIKE '%SELECT time_bucket(''' || (SELECT '" + *element.GroupTime + "'::interval) || '''::interval, \"" +
-		table + "\".\"time\")%'\n"
+		table + "\".\"time\", '" + timezone + "'::text)%'\n"
 
 	for _, column := range element.Columns {
 		if column.GroupType == nil {
@@ -401,4 +412,18 @@ func getCAQuery(element model.QueriesRequestElement, table string) (string, erro
 	query += "LIMIT 1;"
 
 	return query, nil
+}
+
+func getTZ(deviceId string, devices []models.Device, defaultTZ string) string {
+	for _, d := range devices {
+		if d.Id == deviceId {
+			for _, a := range d.Attributes {
+				if strings.ToLower(a.Key) == "timezone" {
+					return a.Value
+				}
+			}
+			return defaultTZ
+		}
+	}
+	return defaultTZ
 }

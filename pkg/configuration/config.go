@@ -43,6 +43,7 @@ type ConfigStruct struct {
 	DeviceRepoUrl          string   `json:"device_repo_url"`
 	DeviceSelectionUrl     string   `json:"device_selection_url"`
 	ImportRepoUrl          string   `json:"import_repo_url"`
+	DefaultTimezone        string   `json:"default_timezone"`
 }
 
 type Config = *ConfigStruct

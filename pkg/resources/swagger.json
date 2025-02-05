@@ -523,6 +523,12 @@
             "in": "query",
             "type": "number",
             "description": "Used to automatically select the clostest location on a multivalued import export. Only works with exportId set to an export of an import. User needs read access to the import type."
+          },
+          {
+            "name": "force_tz",
+            "in": "query",
+            "type": "string",
+            "description": "Calculate aggregations with the specified timezone instead of the default device timezone. Might increase calculation complexity and response time."
           }
         ],
         "responses": {

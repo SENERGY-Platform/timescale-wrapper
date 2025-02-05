@@ -71,8 +71,13 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 			http.Error(writer, err.Error(), code)
 			return
 		}
+		forceTz := request.URL.Query().Get("force_tz")
+		var forceTzp *string
+		if len(forceTz) > 0 {
+			forceTzp = &forceTz
+		}
 
-		raw, dbRequestElements, dbRequestIndices := queriesGetFromCache(requestElements, remoteCache, config)
+		raw, dbRequestElements, dbRequestIndices := queriesGetFromCache(requestElements, remoteCache, config, forceTzp)
 		response := []model.QueriesV2ResponseElement{}
 		for i, r := range raw {
 			if len(r) != 0 {
@@ -105,7 +110,9 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 		beforeQueries := time.Now()
 		mux := sync.Mutex{}
 		wg := sync.WaitGroup{}
+		devices := []models.Device{}
 		raised := false
+		token := getToken(request)
 		for i, dbRequestElement := range dbRequestElements {
 			wg.Add(1)
 			i := i
@@ -134,6 +141,22 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							filters = append(filters, importFilters...)
 						}
 
+						if dbRequestElement.DeviceId != nil {
+							device, err := remoteCache.GetDevice(*dbRequestElement.DeviceId, token)
+							if err != nil {
+								mux.Lock()
+								defer mux.Unlock()
+								if !raised {
+									http.Error(writer, err.Error(), http.StatusInternalServerError)
+									raised = true
+								}
+								return
+							}
+							mux.Lock()
+							devices = append(devices, device)
+							mux.Unlock()
+						}
+
 						elem := model.QueriesRequestElement{
 							ExportId:         dbRequestElement.ExportId,
 							DeviceId:         dbRequestElement.DeviceId,
@@ -159,7 +182,6 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 						ownerUserIds = append(ownerUserIds, userId)
 					}
 				} else {
-					token := getToken(request)
 					deviceGroupIds := []string{}
 					deviceIds := []string{}
 					if dbRequestElement.DeviceGroupId != nil {
@@ -206,6 +228,9 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							return
 						}
 						localIds = append(localIds, device.LocalId)
+						mux.Lock()
+						devices = append(devices, device)
+						mux.Unlock()
 					}
 					for colIdx, col := range dbRequestElement.Columns {
 						f, err := remoteCache.GetFunction(col.Criteria.FunctionId)
@@ -280,7 +305,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 					}
 				}
 
-				queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds)
+				queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds, forceTz, devices)
 				if err != nil {
 					mux.Lock()
 					defer mux.Unlock()

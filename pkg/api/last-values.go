@@ -29,6 +29,7 @@ import (
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
+	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
@@ -157,7 +158,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		for i := range fullRequestElements {
 			i := i
 			go func() {
-				raw[i], err = remoteCache.GetLastValuesFromCache(fullRequestElements[i])
+				raw[i], err = remoteCache.GetLastValuesFromCache(fullRequestElements[i], nil)
 				if err != nil {
 					m.Lock()
 					defer m.Unlock()
@@ -177,7 +178,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		}
 
 		beforeQueries := time.Now()
-		queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds)
+		queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds, "", []models.Device{})
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}

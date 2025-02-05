@@ -117,7 +117,7 @@ func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []mo
 					return nil, err
 				}
 				for {
-					if len(results[seriesIndex][len(results[seriesIndex])-1]) == 0 || results[seriesIndex][len(results[seriesIndex])-1][0] == nil {
+					if len(results[seriesIndex]) == 0 || len(results[seriesIndex][len(results[seriesIndex])-1]) == 0 || results[seriesIndex][len(results[seriesIndex])-1][0] == nil {
 						break
 					}
 					if ts.After(results[seriesIndex][len(results[seriesIndex])-1][0].(time.Time)) {

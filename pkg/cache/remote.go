@@ -62,9 +62,9 @@ func (lv *RemoteCache) initMemcached() {
 	lv.mc = memcache.New(lv.config.MemcachedUrls...)
 }
 
-func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElement) ([][]interface{}, error) {
+func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElement, forceTZ *string) ([][]interface{}, error) {
 	if request.DeviceId == nil || request.ServiceId == nil || request.Limit == nil || *request.Limit != 1 ||
-		request.Time != nil || request.GroupTime != nil || request.Filters != nil || request.DeviceGroupId != nil {
+		request.Time != nil || request.GroupTime != nil || request.Filters != nil || request.DeviceGroupId != nil || forceTZ != nil {
 		return nil, NotCachableError
 	}
 

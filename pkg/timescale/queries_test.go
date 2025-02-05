@@ -21,6 +21,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/SENERGY-Platform/models/go/models"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
@@ -65,7 +67,7 @@ func TestQueries(t *testing.T) {
 		End:   &end,
 	}
 
-	wrapper := &Wrapper{}
+	wrapper := &Wrapper{config: &configuration.ConfigStruct{DefaultTimezone: "Europe/Berlin"}}
 	t.Parallel()
 	t.Run("Test ShortenId", func(t *testing.T) {
 		actual, err := shortenId("urn:infai:ses:device:d42d8d24-f2a2-4dd7-8ad3-4cabfb6f8062")
@@ -115,7 +117,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -161,7 +163,7 @@ func TestQueries(t *testing.T) {
 				OrderDirection:   &asc,
 			}}
 
-			actual, err := wrapper.GenerateQueries(elements, "", []string{""})
+			actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
 			if err != nil {
 				t.Error(err)
 			}
@@ -171,10 +173,10 @@ func TestQueries(t *testing.T) {
 			expected := fmt.Sprintf("SELECT sub0.time AS \"time\", "+
 				"(sub0.value) AS \"sensor.ENERGY.Total\", "+
 				"(sub1.value) AS \"sensor.ENERGY.Total\" "+
-				"FROM (SELECT time_bucket('%s', \"time\") AS \"time\", "+
+				"FROM (SELECT time_bucket('%s', \"time\", 'Europe/Berlin') AS \"time\", "+
 				"avg(\"sensor.ENERGY.Total\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" "+
 				"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN "+
-				"(SELECT time_bucket('%s', \"time\") AS \"time\", percentile_disc(0.5) WITHIN GROUP (ORDER BY "+
+				"(SELECT time_bucket('%s', \"time\", 'Europe/Berlin') AS \"time\", percentile_disc(0.5) WITHIN GROUP (ORDER BY "+
 				"\"sensor.ENERGY.Total\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" "+
 				"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time "+
 				"ORDER BY 1 ASC", tc.GroupTime, tc.GroupTime)
@@ -218,7 +220,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -228,17 +230,17 @@ func TestQueries(t *testing.T) {
 		expected := "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY 1)) AS \"sensor.ENERGY.Total\"," +
 			" (sub1.value - lag(sub1.value) OVER (ORDER BY 1)) +5 AS \"sensor.ENERGY.Total\", (sub2.value) AS \"sensor.ENERGY.Total\"," +
 			" (sub3.value) AS \"sensor.ENERGY.Total\", (sub4.value - lag(sub4.value) OVER (ORDER BY 1)) AS \"sensor.ENERGY.Total\" " +
-			"FROM (SELECT time_bucket('1d', \"time\") AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
+			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
 			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY " +
-			"1 ORDER BY 1 ASC LIMIT 8) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\") AS \"time\", " +
+			"1 ORDER BY 1 ASC LIMIT 8) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +
 			"first(\"sensor.ENERGY.Total\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
 			"WHERE \"time\" > now() - interval '8d' GROUP BY 1 ORDER BY 1 ASC LIMIT 8) sub1 on sub0.time = sub1.time FULL OUTER JOIN " +
-			"(SELECT time_bucket('1d', \"time\") AS \"time\", first(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
+			"(SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", first(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
 			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY " +
-			"1 ORDER BY 1 ASC LIMIT 8) sub2 on sub0.time = sub2.time FULL OUTER JOIN (SELECT time_bucket('1d', \"time\") AS" +
+			"1 ORDER BY 1 ASC LIMIT 8) sub2 on sub0.time = sub2.time FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS" +
 			" \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\"" +
 			" WHERE \"time\" > now() - interval '8d' GROUP BY 1 ORDER BY 1 ASC LIMIT 8) sub3 on sub0.time = sub3.time FULL OUTER JOIN" +
-			" (SELECT time_bucket('1d', \"time\") AS \"time\", avg(\"sensor.ENERGY.Total\") AS value FROM " +
+			" (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", avg(\"sensor.ENERGY.Total\") AS value FROM " +
 			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY 1" +
 			" ORDER BY 1 ASC LIMIT 8) sub4 on sub0.time = sub4.time ORDER BY 1 DESC LIMIT 7"
 
@@ -270,7 +272,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -280,10 +282,10 @@ func TestQueries(t *testing.T) {
 		expected := "SELECT sub0.time AS \"time\", " +
 			"(sub0.value) AS \"sensor.ENERGY.Total\", " +
 			"(sub1.value) +5 AS \"sensor.ENERGY.Total\" " +
-			"FROM (SELECT time_bucket('1d', \"time\") AS \"time\", " +
+			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +
 			"average(time_weight('Linear', \"time\", \"sensor.ENERGY.Total\")) AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
 			"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN " +
-			"(SELECT time_bucket('1d', \"time\") AS \"time\", average(time_weight('LOCF', \"time\", \"sensor.ENERGY.Total\")) AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
+			"(SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", average(time_weight('LOCF', \"time\", \"sensor.ENERGY.Total\")) AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
 			"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time " +
 			"ORDER BY 1 DESC"
 
@@ -305,7 +307,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -364,7 +366,7 @@ func TestQueries(t *testing.T) {
 				OrderColumnIndex: &zero,
 			}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{"", ""})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{"", ""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -409,7 +411,7 @@ func TestQueries(t *testing.T) {
 			OrderColumnIndex: &zero,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -446,7 +448,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "ade1fba6-fa5f-4704-9997-81dc168f62f4", []string{"ade1fba6-fa5f-4704-9997-81dc168f62f4"})
+		actual, err := wrapper.GenerateQueries(elements, "ade1fba6-fa5f-4704-9997-81dc168f62f4", []string{"ade1fba6-fa5f-4704-9997-81dc168f62f4"}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -484,7 +486,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""})
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -515,11 +517,11 @@ func TestQueries(t *testing.T) {
 			GroupTime: &d1,
 		}
 
-		actual, err := getCAQuery(element, "table")
+		actual, err := getCAQuery(element, "table", "Europe/Berlin")
 		if err != nil {
 			t.Error(err)
 		}
-		expected := "SELECT view_name FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = 'table' AND view_definition LIKE '%SELECT time_bucket(''' || (SELECT '1d'::interval) || '''::interval, \"table\".\"time\")%'\n" +
+		expected := "SELECT view_name FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = 'table' AND view_definition LIKE '%SELECT time_bucket(''' || (SELECT '1d'::interval) || '''::interval, \"table\".\"time\", 'Europe/Berlin'::text)%'\n" +
 			"AND view_definition LIKE '%first(\"table\".test1, \"table\".\"time\") AS test1%'\n" +
 			"AND view_definition LIKE '%last(\"table\".\"test.2\", \"table\".\"time\") AS \"test.2\"%'\n" +
 			"LIMIT 1;"
