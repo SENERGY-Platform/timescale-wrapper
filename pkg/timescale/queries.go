@@ -148,43 +148,54 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 						}
 						diff := endT.Sub(startT)
 						diffT := 0
-						dur := time.Hour
+						const before = -1
+						const after = 0
+						var start time.Time
+						var end time.Time
 						switch string(suffix) {
 						case "ms":
 							diffT = int(diff.Milliseconds())
-							dur = time.Millisecond
+							start = startT.Add(before * time.Millisecond)
+							end = endT.Add(after * time.Millisecond)
 						case "s":
 							diffT = int(diff.Seconds())
-							dur = time.Second
+							start = startT.Add(before * time.Second)
+							end = endT.Add(after * time.Second)
 						case "months":
 							fallthrough
 						case "mon":
-							diffT = int(diff.Hours() / 24 / 30)
-							dur = time.Hour * 24 * 30
+							start = startT.AddDate(0, before, 0)
+							end = endT.AddDate(0, after, 0)
+							diffT = (endT.Year()-startT.Year())*12 + (int(endT.Month()) - int(startT.Month()))
 						case "m":
+							start = startT.Add(before * time.Minute)
+							end = endT.Add(after * time.Minute)
 							diffT = int(diff.Minutes())
-							dur = time.Minute
 						case "h":
+							start = startT.Add(before * time.Hour)
+							end = endT.Add(after * time.Hour)
 							diffT = int(diff.Hours())
-							dur = time.Hour
 						case "day":
 							fallthrough
 						case "d":
+							start = startT.Add(before * 24 * time.Hour)
+							end = endT.Add(after * 24 * time.Hour)
 							diffT = int(diff.Hours() / 24)
-							dur = time.Hour * 24
 						case "w":
+							start = startT.Add(before * 24 * 7 * time.Hour)
+							end = endT.Add(after * 24 * 7 * time.Hour)
 							diffT = int(diff.Hours() / 24 / 7)
-							dur = time.Hour * 24 * 7
 						case "y":
-							diffT = int(diff.Hours() / 24 / 365)
-							dur = time.Hour * 24 * 365
+							start = startT.AddDate(before, 0, 0)
+							end = endT.AddDate(after, 0, 0)
+							diffT = endT.Year() - startT.Year()
 						}
 						l = &diffT
-						start := startT.Add(-2 * dur).Format(time.RFC3339)
-						element.Time.Start = &start
-						end := endT.Add(dur).Format(time.RFC3339)
+						startS := start.Format(time.RFC3339)
+						element.Time.Start = &startS
+						endS := end.Format(time.RFC3339)
 						element.Time.EndOriginal = element.Time.End
-						element.Time.End = &end
+						element.Time.End = &endS
 						elements[i] = element
 					}
 				} else if *column.GroupType == "first" || *column.GroupType == "last" {
