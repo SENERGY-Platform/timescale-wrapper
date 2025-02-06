@@ -521,7 +521,7 @@ func TestQueries(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		expected := "SELECT view_name FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = 'table' AND view_definition LIKE '%SELECT time_bucket(''' || (SELECT '1d'::interval) || '''::interval, \"table\".\"time\", 'Europe/Berlin'::text)%'\n" +
+		expected := "SELECT view_name FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = 'table' AND view_definition LIKE '%SELECT time_bucket(''' || (SELECT '1d'::interval) || '''::interval, \"table\".\"time\", ''Europe/Berlin''::text)%'\n" +
 			"AND view_definition LIKE '%first(\"table\".test1, \"table\".\"time\") AS test1%'\n" +
 			"AND view_definition LIKE '%last(\"table\".\"test.2\", \"table\".\"time\") AS \"test.2\"%'\n" +
 			"LIMIT 1;"

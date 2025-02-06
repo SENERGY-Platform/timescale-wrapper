@@ -384,7 +384,7 @@ func shortenId(uuid string) (string, error) {
 func getCAQuery(element model.QueriesRequestElement, table string, timezone string) (string, error) {
 	query := "SELECT view_name FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = '" + table +
 		"' AND view_definition LIKE '%SELECT time_bucket(''' || (SELECT '" + *element.GroupTime + "'::interval) || '''::interval, \"" +
-		table + "\".\"time\", '" + timezone + "'::text)%'\n"
+		table + "\".\"time\", ''" + timezone + "''::text)%'\n"
 
 	for _, column := range element.Columns {
 		if column.GroupType == nil {
