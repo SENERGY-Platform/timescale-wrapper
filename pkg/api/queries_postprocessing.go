@@ -88,11 +88,6 @@ func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []mo
 		}
 		return formatted, nil
 	default:
-		if len(timeFormat) > 0 {
-			for i := range results {
-				formatTime2D(results[i], timeFormat)
-			}
-		}
 		for seriesIndex := range results {
 			for len(results[seriesIndex]) > 0 && isRowEmpty(results[seriesIndex][len(results[seriesIndex])-1]) {
 				results[seriesIndex] = results[seriesIndex][:len(results[seriesIndex])-1]
@@ -142,6 +137,11 @@ func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []mo
 						}
 					}
 				}
+			}
+		}
+		if len(timeFormat) > 0 {
+			for i := range results {
+				formatTime2D(results[i], timeFormat)
 			}
 		}
 		return results, nil
