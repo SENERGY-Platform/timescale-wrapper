@@ -393,9 +393,8 @@ func shortenId(uuid string) (string, error) {
 }
 
 func getCAQuery(element model.QueriesRequestElement, table string, timezone string) (string, error) {
-	query := "SELECT view_name FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = '" + table +
-		"' AND view_definition LIKE '%SELECT time_bucket(''' || (SELECT '" + *element.GroupTime + "'::interval) || '''::interval, \"" +
-		table + "\".\"time\", ''" + timezone + "''::text)%'\n"
+	query := "SELECT view_name FROM (SELECT view_name, substring(view_definition, 'time_bucket\\((.*?)::interval')::interval as bucket FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = '" + table +
+		"' AND view_definition LIKE '%\"" + table + "\".\"time\", ''" + timezone + "''::text)%'\n"
 
 	for _, column := range element.Columns {
 		if column.GroupType == nil {
@@ -420,7 +419,8 @@ func getCAQuery(element model.QueriesRequestElement, table string, timezone stri
 		}
 		query += "%'\n"
 	}
-	query += "LIMIT 1;"
+	query += ") sub WHERE bucket <= '" + *element.GroupTime + "'::interval ORDER BY bucket DESC"
+	query += " LIMIT 1;"
 
 	return query, nil
 }
