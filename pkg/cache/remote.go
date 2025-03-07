@@ -23,6 +23,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -345,20 +346,24 @@ func (rc *RemoteCache) mcGet(key string) (item *memcache.Item, err error) {
 
 func getDeepEntry(m map[string]interface{}, path string) interface{} {
 	pathElems := strings.Split(path, ".")
-	sub := m
+	var sub interface{}
+	sub = m
 	ok := false
-	var res interface{}
-	for i, elem := range pathElems {
-		res, ok = sub[elem]
-		if !ok {
-			return nil
-		}
-		if i < len(pathElems)-1 {
-			sub, ok = res.(map[string]interface{})
+	for _, elem := range pathElems {
+		switch child := sub.(type) {
+		case map[string]interface{}:
+			sub, ok = child[elem]
 			if !ok {
 				return nil
 			}
+		case []interface{}:
+			n, err := strconv.Atoi(elem)
+			if err != nil {
+				log.Printf("WARN: Could not extract index of list with index %v\n", elem)
+				return nil
+			}
+			sub = child[n]
 		}
 	}
-	return res
+	return sub
 }
