@@ -1,0 +1,619 @@
+basePath: /
+definitions:
+  model.DataAvailabilityResponseElement:
+    properties:
+      from:
+        type: string
+      groupTime:
+        type: string
+      groupType:
+        type: string
+      serviceId:
+        type: string
+      to:
+        type: string
+    type: object
+  model.Direction:
+    enum:
+    - asc
+    - desc
+    type: string
+    x-enum-varnames:
+    - Asc
+    - Desc
+  model.LastValuesRequestElement:
+    properties:
+      columnName:
+        type: string
+      conceptId:
+        type: string
+      deviceId:
+        type: string
+      exportId:
+        type: string
+      math:
+        type: string
+      serviceId:
+        type: string
+      sourceCharacteristicId:
+        type: string
+      targetCharacteristicId:
+        type: string
+    type: object
+  model.LastValuesResponseElement:
+    properties:
+      time:
+        type: string
+      value: {}
+    type: object
+  model.QueriesRequestElement:
+    properties:
+      columns:
+        items:
+          $ref: '#/definitions/model.QueriesRequestElementColumn'
+        type: array
+      deviceGroupId:
+        type: string
+      deviceId:
+        type: string
+      exportId:
+        type: string
+      filters:
+        items:
+          $ref: '#/definitions/model.QueriesRequestElementFilter'
+        type: array
+      groupTime:
+        type: string
+      limit:
+        type: integer
+      locationId:
+        type: string
+      orderColumnIndex:
+        type: integer
+      orderDirection:
+        $ref: '#/definitions/model.Direction'
+      serviceId:
+        type: string
+      time:
+        $ref: '#/definitions/model.QueriesRequestElementTime'
+    type: object
+  model.QueriesRequestElementColumn:
+    properties:
+      conceptId:
+        type: string
+      criteria:
+        $ref: '#/definitions/models.DeviceGroupFilterCriteria'
+      groupType:
+        type: string
+      math:
+        type: string
+      name:
+        type: string
+      sourceCharacteristicId:
+        type: string
+      targetCharacteristicId:
+        type: string
+    type: object
+  model.QueriesRequestElementFilter:
+    properties:
+      column:
+        type: string
+      math:
+        type: string
+      type:
+        type: string
+      value: {}
+    type: object
+  model.QueriesRequestElementTime:
+    properties:
+      ahead:
+        type: string
+      end:
+        type: string
+      last:
+        type: string
+      start:
+        type: string
+    type: object
+  model.QueriesV2ResponseElement:
+    properties:
+      columnNames:
+        items:
+          type: string
+        type: array
+      data:
+        items:
+          items:
+            items: {}
+            type: array
+          type: array
+        type: array
+      deviceId:
+        type: string
+      exportId:
+        type: string
+      requestIndex:
+        type: integer
+      serviceId:
+        type: string
+    type: object
+  model.Usage:
+    properties:
+      bytes:
+        type: integer
+      bytesPerDay:
+        type: number
+      deviceId:
+        type: string
+      exportId:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  models.DeviceGroupFilterCriteria:
+    properties:
+      aspect_id:
+        type: string
+      device_class_id:
+        type: string
+      function_id:
+        type: string
+      interaction:
+        $ref: '#/definitions/models.Interaction'
+    type: object
+  models.Interaction:
+    enum:
+    - event
+    - request
+    - event+request
+    type: string
+    x-enum-varnames:
+    - EVENT
+    - REQUEST
+    - EVENT_AND_REQUEST
+info:
+  contact: {}
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  title: Timescale Wrapper API
+  version: "0.1"
+paths:
+  /data-availability:
+    get:
+      consumes:
+      - application/json
+      description: query data availabilty of a device
+      parameters:
+      - description: ID of requested device
+        in: query
+        name: device_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.DataAvailabilityResponseElement'
+            type: array
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      security:
+      - Bearer: []
+      summary: query data availabilty
+  /download:
+    get:
+      consumes:
+      - application/json
+      description: download CSV
+      parameters:
+      - description: JSON encoded QueriesRequestElement
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: 'Textual representation of the date ''Mon Jan 2 15:04:05 -0700
+          MST 2006''. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps
+          as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format'
+        in: query
+        name: time_format
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      security:
+      - Bearer: []
+      summary: download
+  /download/{secret}:
+    get:
+      description: downloads CSV file with previously prepared secret
+      parameters:
+      - description: secret
+        in: path
+        name: secret
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      summary: download
+  /last-values:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: requested values
+        in: body
+        name: payload
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/model.LastValuesRequestElement'
+          type: array
+      - description: 'Textual representation of the date ''Mon Jan 2 15:04:05 -0700
+          MST 2006''. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps
+          as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format'
+        in: query
+        name: time_format
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.LastValuesResponseElement'
+            type: array
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      security:
+      - Bearer: []
+      summary: last-values
+  /prepare-download:
+    get:
+      consumes:
+      - application/json
+      description: genartes a secret for later download. can be used in native browser
+        downloads
+      parameters:
+      - description: JSON encoded QueriesRequestElement
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: 'Textual representation of the date ''Mon Jan 2 15:04:05 -0700
+          MST 2006''. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps
+          as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format'
+        in: query
+        name: time_format
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      security:
+      - Bearer: []
+      summary: prepare download
+  /queries:
+    post:
+      consumes:
+      - application/json
+      deprecated: true
+      parameters:
+      - description: requested values
+        in: body
+        name: payload
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/model.QueriesRequestElement'
+          type: array
+      - description: specifies output format. Use per_query (default) for a 3D array
+          or table for a 2D array with merged timestamps
+        in: query
+        name: format
+        type: string
+      - description: Column to order values by (includes time column). Only works
+          in format table.
+        in: query
+        name: order_column_index
+        type: string
+      - description: Direction to order values by. Allowed are 'asc' and 'desc'. Only
+          works in format table.
+        in: query
+        name: order_direction
+        type: string
+      - description: 'Textual representation of the date ''Mon Jan 2 15:04:05 -0700
+          MST 2006''. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps
+          as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format'
+        in: query
+        name: time_format
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 2D or 3D array
+          schema:
+            items: {}
+            type: array
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      security:
+      - Bearer: []
+      summary: queries
+  /queries/v2:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: requested values
+        in: body
+        name: payload
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/model.QueriesRequestElement'
+          type: array
+      - description: specifies output format. Use per_query (default) for a 3D array
+          or table for a 2D array with merged timestamps
+        in: query
+        name: format
+        type: string
+      - description: Column to order values by (includes time column). Only works
+          in format table.
+        in: query
+        name: order_column_index
+        type: string
+      - description: Direction to order values by. Allowed are 'asc' and 'desc'. Only
+          works in format table.
+        in: query
+        name: order_direction
+        type: string
+      - description: 'Textual representation of the date ''Mon Jan 2 15:04:05 -0700
+          MST 2006''. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps
+          as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format'
+        in: query
+        name: time_format
+        type: string
+      - description: Used to automatically select the clostest location on a multivalued
+          import export. Only works with exportId set to an export of an import. User
+          needs read access to the import type.
+        in: query
+        name: locate_lat
+        type: string
+      - description: Used to automatically select the clostest location on a multivalued
+          import export. Only works with exportId set to an export of an import. User
+          needs read access to the import type.
+        in: query
+        name: locate_lon
+        type: string
+      - description: Calculate aggregations with the specified timezone instead of
+          the default device timezone. Might increase calculation complexity and response
+          time.
+        in: query
+        name: force_tz
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: requestIndex allows to match response and request elements
+            (topmost array in request). If a device group is requested, each device
+            will return its own time series. If multiple columns are requested, each
+            will be return as a time series within the data field. If a criteria is
+            selected and multiple paths match the criteria, all matching values will
+            be part of the time series.
+          schema:
+            items:
+              $ref: '#/definitions/model.QueriesV2ResponseElement'
+            type: array
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      security:
+      - Bearer: []
+      summary: last-values
+  /raw-value:
+    get:
+      parameters:
+      - description: export_id
+        in: query
+        name: export_id
+        type: string
+      - description: device_id
+        in: query
+        name: device_id
+        type: string
+      - description: service_id
+        in: query
+        name: service_id
+        type: string
+      - description: column
+        in: query
+        name: column
+        type: string
+      - description: source_characteristic_id
+        in: query
+        name: source_characteristic_id
+        type: string
+      - description: target_characteristic_id
+        in: query
+        name: target_characteristic_id
+        type: string
+      - description: concept_id
+        in: query
+        name: concept_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the raw value
+          schema: {}
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      security:
+      - Bearer: []
+      summary: Raw Value
+  /usage/devices:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: device_ids
+        in: body
+        name: device_ids
+        required: true
+        schema:
+          items:
+            type: string
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: usage
+          schema:
+            items:
+              $ref: '#/definitions/model.Usage'
+            type: array
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      security:
+      - Bearer: []
+      summary: Device Usage
+  /usage/exports:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: export_ids
+        in: body
+        name: export_ids
+        required: true
+        schema:
+          items:
+            type: string
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: usage
+          schema:
+            items:
+              $ref: '#/definitions/model.Usage'
+            type: array
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      security:
+      - Bearer: []
+      summary: Export Usage
+securityDefinitions:
+  Bearer:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

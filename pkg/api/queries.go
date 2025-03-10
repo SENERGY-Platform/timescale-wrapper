@@ -42,6 +42,24 @@ func init() {
 	endpoints = append(endpoints, QueriesEndpoint)
 }
 
+// Query godoc
+// @Summary      queries
+// @deprecated
+// @Accept       json
+// @Produce      json
+// @Security Bearer
+// @Param        payload body []model.QueriesRequestElement true "requested values"
+// @Param		 format query string false "specifies output format. Use per_query (default) for a 3D array or table for a 2D array with merged timestamps"
+// @Param		 order_column_index query string false "Column to order values by (includes time column). Only works in format table."
+// @Param		 order_direction query string false "Direction to order values by. Allowed are 'asc' and 'desc'. Only works in format table."
+// @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Success      200 {array} interface{} "2D or 3D array"
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /queries [POST]
 func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	router.POST("/queries", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		start := time.Now()

@@ -17,10 +17,10 @@
 package api
 
 import (
-	"fmt"
-	"io/ioutil"
-	"log"
 	"net/http"
+	"strings"
+
+	_ "github.com/SENERGY-Platform/timescale-wrapper/docs"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
@@ -29,29 +29,25 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/julienschmidt/httprouter"
+	httpSwagger "github.com/swaggo/http-swagger"
+	"github.com/swaggo/swag"
 )
-
-const swaggerJSONLocation = "pkg/resources/swagger.json"
 
 func init() {
 	endpoints = append(endpoints, DocEndpoint)
 }
 
-func DocEndpoint(router *httprouter.Router, _ configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
-	json, readErr := ioutil.ReadFile(swaggerJSONLocation)
-	if readErr != nil {
-		log.Println("ERROR reading swagger definition from ", swaggerJSONLocation)
-	}
-
+//go:generate go tool swag init -o ../../docs --parseDependency -d .. -g api/api.go
+func DocEndpoint(router *httprouter.Router, config configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/doc", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
-		if readErr != nil {
-			http.Error(writer, "Error reading doc file", http.StatusInternalServerError)
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		doc, err := swag.ReadDoc()
+		if err != nil {
+			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, err := writer.Write(json)
-		if err != nil {
-			fmt.Println("ERROR: " + err.Error())
-		}
+		//remove empty host to enable developer-swagger-api service to replace it; can not use cleaner delete on json object, because developer-swagger-api is sensible to formatting; better alternative is refactoring of developer-swagger-api/apis/db/db.py
+		doc = strings.Replace(doc, `"host": "",`, "", 1)
+		_, _ = writer.Write([]byte(doc))
 	})
 }

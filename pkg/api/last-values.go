@@ -47,6 +47,20 @@ type queriesRequestElementColumn struct {
 	requestIndex int
 }
 
+// Query godoc
+// @Summary      last-values
+// @Accept       json
+// @Produce      json
+// @Security Bearer
+// @Param        payload body []model.LastValuesRequestElement true "requested values"
+// @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Success      200 {array} model.LastValuesResponseElement
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /last-values [POST]
 func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	handler := lastValueHandler(config, wrapper, verifier, remoteCache, converter)
 

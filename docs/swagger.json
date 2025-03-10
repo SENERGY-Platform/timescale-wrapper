@@ -1,0 +1,914 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "title": "Timescale Wrapper API",
+        "contact": {},
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
+        "version": "0.1"
+    },
+    "basePath": "/",
+    "paths": {
+        "/data-availability": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "query data availabilty of a device",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "query data availabilty",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID of requested device",
+                        "name": "device_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.DataAvailabilityResponseElement"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        },
+        "/download": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "download CSV",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/plain"
+                ],
+                "summary": "download",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "JSON encoded QueriesRequestElement",
+                        "name": "query",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
+                        "name": "time_format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        },
+        "/download/{secret}": {
+            "get": {
+                "description": "downloads CSV file with previously prepared secret",
+                "produces": [
+                    "text/plain"
+                ],
+                "summary": "download",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "secret",
+                        "name": "secret",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        },
+        "/last-values": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "last-values",
+                "parameters": [
+                    {
+                        "description": "requested values",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.LastValuesRequestElement"
+                            }
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
+                        "name": "time_format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.LastValuesResponseElement"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        },
+        "/prepare-download": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "genartes a secret for later download. can be used in native browser downloads",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/plain"
+                ],
+                "summary": "prepare download",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "JSON encoded QueriesRequestElement",
+                        "name": "query",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
+                        "name": "time_format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        },
+        "/queries": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "queries",
+                "deprecated": true,
+                "parameters": [
+                    {
+                        "description": "requested values",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.QueriesRequestElement"
+                            }
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "specifies output format. Use per_query (default) for a 3D array or table for a 2D array with merged timestamps",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Column to order values by (includes time column). Only works in format table.",
+                        "name": "order_column_index",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Direction to order values by. Allowed are 'asc' and 'desc'. Only works in format table.",
+                        "name": "order_direction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
+                        "name": "time_format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "2D or 3D array",
+                        "schema": {
+                            "type": "array",
+                            "items": {}
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        },
+        "/queries/v2": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "last-values",
+                "parameters": [
+                    {
+                        "description": "requested values",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.QueriesRequestElement"
+                            }
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "specifies output format. Use per_query (default) for a 3D array or table for a 2D array with merged timestamps",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Column to order values by (includes time column). Only works in format table.",
+                        "name": "order_column_index",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Direction to order values by. Allowed are 'asc' and 'desc'. Only works in format table.",
+                        "name": "order_direction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
+                        "name": "time_format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Used to automatically select the clostest location on a multivalued import export. Only works with exportId set to an export of an import. User needs read access to the import type.",
+                        "name": "locate_lat",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Used to automatically select the clostest location on a multivalued import export. Only works with exportId set to an export of an import. User needs read access to the import type.",
+                        "name": "locate_lon",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Calculate aggregations with the specified timezone instead of the default device timezone. Might increase calculation complexity and response time.",
+                        "name": "force_tz",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "requestIndex allows to match response and request elements (topmost array in request). If a device group is requested, each device will return its own time series. If multiple columns are requested, each will be return as a time series within the data field. If a criteria is selected and multiple paths match the criteria, all matching values will be part of the time series.",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.QueriesV2ResponseElement"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        },
+        "/raw-value": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Raw Value",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "export_id",
+                        "name": "export_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "device_id",
+                        "name": "device_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "service_id",
+                        "name": "service_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "column",
+                        "name": "column",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "source_characteristic_id",
+                        "name": "source_characteristic_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "target_characteristic_id",
+                        "name": "target_characteristic_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "concept_id",
+                        "name": "concept_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "the raw value",
+                        "schema": {}
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        },
+        "/usage/devices": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Device Usage",
+                "parameters": [
+                    {
+                        "description": "device_ids",
+                        "name": "device_ids",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "usage",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.Usage"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        },
+        "/usage/exports": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Export Usage",
+                "parameters": [
+                    {
+                        "description": "export_ids",
+                        "name": "export_ids",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "usage",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.Usage"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "model.DataAvailabilityResponseElement": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "groupTime": {
+                    "type": "string"
+                },
+                "groupType": {
+                    "type": "string"
+                },
+                "serviceId": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.Direction": {
+            "type": "string",
+            "enum": [
+                "asc",
+                "desc"
+            ],
+            "x-enum-varnames": [
+                "Asc",
+                "Desc"
+            ]
+        },
+        "model.LastValuesRequestElement": {
+            "type": "object",
+            "properties": {
+                "columnName": {
+                    "type": "string"
+                },
+                "conceptId": {
+                    "type": "string"
+                },
+                "deviceId": {
+                    "type": "string"
+                },
+                "exportId": {
+                    "type": "string"
+                },
+                "math": {
+                    "type": "string"
+                },
+                "serviceId": {
+                    "type": "string"
+                },
+                "sourceCharacteristicId": {
+                    "type": "string"
+                },
+                "targetCharacteristicId": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.LastValuesResponseElement": {
+            "type": "object",
+            "properties": {
+                "time": {
+                    "type": "string"
+                },
+                "value": {}
+            }
+        },
+        "model.QueriesRequestElement": {
+            "type": "object",
+            "properties": {
+                "columns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.QueriesRequestElementColumn"
+                    }
+                },
+                "deviceGroupId": {
+                    "type": "string"
+                },
+                "deviceId": {
+                    "type": "string"
+                },
+                "exportId": {
+                    "type": "string"
+                },
+                "filters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.QueriesRequestElementFilter"
+                    }
+                },
+                "groupTime": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "locationId": {
+                    "type": "string"
+                },
+                "orderColumnIndex": {
+                    "type": "integer"
+                },
+                "orderDirection": {
+                    "$ref": "#/definitions/model.Direction"
+                },
+                "serviceId": {
+                    "type": "string"
+                },
+                "time": {
+                    "$ref": "#/definitions/model.QueriesRequestElementTime"
+                }
+            }
+        },
+        "model.QueriesRequestElementColumn": {
+            "type": "object",
+            "properties": {
+                "conceptId": {
+                    "type": "string"
+                },
+                "criteria": {
+                    "$ref": "#/definitions/models.DeviceGroupFilterCriteria"
+                },
+                "groupType": {
+                    "type": "string"
+                },
+                "math": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sourceCharacteristicId": {
+                    "type": "string"
+                },
+                "targetCharacteristicId": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.QueriesRequestElementFilter": {
+            "type": "object",
+            "properties": {
+                "column": {
+                    "type": "string"
+                },
+                "math": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "value": {}
+            }
+        },
+        "model.QueriesRequestElementTime": {
+            "type": "object",
+            "properties": {
+                "ahead": {
+                    "type": "string"
+                },
+                "end": {
+                    "type": "string"
+                },
+                "last": {
+                    "type": "string"
+                },
+                "start": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.QueriesV2ResponseElement": {
+            "type": "object",
+            "properties": {
+                "columnNames": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {}
+                        }
+                    }
+                },
+                "deviceId": {
+                    "type": "string"
+                },
+                "exportId": {
+                    "type": "string"
+                },
+                "requestIndex": {
+                    "type": "integer"
+                },
+                "serviceId": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.Usage": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "integer"
+                },
+                "bytesPerDay": {
+                    "type": "number"
+                },
+                "deviceId": {
+                    "type": "string"
+                },
+                "exportId": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.DeviceGroupFilterCriteria": {
+            "type": "object",
+            "properties": {
+                "aspect_id": {
+                    "type": "string"
+                },
+                "device_class_id": {
+                    "type": "string"
+                },
+                "function_id": {
+                    "type": "string"
+                },
+                "interaction": {
+                    "$ref": "#/definitions/models.Interaction"
+                }
+            }
+        },
+        "models.Interaction": {
+            "type": "string",
+            "enum": [
+                "event",
+                "request",
+                "event+request"
+            ],
+            "x-enum-varnames": [
+                "EVENT",
+                "REQUEST",
+                "EVENT_AND_REQUEST"
+            ]
+        }
+    },
+    "securityDefinitions": {
+        "Bearer": {
+            "description": "Type \"Bearer\" followed by a space and JWT token.",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

@@ -21,6 +21,24 @@ func init() {
 	endpoints = append(endpoints, RawValueEndpoint)
 }
 
+// Query godoc
+// @Summary      Raw Value
+// @Produce      json
+// @Security Bearer
+// @Param		 export_id query string false "export_id"
+// @Param		 device_id query string false "device_id"
+// @Param		 service_id query string false "service_id"
+// @Param		 column query string false "column"
+// @Param		 source_characteristic_id query string false "source_characteristic_id"
+// @Param		 target_characteristic_id query string false "target_characteristic_id"
+// @Param		 concept_id query string false "concept_id"
+// @Success      200 {object} any "the raw value"
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /raw-value [GET]
 func RawValueEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	handler := lastValueHandler(config, wrapper, verifier, lastValueCache, converter)
 	router.GET("/raw-value", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {

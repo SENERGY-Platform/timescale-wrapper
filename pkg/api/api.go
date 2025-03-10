@@ -71,6 +71,16 @@ func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config,
 	return nil
 }
 
+// GetRouter doc
+// @title         Timescale Wrapper API
+// @version       0.1
+// @license.name  Apache 2.0
+// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+// @BasePath  /
+// @securityDefinitions.apikey Bearer
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
 func Router(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) http.Handler {
 	router := httprouter.New()
 	for _, e := range endpoints {

@@ -35,6 +35,36 @@ func init() {
 	endpoints = append(endpoints, UsageEndpoint)
 }
 
+// Query godoc
+// @Summary      Device Usage
+// @Accept		 json
+// @Produce      json
+// @Security Bearer
+// @Param		 device_ids body []string true "device_ids"
+// @Success      200 {array} model.Usage "usage"
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /usage/devices [GET]
+func UsageDevices() {} // for doc
+
+// Query godoc
+// @Summary      Export Usage
+// @Accept		 json
+// @Produce      json
+// @Security Bearer
+// @Param		 export_ids body []string true "export_ids"
+// @Success      200 {array} model.Usage "usage"
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /usage/exports [GET]
+func UsageExports() {} // for doc
+
 func UsageEndpoint(router *httprouter.Router, _ configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
 	router.POST("/usage/devices", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		deviceIds := []string{}

@@ -35,6 +35,20 @@ func init() {
 	endpoints = append(endpoints, DataAvailabilityEndpoint)
 }
 
+// Query godoc
+// @Summary      query data availabilty
+// @Description  query data availabilty of a device
+// @Accept       json
+// @Produce      json
+// @Security Bearer
+// @Param        device_id query string true "ID of requested device"
+// @Success      200 {array}  model.DataAvailabilityResponseElement
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /data-availability [GET]
 func DataAvailabilityEndpoint(router *httprouter.Router, _ configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/data-availability", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		deviceId := request.URL.Query().Get("device_id")

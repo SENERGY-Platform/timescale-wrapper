@@ -43,6 +43,40 @@ func init() {
 	unauthenticatedEndpoints = append(unauthenticatedEndpoints, DownloadEndpoints)
 }
 
+// Query godoc
+// @Summary      download
+// @Description  download CSV
+// @Accept       json
+// @Produce      plain
+// @Security Bearer
+// @Param        query query string true "JSON encoded QueriesRequestElement"
+// @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Success      200 {file}  CSV file
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /download [GET]
+func GetDownload() {} // for doc generation
+
+// Query godoc
+// @Summary      prepare download
+// @Description  genartes a secret for later download. can be used in native browser downloads
+// @Accept       json
+// @Produce      plain
+// @Security Bearer
+// @Param        query query string true "JSON encoded QueriesRequestElement"
+// @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Success      200 {string} Secret
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /prepare-download [GET]
+func GetPrepareDownload() {} // for doc generation
+
 func PrepareDownloadEndpoints(router *httprouter.Router, config configuration.Config, _ *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/download", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		prepared, ok := prepareQueriesRequestElement(writer, request, verifier)
@@ -72,6 +106,18 @@ func PrepareDownloadEndpoints(router *httprouter.Router, config configuration.Co
 	})
 }
 
+// Query godoc
+// @Summary      download
+// @Description  downloads CSV file with previously prepared secret
+// @Produce      plain
+// @Param        secret path string true "secret"
+// @Success      200 {file} CSV file
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /download/{secret} [GET]
 func DownloadEndpoints(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/download/:secret", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		prepared, err := remoteCache.GetSecretQuery(params.ByName("secret"))

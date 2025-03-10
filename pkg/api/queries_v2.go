@@ -42,6 +42,26 @@ func init() {
 	endpoints = append(endpoints, QueriesV2Endpoint)
 }
 
+// Query godoc
+// @Summary      last-values
+// @Accept       json
+// @Produce      json
+// @Security Bearer
+// @Param        payload body []model.QueriesRequestElement true "requested values"
+// @Param		 format query string false "specifies output format. Use per_query (default) for a 3D array or table for a 2D array with merged timestamps"
+// @Param		 order_column_index query string false "Column to order values by (includes time column). Only works in format table."
+// @Param		 order_direction query string false "Direction to order values by. Allowed are 'asc' and 'desc'. Only works in format table."
+// @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Param		 locate_lat query string false "Used to automatically select the clostest location on a multivalued import export. Only works with exportId set to an export of an import. User needs read access to the import type."
+// @Param		 locate_lon query string false "Used to automatically select the clostest location on a multivalued import export. Only works with exportId set to an export of an import. User needs read access to the import type."
+// @Param		 force_tz query string false "Calculate aggregations with the specified timezone instead of the default device timezone. Might increase calculation complexity and response time."
+// @Success      200 {array} model.QueriesV2ResponseElement "requestIndex allows to match response and request elements (topmost array in request). If a device group is requested, each device will return its own time series. If multiple columns are requested, each will be return as a time series within the data field. If a criteria is selected and multiple paths match the criteria, all matching values will be part of the time series."
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /queries/v2 [POST]
 func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, deviceSelectionClient deviceSelection.Client) {
 	router.POST("/queries/v2", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		start := time.Now()
