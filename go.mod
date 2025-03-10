@@ -1,8 +1,8 @@
 module github.com/SENERGY-Platform/timescale-wrapper
 
-go 1.23
+go 1.24
 
-toolchain go1.23.3
+toolchain go1.24.1
 
 require (
 	github.com/SENERGY-Platform/analytics-serving v0.0.15
