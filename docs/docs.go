@@ -167,6 +167,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/last-message": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Last Message",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "device_id",
+                        "name": "device_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "service_id",
+                        "name": "service_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The last message",
+                        "schema": {
+                            "$ref": "#/definitions/cache.Entry"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        },
         "/last-values": {
             "post": {
                 "security": [
@@ -342,7 +394,9 @@ const docTemplate = `{
                         "description": "2D or 3D array",
                         "schema": {
                             "type": "array",
-                            "items": {}
+                            "items": {
+                                "type": "object"
+                            }
                         }
                     },
                     "400": {
@@ -519,7 +573,9 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "the raw value",
-                        "schema": {}
+                        "schema": {
+                            "type": "object"
+                        }
                     },
                     "400": {
                         "description": "Bad Request"
@@ -653,6 +709,18 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "cache.Entry": {
+            "type": "object",
+            "properties": {
+                "time": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
         "model.DataAvailabilityResponseElement": {
             "type": "object",
             "properties": {

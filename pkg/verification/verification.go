@@ -81,22 +81,22 @@ func (verifier *Verifier) VerifyAccess(elements []model.QueriesRequestElement, t
 func (verifier *Verifier) VerifyAccessOnce(element model.QueriesRequestElement, token string, userId string) (result VerifierCacheEntry, err error) {
 	if element.ExportId != nil {
 		err = verifier.c.Use(userId+*element.ExportId, func() (interface{}, error) {
-			return verifier.verifyExport(*element.ExportId, token, userId)
+			return verifier.VerifyExport(*element.ExportId, token, userId)
 		}, &result)
 		return
 	} else if element.DeviceId != nil {
 		err = verifier.c.Use(userId+*element.DeviceId, func() (interface{}, error) {
-			return verifier.verifyDevice(*element.DeviceId, token)
+			return verifier.VerifyDevice(*element.DeviceId, token)
 		}, &result)
 		return
 	} else if element.DeviceGroupId != nil {
 		err = verifier.c.Use(userId+*element.DeviceGroupId, func() (interface{}, error) {
-			return verifier.verifyDeviceGroup(*element.DeviceGroupId, token)
+			return verifier.VerifyDeviceGroup(*element.DeviceGroupId, token)
 		}, &result)
 		return
 	} else if element.LocationId != nil {
 		err = verifier.c.Use(userId+*element.LocationId, func() (interface{}, error) {
-			return verifier.verifyLocation(*element.LocationId, token)
+			return verifier.VerifyLocation(*element.LocationId, token)
 		}, &result)
 		return
 	}

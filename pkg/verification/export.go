@@ -22,7 +22,7 @@ import (
 
 const ServingExportInstanceTopic string = "export-instances"
 
-func (verifier *Verifier) verifyExport(id string, token string, userId string) (result VerifierCacheEntry, err error) {
+func (verifier *Verifier) VerifyExport(id string, token string, userId string) (result VerifierCacheEntry, err error) {
 	access, err, _ := verifier.permClient.CheckPermission(token, ServingExportInstanceTopic, id, client.Execute)
 	if !access || err != nil {
 		return result, err

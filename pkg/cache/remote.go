@@ -94,6 +94,19 @@ func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElemen
 	return [][]interface{}{res}, nil
 }
 
+func (lv *RemoteCache) GetLastMessageFromCache(deviceId string, serviceId string) (entry Entry, err error) {
+	key := "device_" + deviceId + "_service_" + serviceId
+	item, err := lv.mcGet(key)
+	if err != nil {
+		return entry, err
+	}
+	err = json.Unmarshal(item.Value, &entry)
+	if err != nil {
+		return entry, err
+	}
+	return
+}
+
 func (this *RemoteCache) GetService(serviceId string) (service models.Service, err error) {
 	cachedItem, err := this.mcGet("service_" + serviceId)
 	if err == nil {
