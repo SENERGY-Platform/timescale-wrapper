@@ -17,7 +17,6 @@ ENTRYPOINT [ "sh", "./run_tests.sh" ]
 FROM alpine:latest 
 WORKDIR /root/
 COPY --from=builder /go/src/app/app .
-COPY --from=builder /go/src/app/pkg/resources ./pkg/resources
 COPY --from=builder /go/src/app/config.json .
 COPY --from=builder /go/src/app/version.txt .
 
