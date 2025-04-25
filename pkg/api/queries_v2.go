@@ -235,23 +235,6 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 						}
 						deviceIds = append(deviceIds, deviceGroup.DeviceIds...)
 					}
-					localIds := []string{}
-					for _, deviceId := range deviceIds {
-						device, err := remoteCache.GetDevice(deviceId, token)
-						if err != nil {
-							mux.Lock()
-							defer mux.Unlock()
-							if !raised {
-								http.Error(writer, err.Error(), http.StatusInternalServerError)
-								raised = true
-							}
-							return
-						}
-						localIds = append(localIds, device.LocalId)
-						mux.Lock()
-						devices = append(devices, device)
-						mux.Unlock()
-					}
 					for colIdx, col := range dbRequestElement.Columns {
 						f, err := remoteCache.GetFunction(col.Criteria.FunctionId)
 						if err != nil {
@@ -267,9 +250,9 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 						criteria := []models.DeviceGroupFilterCriteria{col.Criteria}
 
 						selectables, code, err := remoteCache.GetSelectables(userId, token, criteria, &deviceSelection.GetSelectablesOptions{
-							IncludeDevices:     true,
-							WithLocalDeviceIds: localIds,
-							IncludeIdModified:  true,
+							IncludeDevices:    true,
+							WithDeviceIds:     deviceIds,
+							IncludeIdModified: true,
 						})
 						if err != nil {
 							mux.Lock()
