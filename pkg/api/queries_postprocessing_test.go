@@ -17,6 +17,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -66,19 +67,19 @@ func TestPostProcessing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = testDb.SetCharacteristic(nil, models.Characteristic{
+		err = testDb.SetCharacteristic(context.Background(), models.Characteristic{
 			Id: "1",
-		})
+		}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = testDb.SetCharacteristic(nil, models.Characteristic{
+		err = testDb.SetCharacteristic(context.Background(), models.Characteristic{
 			Id: "2",
-		})
+		}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = testDb.SetConcept(nil, models.Concept{
+		err = testDb.SetConcept(context.Background(), models.Concept{
 			Id: "1",
 			Conversions: []models.ConverterExtension{{
 				From:            "1",
@@ -87,7 +88,7 @@ func TestPostProcessing(t *testing.T) {
 				PlaceholderName: "x",
 			}},
 			CharacteristicIds: []string{"1", "2"},
-		})
+		}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
