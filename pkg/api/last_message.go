@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
@@ -69,6 +70,8 @@ func LastMessageEndpoint(router *httprouter.Router, config configuration.Config,
 			http.Error(writer, "not found", http.StatusNotFound)
 			return
 		}
+
+		deviceId = strings.Split(deviceId, "$")[0]
 
 		entry, err := remoteCache.GetLastMessageFromCache(deviceId, serviceId)
 		if err != nil {

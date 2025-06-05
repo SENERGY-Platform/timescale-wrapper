@@ -19,9 +19,12 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/SENERGY-Platform/models/go/models"
 )
 
 func TestSort2D(t *testing.T) {
