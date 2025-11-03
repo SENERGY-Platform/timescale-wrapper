@@ -393,8 +393,7 @@ func shortenId(uuid string) (string, error) {
 }
 
 func getCAQuery(element model.QueriesRequestElement, table string, timezone string) (string, error) {
-	query := "SELECT view_name FROM (SELECT view_name, substring(view_definition, 'time_bucket\\((.*?)::interval')::interval as bucket FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = '" + table +
-		"' AND view_definition LIKE '%\"" + table + "\".\"time\", ''" + timezone + "''::text)%'\n"
+	query := "SELECT view_name FROM (SELECT view_name, substring(view_definition, 'time_bucket\\((.*?)::interval, \"time\", ''" + timezone + "''')::interval as bucket FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = '" + table + "' "
 
 	for _, column := range element.Columns {
 		if column.GroupType == nil {
@@ -404,20 +403,20 @@ func getCAQuery(element model.QueriesRequestElement, table string, timezone stri
 			// not implemented
 			return table, errors.New("")
 		}
-		query += "AND view_definition LIKE '%" + strings.ReplaceAll(translateFunctionName(*column.GroupType), "'", "''") + "\"" + table + "\"."
+		query += "AND view_definition LIKE '%" + strings.ReplaceAll(translateFunctionName(*column.GroupType), "'", "''")
 		containsDot := strings.Contains(column.Name, ".")
 		if containsDot {
 			query += "\"" + column.Name + "\""
 		} else {
 			query += column.Name
 		}
-		query += ", \"" + table + "\".\"time\") AS "
+		query += ", \"time\") AS "
 		if containsDot {
 			query += "\"" + column.Name + "\""
 		} else {
 			query += column.Name
 		}
-		query += "%'\n"
+		query += "%'"
 	}
 	query += ") sub WHERE bucket <= '" + *element.GroupTime + "'::interval ORDER BY bucket DESC"
 	query += " LIMIT 1;"
