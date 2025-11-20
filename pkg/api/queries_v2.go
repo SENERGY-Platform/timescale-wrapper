@@ -86,7 +86,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 			}
 		}
 
-		userId, ownerUserIds, err, code := queriesVerify(requestElements, request, start, verifier, config)
+		userId, ownerUserIdsBefore, err, code := queriesVerify(requestElements, request, start, verifier, config)
 		if err != nil {
 			http.Error(writer, err.Error(), code)
 			return
@@ -97,7 +97,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 			forceTzp = &forceTz
 		}
 
-		raw, dbRequestElements, dbRequestIndices := queriesGetFromCache(requestElements, remoteCache, config, forceTzp)
+		raw, dbRequestElementsBefore, dbRequestIndices := queriesGetFromCache(requestElements, remoteCache, config, forceTzp)
 		response := []model.QueriesV2ResponseElement{}
 		for i, r := range raw {
 			if len(r) != 0 {
@@ -133,7 +133,8 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 		devices := []models.Device{}
 		raised := false
 		token := getToken(request)
-		for i, dbRequestElement := range dbRequestElements {
+		ownerUserIds := []string{}
+		for i, dbRequestElement := range dbRequestElementsBefore {
 			wg.Add(1)
 			i := i
 			dbRequestElement := dbRequestElement
@@ -198,8 +199,10 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							colIdx: colIdx,
 							elem:   &elem,
 						}
+						mux.Lock()
 						dbRequestElements = append(dbRequestElements, elem)
-						ownerUserIds = append(ownerUserIds, userId)
+						ownerUserIds = append(ownerUserIds, ownerUserIdsBefore[dbRequestIndices[i]])
+						mux.Unlock()
 					}
 				} else {
 					deviceGroupIds := []string{}
@@ -301,8 +304,10 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 									colIdx: colIdx,
 									elem:   &elem,
 								}
+								mux.Lock()
 								dbRequestElements = append(dbRequestElements, elem)
-								ownerUserIds = append(ownerUserIds, userId)
+								ownerUserIds = append(ownerUserIds, ownerUserIdsBefore[dbRequestIndices[i]])
+								mux.Unlock()
 							}
 						}
 					}
