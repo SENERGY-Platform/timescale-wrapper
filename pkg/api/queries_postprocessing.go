@@ -246,7 +246,7 @@ func findFirstElementIndex(array [][]interface{}, t time.Time, left int, right i
 
 func formatTime2D(data [][]interface{}, timeFormat string) {
 	for i := range data {
-		if data[i][0] != nil {
+		if len(data[i]) > 0 && data[i][0] != nil {
 			data[i][0] = data[i][0].(time.Time).Format(timeFormat)
 		}
 	}
