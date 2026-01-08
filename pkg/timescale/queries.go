@@ -73,6 +73,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 		if element.GroupTime != nil {
 			zero := 0
 			asc := model.Asc
+			desc := model.Desc
 			query += "sub0.time AS \"time\", "
 			for idx, column := range element.Columns {
 				if column.GroupType == nil {
@@ -213,7 +214,11 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 					n += 2
 					filterString, err = getFilterString(element, true, &zero, &asc, &n)
 				} else {
-					filterString, err = getFilterString(element, true, &zero, &asc, nil)
+					dir := asc
+					if column.GroupType != nil && *column.GroupType == "last" {
+						dir = desc
+					}
+					filterString, err = getFilterString(element, true, &zero, &dir, nil)
 				}
 				if err != nil {
 					return nil, err
@@ -232,7 +237,6 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 			var orderIndex *int
 			if l != nil {
 				limit = l
-				desc := model.Desc
 				order = &desc
 				orderIndex = &zero
 			}
