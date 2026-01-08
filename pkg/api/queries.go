@@ -87,7 +87,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			}
 		}
 
-		userId, ownerUserIds, err, code := queriesVerify(requestElements, request, start, verifier, config)
+		userId, ownerUserIdsBefore, err, code := queriesVerify(requestElements, request, start, verifier, config)
 		if err != nil {
 			http.Error(writer, err.Error(), code)
 			return
@@ -95,6 +95,10 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 
 		raw, dbRequestElements, dbRequestIndices := queriesGetFromCache(requestElements, remoteCache, config, nil)
 
+		ownerUserIds := []string{}
+		for i := range dbRequestElements {
+			ownerUserIds = append(ownerUserIds, ownerUserIdsBefore[dbRequestIndices[i]])
+		}
 		beforeQueries := time.Now()
 		queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds, "", []models.Device{})
 		if err != nil {
