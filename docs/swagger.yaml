@@ -437,8 +437,7 @@ paths:
         "200":
           description: 2D or 3D array
           schema:
-            items:
-              type: object
+            items: {}
             type: array
         "400":
           description: Bad Request
@@ -568,8 +567,7 @@ paths:
       responses:
         "200":
           description: the raw value
-          schema:
-            type: object
+          schema: {}
         "400":
           description: Bad Request
         "401":

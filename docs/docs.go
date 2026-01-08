@@ -394,9 +394,7 @@ const docTemplate = `{
                         "description": "2D or 3D array",
                         "schema": {
                             "type": "array",
-                            "items": {
-                                "type": "object"
-                            }
+                            "items": {}
                         }
                     },
                     "400": {
@@ -573,9 +571,7 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "the raw value",
-                        "schema": {
-                            "type": "object"
-                        }
+                        "schema": {}
                     },
                     "400": {
                         "description": "Bad Request"
