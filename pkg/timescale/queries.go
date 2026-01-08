@@ -210,7 +210,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 				filterString := ""
 				if l != nil {
 					n := *l
-					n++
+					n += 2
 					filterString, err = getFilterString(element, true, &zero, &asc, &n)
 				} else {
 					filterString, err = getFilterString(element, true, &zero, &asc, nil)

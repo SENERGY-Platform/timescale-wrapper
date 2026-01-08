@@ -232,17 +232,17 @@ func TestQueries(t *testing.T) {
 			" (sub3.value) AS \"sensor.ENERGY.Total\", (sub4.value - lag(sub4.value) OVER (ORDER BY 1)) AS \"sensor.ENERGY.Total\" " +
 			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
 			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY " +
-			"1 ORDER BY 1 ASC LIMIT 8) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +
+			"1 ORDER BY 1 ASC LIMIT 9) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +
 			"first(\"sensor.ENERGY.Total\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
-			"WHERE \"time\" > now() - interval '8d' GROUP BY 1 ORDER BY 1 ASC LIMIT 8) sub1 on sub0.time = sub1.time FULL OUTER JOIN " +
+			"WHERE \"time\" > now() - interval '8d' GROUP BY 1 ORDER BY 1 ASC LIMIT 9) sub1 on sub0.time = sub1.time FULL OUTER JOIN " +
 			"(SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", first(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
 			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY " +
-			"1 ORDER BY 1 ASC LIMIT 8) sub2 on sub0.time = sub2.time FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS" +
+			"1 ORDER BY 1 ASC LIMIT 9) sub2 on sub0.time = sub2.time FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS" +
 			" \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\"" +
-			" WHERE \"time\" > now() - interval '8d' GROUP BY 1 ORDER BY 1 ASC LIMIT 8) sub3 on sub0.time = sub3.time FULL OUTER JOIN" +
+			" WHERE \"time\" > now() - interval '8d' GROUP BY 1 ORDER BY 1 ASC LIMIT 9) sub3 on sub0.time = sub3.time FULL OUTER JOIN" +
 			" (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", avg(\"sensor.ENERGY.Total\") AS value FROM " +
 			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY 1" +
-			" ORDER BY 1 ASC LIMIT 8) sub4 on sub0.time = sub4.time ORDER BY 1 DESC LIMIT 7"
+			" ORDER BY 1 ASC LIMIT 9) sub4 on sub0.time = sub4.time ORDER BY 1 DESC LIMIT 7"
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
