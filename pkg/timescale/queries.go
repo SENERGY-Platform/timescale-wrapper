@@ -111,17 +111,26 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 						elements[i] = element
 						re := regexp.MustCompile(`\d+`)
 						var prefix string
+						var suffix string
 						if element.Time.Last != nil {
 							prefix = string(re.Find([]byte(*element.Time.Last)))
+							suffix = strings.TrimPrefix(*element.Time.Last, prefix)
 						} else {
 							prefix = string(re.Find([]byte(*element.Time.Ahead)))
+							suffix = strings.TrimPrefix(*element.Time.Ahead, prefix)
 						}
 						num, err := strconv.Atoi(prefix)
 						if err != nil {
 							return nil, err
 						}
 						n := num
-						l = &n
+						groupSuffix := ""
+						if element.GroupTime != nil {
+							groupSuffix = strings.TrimPrefix(*element.GroupTime, string(re.Find([]byte(*element.GroupTime))))
+						}
+						if suffix == groupSuffix || groupSuffix == "" {
+							l = &n
+						}
 						num++
 						if element.Time.Last != nil {
 							modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Last, prefix)
