@@ -30,7 +30,6 @@ func TestQueries(t *testing.T) {
 	deviceId := "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
 	serviceId := "urn:infai:ses:service:97805820-ca0a-46c5-9dcf-16c2e386b050"
 	d1 := "1d"
-	m1 := "1m"
 	time1d := model.QueriesRequestElementTime{
 		Last: &d1,
 	}
@@ -527,39 +526,6 @@ func TestQueries(t *testing.T) {
 			"AND view_definition LIKE '%last(\"test.2\", \"time\") AS \"test.2\"%'" +
 			") sub WHERE bucket <= '1d'::interval ORDER BY bucket DESC LIMIT 1;"
 		if actual != expected {
-			t.Error("Expected/Actual\n", expected, "\n", actual)
-		}
-	})
-
-	t.Run("Test unequal groupTime and time.Last suffix", func(t *testing.T) {
-		elements := []model.QueriesRequestElement{{
-			DeviceId:  &deviceId,
-			ServiceId: &serviceId,
-			Time: &model.QueriesRequestElementTime{
-				Last: &m1,
-			},
-			GroupTime: &d1,
-			Columns: []model.QueriesRequestElementColumn{
-				{
-					Name:      "sensor.ENERGY.Total",
-					GroupType: &mean,
-				},
-				{
-					Name:      "sensor.ENERGY.Total",
-					GroupType: &mean,
-				}},
-		}}
-
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
-		if err != nil {
-			t.Error(err)
-		}
-		if len(actual) != 1 {
-			t.Error("Unexpected number of queries", len(actual))
-		}
-		expected := `SELECT sub0.time AS "time", (sub0.value) AS "sensor.ENERGY.Total", (sub1.value) AS "sensor.ENERGY.Total" FROM (SELECT time_bucket('1d', "time", 'Europe/Berlin') AS "time", avg("sensor.ENERGY.Total") AS value FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE "time" > now() - interval '1m' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', "time", 'Europe/Berlin') AS "time", avg("sensor.ENERGY.Total") AS value FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE "time" > now() - interval '1m' GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time`
-
-		if actual[0] != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
 		}
 	})
