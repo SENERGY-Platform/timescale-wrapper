@@ -24,8 +24,12 @@ github.com/SENERGY-Platform/device-repository v0.2.23 h1:/AdMM/YJs4echctvsP80zyC
 github.com/SENERGY-Platform/device-repository v0.2.23/go.mod h1:4hyi3TOWmQpGDCEeaI581wlXwrOOtACd6NWpiaJ1Vig=
 github.com/SENERGY-Platform/device-selection v0.0.24 h1:p/eDAlwjUovecljMTMYOfiV+OQ3l6F3MsHc8LQDJrm8=
 github.com/SENERGY-Platform/device-selection v0.0.24/go.mod h1:CkdPaSObY1WdFPXNbZkuBcW30XTOS0wHc4OV4Sy3V0s=
+github.com/SENERGY-Platform/go-service-base v0.13.0 h1:1ytMAd84TO6+gvffjITShTOPStJiP7rSly9lG09fzxU=
+github.com/SENERGY-Platform/go-service-base v0.13.0/go.mod h1:NyMDXzkC/5oRzaMZ1wbFlXTnLoyo3CXM8q1eSloMuBo=
 github.com/SENERGY-Platform/go-service-base/struct-logger v0.4.1 h1:FF4jhIpxYbXkBQRm4oV/1KiTq1U7a5EQ0x5jqGhZDoY=
 github.com/SENERGY-Platform/go-service-base/struct-logger v0.4.1/go.mod h1:WuvuHGXhnLtXn2ry2kfTaQwco3EY3XTCefLeNqUT+jg=
+github.com/SENERGY-Platform/go-service-base/struct-logger v0.6.0 h1:DQNAPU1DI3XNyLaIGnHN9O0gZ7Q+tyOq/ZmAvbL/5gg=
+github.com/SENERGY-Platform/go-service-base/struct-logger v0.6.0/go.mod h1:z9cf8WOUMLoifRj5Tqts1MNe6QoPFq5Msxj899ZC11g=
 github.com/SENERGY-Platform/import-repository v0.0.12 h1:AAoqYjX4XCc+Xaufs0kuH7lgLXUUaajEQGNgMxWSYyo=
 github.com/SENERGY-Platform/import-repository v0.0.12/go.mod h1:v35T7PP7ew8y3zKgS1Zl/gEDvfDxDz1NKpW30akYx18=
 github.com/SENERGY-Platform/models/go v0.0.0-20241007061544-de7132ae94e4 h1:zS65f1cmjAoBQUA432nmJl2TXAwqqqJMz7sp2DHLAGc=

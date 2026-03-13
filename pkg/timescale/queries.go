@@ -21,13 +21,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/SENERGY-Platform/models/go/models"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
@@ -366,13 +366,13 @@ func (wrapper *Wrapper) tableName(element model.QueriesRequestElement, userId st
 		// check if CA View available
 		query, err := getCAQuery(element, table, timezone)
 		if err != nil {
-			log.Println("WARN: getCAQuery: " + err.Error())
+			log.Logger.Warn("getCAQuery failed", "error", err)
 			return table, nil
 		}
 
 		var caTable string
 		if wrapper.config.Debug {
-			log.Println("DEBUG: Checking for CA View with: " + query)
+			log.Logger.Debug("Checking for CA View with: " + query)
 		}
 		err = wrapper.pool.QueryRow(query).Scan(&caTable)
 		if err == nil {

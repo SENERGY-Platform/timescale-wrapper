@@ -19,53 +19,57 @@ package api
 import (
 	"context"
 	"errors"
-	"github.com/SENERGY-Platform/converter/lib/converter"
-	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api/util"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
-	"github.com/golang-jwt/jwt"
-	"github.com/julienschmidt/httprouter"
-	"log"
 	"net/http"
 	"reflect"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/SENERGY-Platform/converter/lib/converter"
+	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
+	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api/util"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
+	"github.com/golang-jwt/jwt"
+	"github.com/julienschmidt/httprouter"
 )
 
 var endpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client){}
 var unauthenticatedEndpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client){}
 
 func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) (err error) {
-	log.Println("start api")
+	log.Logger.Info("start api")
 	router := Router(config, wrapper, verifier, cache, converter, deviceSelection)
 	server := &http.Server{Addr: ":" + config.ApiPort, Handler: router, WriteTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, ReadHeaderTimeout: 2 * time.Second}
 	unauthenticatedRouter := UnauthenticatedRouter(config, wrapper, verifier, cache, converter, deviceSelection)
 	unauthenticatedServer := &http.Server{Addr: ":" + config.UnauthenticatedApiPort, Handler: unauthenticatedRouter, WriteTimeout: 30 * time.Minute, ReadTimeout: 2 * time.Second, ReadHeaderTimeout: 2 * time.Second}
 	wg.Add(1)
 	go func() {
-		log.Println("Listening on ", server.Addr)
+		log.Logger.Info("Listening on " + server.Addr)
 		if err := server.ListenAndServe(); err != http.ErrServerClosed {
-			log.Println("ERROR: api server error", err)
-			log.Fatal(err)
+			log.Logger.Error("api server error", attributes.ErrorKey, err)
+			panic(err)
 		}
 	}()
 	go func() {
-		log.Println("Listening on ", unauthenticatedServer.Addr)
+		log.Logger.Info("Listening on " + unauthenticatedServer.Addr)
 
 		if err := unauthenticatedServer.ListenAndServe(); err != http.ErrServerClosed {
-			log.Println("ERROR: api unauthenticatedServer error", err)
-			log.Fatal(err)
+			log.Logger.Error("api unauthenticatedServer error", attributes.ErrorKey, err)
+			panic(err)
 		}
 	}()
 	go func() {
 		<-ctx.Done()
-		log.Println("DEBUG: api shutdown", server.Shutdown(context.Background()))
-		log.Println("DEBUG: unauthenticated api shutdown", unauthenticatedServer.Shutdown(context.Background()))
+		log.Logger.Debug("api shutdown")
+		server.Shutdown(context.Background())
+		log.Logger.Debug("unauthenticated api shutdown")
+		unauthenticatedServer.Shutdown(context.Background())
 		wg.Done()
 	}()
 	return nil
@@ -84,10 +88,10 @@ func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config,
 func Router(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) http.Handler {
 	router := httprouter.New()
 	for _, e := range endpoints {
-		log.Println("add endpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
+		log.Logger.Info("add endpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
 		e(router, config, wrapper, verifier, cache, converter, deviceSelection)
 	}
-	log.Println("add logging and cors")
+	log.Logger.Info("add logging and cors")
 	corsHandler := util.NewCors(router)
 	return util.NewLogger(corsHandler)
 }
@@ -95,10 +99,10 @@ func Router(config configuration.Config, wrapper *timescale.Wrapper, verifier *v
 func UnauthenticatedRouter(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) http.Handler {
 	router := httprouter.New()
 	for _, e := range unauthenticatedEndpoints {
-		log.Println("add unauthenticatedEndpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
+		log.Logger.Info("add unauthenticatedEndpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
 		e(router, config, wrapper, verifier, cache, converter, deviceSelection)
 	}
-	log.Println("add logging and cors")
+	log.Logger.Info("add logging and cors")
 	corsHandler := util.NewCors(router)
 	return util.NewLogger(corsHandler)
 }

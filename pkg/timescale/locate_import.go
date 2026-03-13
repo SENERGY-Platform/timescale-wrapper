@@ -19,13 +19,13 @@ package timescale
 import (
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"time"
 
 	importModel "github.com/SENERGY-Platform/import-repository/lib/model"
 	"github.com/SENERGY-Platform/service-commons/pkg/jwt"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx"
@@ -41,7 +41,7 @@ func (wrapper *Wrapper) CreateFiltersForImport(exportId string, userId string, t
 	if wrapper.config.Debug {
 		start := time.Now()
 		defer func() {
-			log.Printf("DEBUG: CreateFiltersForImport took %v, is included in query generation\n", time.Since(start))
+			log.Logger.Debug(fmt.Sprintf("CreateFiltersForImport took %v, is included in query generation", time.Since(start)))
 		}()
 	}
 	exportInstance, err := wrapper.servingClient.GetInstance(token, exportId)
@@ -106,7 +106,7 @@ func (wrapper *Wrapper) CreateFiltersForImport(exportId string, userId string, t
 	}
 	query := fmt.Sprintf("SELECT \"%v\", \"%v\", \"%v\" FROM \"%v\";", identifierPathTs, latPathTs, lonPathTs, wrapperMaterializedViewPrefix+tableName)
 	if wrapper.config.Debug {
-		log.Println("DEBUG: Querying export of import locations with: " + query)
+		log.Logger.Debug("Querying export of import locations with: " + query)
 	}
 	table, err := wrapper.ExecuteQuery(query)
 	if err != nil {
@@ -115,7 +115,7 @@ func (wrapper *Wrapper) CreateFiltersForImport(exportId string, userId string, t
 			return nil, err
 		}
 		if wrapper.config.Debug {
-			log.Printf("DEBUG: setting up materialized view for table %v\n", tableName)
+			log.Logger.Debug(fmt.Sprintf("DEBUG: setting up materialized view for table %v", tableName))
 		}
 		err = wrapper.setupMaterializedRefreshJob(identifierPathTs, latPathTs, lonPathTs, tableName)
 		if err != nil {
@@ -154,7 +154,7 @@ func (wrapper *Wrapper) CreateFiltersForImport(exportId string, userId string, t
 	sort.Slice(distances, func(i, j int) bool { return distances[i].km < distances[j].km })
 
 	if wrapper.config.Debug {
-		log.Printf("DEBUG: Found %v options. Smallest distance %vkm (identifier %v), longest %vkm (identifier %v)", len(distances), distances[0].km, distances[0].identifier, distances[len(distances)-1].km, distances[len(distances)-1].identifier)
+		log.Logger.Debug(fmt.Sprintf("DEBUG: Found %v options. Smallest distance %vkm (identifier %v), longest %vkm (identifier %v)", len(distances), distances[0].km, distances[0].identifier, distances[len(distances)-1].km, distances[len(distances)-1].identifier))
 	}
 
 	return []model.QueriesRequestElementFilter{{
@@ -226,7 +226,7 @@ func (wrapper *Wrapper) removeOutdatedMaterializedRefreshJobs() error {
 			return err
 		}
 		if wrapper.config.Debug {
-			log.Printf("DEBUG: Deleting job for materialized view refresh %v (no longer needed)\n", jobId)
+			log.Logger.Debug(fmt.Sprintf("DEBUG: Deleting job for materialized view refresh %v (no longer needed)", jobId))
 		}
 
 		_, err = wrapper.pool.Exec(fmt.Sprintf("SELECT delete_job(%v);", jobId))

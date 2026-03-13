@@ -17,10 +17,10 @@
 package timescale
 
 import (
-	"log"
 	"math"
 	"sync"
 
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/jackc/pgx/pgtype"
 )
 
@@ -33,7 +33,7 @@ func (wrapper *Wrapper) ExecuteQueries(queries []string) (res [][][]interface{},
 		query := query // make thread safe
 		go func() {
 			if wrapper.config.Debug {
-				log.Println("DEBUG: Query ", i, query)
+				log.Logger.Debug("Query", "index", i, "query", query)
 			}
 			resS, errS := wrapper.ExecuteQuery(query)
 			if errS != nil { // Prevents overwriting with nil

@@ -14,5 +14,6 @@
   "import_repo_url": "http://repo.import-meta:8080",
   "memcached_urls": ["memcached-1", "memcached-2"],
   "debug": true,
-  "default_timezone": "Europe/Berlin"
+  "default_timezone": "Europe/Berlin",
+  "log_handler": "json"
 }

@@ -19,7 +19,6 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -32,6 +31,7 @@ import (
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
@@ -324,7 +324,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 					return
 				}
 				if config.Debug {
-					log.Println("DEBUG: Query generation took " + time.Since(beforeQueries).String())
+					log.Logger.Debug("Query generation took " + time.Since(beforeQueries).String())
 				}
 				beforeQuery := time.Now()
 				data, err := wrapper.ExecuteQueries(queries)
@@ -338,7 +338,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 					return
 				}
 				if config.Debug {
-					log.Println("DEBUG: Fetching took " + time.Since(beforeQuery).String())
+					log.Logger.Debug("Fetching took " + time.Since(beforeQuery).String())
 				}
 				orderColumnIndex := 0
 				if dbRequestElement.OrderColumnIndex != nil {

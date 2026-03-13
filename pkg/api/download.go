@@ -21,16 +21,17 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"io"
-	"log"
 	"math"
 	"net/http"
 	"time"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
+	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api/util"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
@@ -203,13 +204,13 @@ func prepareQueriesRequestElement(writer http.ResponseWriter, request *http.Requ
 func handleCSVDownload(requestElement model.QueriesRequestElement, timeFormat string, token string, writer http.ResponseWriter, config configuration.Config) {
 	responseWriterWithStatusCodeLog, ok := writer.(*util.ResponseWriterWithStatusCodeLog)
 	if !ok {
-		log.Println("ERROR: not a ResponseWriterWithStatusCodeLog")
+		log.Logger.Error("not a ResponseWriterWithStatusCodeLog")
 		http.Error(writer, "", http.StatusInternalServerError)
 		return
 	}
 	flusher, ok := responseWriterWithStatusCodeLog.Parent.(http.Flusher)
 	if !ok {
-		log.Println("ERROR: not a flusher")
+		log.Logger.Error("not a flusher")
 		http.Error(writer, "", http.StatusInternalServerError)
 		return
 	}
@@ -229,13 +230,13 @@ func handleCSVDownload(requestElement model.QueriesRequestElement, timeFormat st
 
 	endTime, err := time.Parse(time.RFC3339, *requestElement.Time.End)
 	if err != nil {
-		log.Println("ERROR:", err.Error())
+		log.Logger.Error("failed to parse end time", attributes.ErrorKey, err)
 		panic(http.ErrAbortHandler)
 	}
 	initialEndValue := endTime.Unix()
 	startTime, err := time.Parse(time.RFC3339, *requestElement.Time.Start)
 	if err != nil {
-		log.Println("ERROR:", err.Error())
+		log.Logger.Error("failed to parse start time", attributes.ErrorKey, err)
 		panic(http.ErrAbortHandler)
 	}
 
@@ -251,38 +252,38 @@ func handleCSVDownload(requestElement model.QueriesRequestElement, timeFormat st
 		// post /queries
 		b, err := json.Marshal([]model.QueriesRequestElement{requestElement})
 		if err != nil {
-			log.Println("ERROR:", err.Error())
+			log.Logger.Error("failed to marshal query request", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
 		req, err := http.NewRequest(http.MethodPost, "http://localhost:"+config.ApiPort+"/queries?format=table&order_column_index=0&order_direction=asc&time_format="+timeFormat, bytes.NewBuffer(b))
 		if err != nil {
-			log.Println("ERROR:", err.Error())
+			log.Logger.Error("failed to create query request", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
 		req.Header.Set("Authorization", token)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			log.Println("ERROR:", err.Error())
+			log.Logger.Error("failed to execute query request", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
 		if resp.StatusCode != 200 {
 			reason, err := io.ReadAll(resp.Body)
 			if err != nil {
-				log.Println("ERROR:", err.Error())
+				log.Logger.Error("failed to read query error response", attributes.ErrorKey, err)
 				panic(http.ErrAbortHandler)
 			}
-			log.Println("ERROR:", string(reason))
+			log.Logger.Error("query request returned non-200 status", attributes.ErrorKey, string(reason))
 			panic(http.ErrAbortHandler)
 		}
 		var respData [][]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&respData)
 		if err != nil {
-			log.Println("ERROR:", err.Error())
+			log.Logger.Error("failed to decode query response", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
 		err = writeCsv(respData, csvWriter)
 		if err != nil {
-			log.Println("ERROR:", err.Error())
+			log.Logger.Error("failed to write csv", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
 

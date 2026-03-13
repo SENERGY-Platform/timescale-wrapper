@@ -19,8 +19,10 @@ package cache
 import (
 	"encoding/json"
 	"errors"
+
+	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/coocood/freecache"
-	"log"
 )
 
 var LocalCacheSize = 10 * 1024 * 1024 // 10 0MB
@@ -48,7 +50,7 @@ func (this *LocalCache) Get(key string) (value []byte, err error) {
 func (this *LocalCache) Set(key string, value []byte) {
 	err := this.l1.Set([]byte(key), value, this.expiration)
 	if err != nil {
-		log.Println("WARNING: err in LocalCache::l1.Set()", err)
+		log.Logger.Warn("err in LocalCache::l1.Set()", attributes.ErrorKey, err)
 	}
 	return
 }
@@ -59,7 +61,7 @@ func (this *LocalCache) Use(key string, getter func() (interface{}, error), resu
 		err = json.Unmarshal(value, result)
 		return
 	} else if err != ErrNotFound {
-		log.Println("WARNING: err in LocalCache::l1.Get()", err)
+		log.Logger.Warn("err in LocalCache::l1.Get()", attributes.ErrorKey, err)
 	}
 	temp, err := getter()
 	if err != nil {

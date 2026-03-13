@@ -21,6 +21,7 @@ import (
 	"flag"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	_log "github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"log"
 	"os"
 	"os/signal"
@@ -36,6 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	_log.Init(config)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -48,7 +50,7 @@ func main() {
 		shutdown := make(chan os.Signal, 1)
 		signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 		sig := <-shutdown
-		log.Println("received shutdown signal", sig)
+		_log.Logger.Info("received shutdown signal", "signal", sig)
 		cancel()
 	}()
 

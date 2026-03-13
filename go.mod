@@ -1,8 +1,6 @@
 module github.com/SENERGY-Platform/timescale-wrapper
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25.0
 
 require (
 	github.com/SENERGY-Platform/analytics-serving v0.0.15
@@ -30,7 +28,8 @@ require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/RyanCarrier/dijkstra v1.4.0 // indirect
 	github.com/SENERGY-Platform/developer-notifications v0.0.4 // indirect
-	github.com/SENERGY-Platform/go-service-base/struct-logger v0.4.1 // indirect
+	github.com/SENERGY-Platform/go-service-base v0.13.0 // indirect
+	github.com/SENERGY-Platform/go-service-base/struct-logger v0.6.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/cockroachdb/apd v1.1.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect

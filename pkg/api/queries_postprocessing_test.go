@@ -29,11 +29,13 @@ import (
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
 func TestPostProcessing(t *testing.T) {
 	t.Parallel()
+	log.InitForTest()
 
 	one := "1"
 	two := "2"
@@ -62,6 +64,7 @@ func TestPostProcessing(t *testing.T) {
 
 	t.Run("Test With Conversions", func(t *testing.T) {
 		t.Parallel()
+		log.InitForTest()
 		conf := configuration.ConfigStruct{}
 		deviceRepo, testDb, err := client.NewTestClient()
 		if err != nil {

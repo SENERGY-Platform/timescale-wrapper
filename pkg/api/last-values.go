@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -29,9 +28,11 @@ import (
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
+	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
@@ -154,7 +155,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 			return nil, http.StatusInternalServerError, err
 		}
 		if config.Debug {
-			log.Println("DEBUG: Verification took " + time.Since(start).String())
+			log.Logger.Debug("Verification took " + time.Since(start).String())
 		}
 		if !ok {
 			return nil, http.StatusNotFound, errors.New("not found")
@@ -179,7 +180,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 					dbRequestElements = append(dbRequestElements, fullRequestElements[i])
 					dbRequestIndices = append(dbRequestIndices, i)
 					if err != cache.NotCachableError {
-						log.Println("WARN: Could not get data from cache: " + err.Error())
+						log.Logger.Warn("Could not get data from cache", attributes.ErrorKey, err)
 					}
 				}
 				wg.Done()
@@ -187,8 +188,8 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		}
 		wg.Wait()
 		if config.Debug {
-			log.Println("DEBUG: Cache collection took " + time.Since(beforeCache).String())
-			log.Println("DEBUG: Got " + strconv.Itoa(len(fullRequestElements)-len(dbRequestIndices)) + " from cache, requesting " + strconv.Itoa(len(dbRequestIndices)) + " from db")
+			log.Logger.Debug("Cache collection took " + time.Since(beforeCache).String())
+			log.Logger.Debug("Got " + strconv.Itoa(len(fullRequestElements)-len(dbRequestIndices)) + " from cache, requesting " + strconv.Itoa(len(dbRequestIndices)) + " from db")
 		}
 
 		beforeQueries := time.Now()
@@ -197,7 +198,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 			return nil, http.StatusInternalServerError, err
 		}
 		if config.Debug {
-			log.Println("DEBUG: Query generation took " + time.Since(beforeQueries).String())
+			log.Logger.Debug("Query generation took " + time.Since(beforeQueries).String())
 		}
 		beforeQuery := time.Now()
 		data, err := wrapper.ExecuteQueries(queries)
@@ -205,7 +206,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 			return nil, timescale.GetHTTPErrorCode(err), err
 		}
 		if config.Debug {
-			log.Println("DEBUG: Fetching took " + time.Since(beforeQuery).String())
+			log.Logger.Debug("Fetching took " + time.Since(beforeQuery).String())
 		}
 		// merge DB results with cache results
 		for i := range data {
@@ -256,7 +257,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		}
 
 		if config.Debug {
-			log.Println("DEBUG: Postprocessing took " + time.Since(beforePP).String())
+			log.Logger.Debug("Postprocessing took " + time.Since(beforePP).String())
 		}
 
 		return responseElements, http.StatusOK, nil

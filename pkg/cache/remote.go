@@ -21,7 +21,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -31,8 +31,10 @@ import (
 	drmodel "github.com/SENERGY-Platform/device-repository/lib/model"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	dsmodel "github.com/SENERGY-Platform/device-selection/pkg/model"
+	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/google/uuid"
@@ -59,7 +61,7 @@ func NewRemote(config configuration.Config, deviceRepo api.Controller, deviceSel
 }
 
 func (lv *RemoteCache) initMemcached() {
-	log.Println("(Re-)init memcached Client")
+	log.Logger.Info("(Re-)init memcached Client")
 	lv.mc = memcache.New(lv.config.MemcachedUrls...)
 }
 
@@ -340,7 +342,7 @@ func (rc *RemoteCache) mcSet(item *memcache.Item) {
 		rc.initMemcached()
 		err := rc.mc.Set(item)
 		if err != nil {
-			log.Println("WARNING: " + err.Error())
+			log.Logger.Warn("mc set failed", attributes.ErrorKey, err)
 		}
 	}
 }
@@ -351,7 +353,7 @@ func (rc *RemoteCache) mcGet(key string) (item *memcache.Item, err error) {
 		rc.initMemcached()
 		item, err = rc.mc.Get(key)
 		if err != nil {
-			log.Println("WARNING: " + err.Error())
+			log.Logger.Warn("mc get failed", attributes.ErrorKey, err)
 		}
 	}
 	return
@@ -372,7 +374,7 @@ func getDeepEntry(m map[string]interface{}, path string) interface{} {
 		case []interface{}:
 			n, err := strconv.Atoi(elem)
 			if err != nil {
-				log.Printf("WARN: Could not extract index of list with index %v\n", elem)
+				log.Logger.Warn(fmt.Sprintf("Could not extract index of list with index %#v", elem))
 				return nil
 			}
 			sub = child[n]
