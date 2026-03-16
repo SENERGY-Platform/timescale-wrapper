@@ -18,8 +18,8 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strconv"
 	"sync"
@@ -35,7 +35,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
-	"github.com/julienschmidt/httprouter"
+	"github.com/gin-gonic/gin"
 )
 
 func init() {
@@ -62,12 +62,14 @@ func init() {
 // @Failure      404
 // @Failure      500
 // @Router       /queries/v2 [POST]
-func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, deviceSelectionClient deviceSelection.Client) {
-	router.POST("/queries/v2", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, deviceSelectionClient deviceSelection.Client) {
+	router.POST("/queries/v2", func(c *gin.Context) {
+		writer := c.Writer
+		request := c.Request
 		start := time.Now()
 		_, _, _, err := queriesParseQueryparams(request)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
 		timeFormat := request.URL.Query().Get("time_format")
@@ -75,20 +77,20 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 		var requestElements []model.QueriesRequestElement
 		err = json.NewDecoder(request.Body).Decode(&requestElements)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
 
 		for i := range requestElements {
 			if !requestElements[i].Valid() {
-				http.Error(writer, "Invalid request body", http.StatusBadRequest)
+				c.Error(errors.Join(errors.New("Invalid request body"), model.ErrBadRequest))
 				return
 			}
 		}
 
 		userId, ownerUserIdsBefore, err, code := queriesVerify(requestElements, request, start, verifier, config)
 		if err != nil {
-			http.Error(writer, err.Error(), code)
+			c.Error(errors.Join(err, model.GetError(code)))
 			return
 		}
 		forceTz := request.URL.Query().Get("force_tz")
@@ -113,7 +115,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 		if len(locateLat) > 0 {
 			locateLatFloat, err = strconv.ParseFloat(locateLat, 64)
 			if err != nil {
-				http.Error(writer, err.Error(), http.StatusBadRequest)
+				c.Error(errors.Join(err, model.ErrBadRequest))
 				return
 			}
 		}
@@ -122,7 +124,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 		if len(locateLon) > 0 {
 			locateLonFloat, err = strconv.ParseFloat(locateLon, 64)
 			if err != nil {
-				http.Error(writer, err.Error(), http.StatusBadRequest)
+				c.Error(errors.Join(err, model.ErrBadRequest))
 				return
 			}
 		}
@@ -131,7 +133,12 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 		mux := sync.Mutex{}
 		wg := sync.WaitGroup{}
 		devices := []models.Device{}
-		raised := false
+		var raisedErr error
+		raiseError := func(err error) {
+			mux.Lock()
+			defer mux.Unlock()
+			raisedErr = errors.Join(raisedErr, err)
+		}
 		token := getToken(request)
 		ownerUserIds := []string{}
 		for i, dbRequestElement := range dbRequestElementsBefore {
@@ -156,7 +163,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							token := getToken(request)
 							importFilters, err := wrapper.CreateFiltersForImport(*dbRequestElement.ExportId, userId, token, locateLatFloat, locateLonFloat)
 							if err != nil {
-								http.Error(writer, err.Error(), http.StatusBadRequest)
+								raiseError(errors.Join(err, model.ErrBadRequest))
 								return
 							}
 							filters = append(filters, importFilters...)
@@ -165,12 +172,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 						if dbRequestElement.DeviceId != nil {
 							device, err := remoteCache.GetDevice(*dbRequestElement.DeviceId, token)
 							if err != nil {
-								mux.Lock()
-								defer mux.Unlock()
-								if !raised {
-									http.Error(writer, err.Error(), http.StatusInternalServerError)
-									raised = true
-								}
+								raiseError(errors.Join(err, model.ErrInternalServerError))
 								return
 							}
 							mux.Lock()
@@ -213,12 +215,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 					if dbRequestElement.LocationId != nil {
 						location, err := remoteCache.GetLocation(*dbRequestElement.LocationId, token)
 						if err != nil {
-							mux.Lock()
-							defer mux.Unlock()
-							if !raised {
-								http.Error(writer, err.Error(), http.StatusInternalServerError)
-								raised = true
-							}
+							raiseError(errors.Join(err, model.ErrInternalServerError))
 							return
 						}
 						deviceIds = append(deviceIds, location.DeviceIds...)
@@ -228,12 +225,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 					for _, deviceGroupid := range deviceGroupIds {
 						deviceGroup, err := remoteCache.GetDeviceGroup(deviceGroupid, token)
 						if err != nil {
-							mux.Lock()
-							defer mux.Unlock()
-							if !raised {
-								http.Error(writer, err.Error(), http.StatusInternalServerError)
-								raised = true
-							}
+							raiseError(errors.Join(err, model.ErrInternalServerError))
 							return
 						}
 						deviceIds = append(deviceIds, deviceGroup.DeviceIds...)
@@ -241,12 +233,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 					for colIdx, col := range dbRequestElement.Columns {
 						f, err := remoteCache.GetFunction(col.Criteria.FunctionId)
 						if err != nil {
-							mux.Lock()
-							defer mux.Unlock()
-							if !raised {
-								http.Error(writer, err.Error(), code)
-								raised = true
-							}
+							raiseError(errors.Join(err, model.GetError(code)))
 							return
 						}
 
@@ -258,12 +245,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 							IncludeIdModified: true,
 						})
 						if err != nil {
-							mux.Lock()
-							defer mux.Unlock()
-							if !raised {
-								http.Error(writer, err.Error(), code)
-								raised = true
-							}
+							raiseError(errors.Join(err, model.GetError(code)))
 							return
 						}
 						for selIdx, selectable := range selectables {
@@ -315,12 +297,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 
 				queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds, forceTz, devices)
 				if err != nil {
-					mux.Lock()
-					defer mux.Unlock()
-					if !raised {
-						http.Error(writer, err.Error(), http.StatusInternalServerError)
-						raised = true
-					}
+					raiseError(errors.Join(err, model.ErrInternalServerError))
 					return
 				}
 				if config.Debug {
@@ -329,12 +306,7 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 				beforeQuery := time.Now()
 				data, err := wrapper.ExecuteQueries(queries)
 				if err != nil {
-					mux.Lock()
-					defer mux.Unlock()
-					if !raised {
-						http.Error(writer, err.Error(), timescale.GetHTTPErrorCode(err))
-						raised = true
-					}
+					raiseError(errors.Join(err, model.GetError(timescale.GetHTTPErrorCode(err))))
 					return
 				}
 				if config.Debug {
@@ -351,22 +323,13 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 
 				subResponse, err := formatResponse(remoteCache, model.PerQuery, dbRequestElements, data, orderColumnIndex, orderDirection, timeFormat, converter)
 				if err != nil {
-					mux.Lock()
-					defer mux.Unlock()
-					if !raised {
-						http.Error(writer, err.Error(), http.StatusInternalServerError)
-						raised = true
-					}
+					raiseError(errors.Join(err, model.ErrInternalServerError))
 					return
 				}
 				subResponseCasted, ok := subResponse.([][][]interface{})
 				if !ok {
-					mux.Lock()
-					defer mux.Unlock()
-					if !raised {
-						http.Error(writer, "could not cast subresponse", http.StatusInternalServerError)
-						raised = true
-					}
+					raiseError(errors.Join(errors.New("could not cast subresponse"), model.ErrInternalServerError))
+					return
 				}
 
 				// merge DB results with remoteCache results
@@ -424,7 +387,8 @@ func QueriesV2Endpoint(router *httprouter.Router, config configuration.Config, w
 			}()
 		}
 		wg.Wait()
-		if raised {
+		if raisedErr != nil {
+			c.Error(raisedErr)
 			return
 		}
 

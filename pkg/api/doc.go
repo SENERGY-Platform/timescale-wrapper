@@ -17,6 +17,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -26,9 +27,10 @@ import (
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
-	"github.com/julienschmidt/httprouter"
+	"github.com/gin-gonic/gin"
 	"github.com/swaggo/swag"
 )
 
@@ -37,12 +39,13 @@ func init() {
 }
 
 //go:generate go tool swag init -o ../../docs --parseDependency -d .. -g api/api.go
-func DocEndpoint(router *httprouter.Router, config configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
-	router.GET("/doc", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+func DocEndpoint(router gin.IRouter, config configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
+	router.GET("/doc", func(c *gin.Context) {
+		writer := c.Writer
 		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		doc, err := swag.ReadDoc()
 		if err != nil {
-			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			c.Error(errors.Join(errors.New(http.StatusText(http.StatusInternalServerError)), model.ErrInternalServerError))
 			return
 		}
 		//remove empty host to enable developer-swagger-api service to replace it; can not use cleaner delete on json object, because developer-swagger-api is sensible to formatting; better alternative is refactoring of developer-swagger-api/apis/db/db.py

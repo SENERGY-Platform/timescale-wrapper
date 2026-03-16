@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -28,7 +29,6 @@ import (
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api/util"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
@@ -36,7 +36,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/bradfitz/gomemcache/memcache"
-	"github.com/julienschmidt/httprouter"
+	"github.com/gin-gonic/gin"
 )
 
 func init() {
@@ -78,30 +78,34 @@ func GetDownload() {} // for doc generation
 // @Router       /prepare-download [GET]
 func GetPrepareDownload() {} // for doc generation
 
-func PrepareDownloadEndpoints(router *httprouter.Router, config configuration.Config, _ *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
-	router.GET("/download", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
-		prepared, ok := prepareQueriesRequestElement(writer, request, verifier)
+func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, _ *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
+	router.GET("/download", func(c *gin.Context) {
+		writer := c.Writer
+		request := c.Request
+		prepared, ok := prepareQueriesRequestElement(c, request, verifier)
 		if !ok {
 			return
 		}
-		handleCSVDownload(prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Token, writer, config)
+		handleCSVDownload(c, prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Token, writer, config)
 	})
 
-	router.GET("/prepare-download", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
-		prepared, ok := prepareQueriesRequestElement(writer, request, verifier)
+	router.GET("/prepare-download", func(c *gin.Context) {
+		writer := c.Writer
+		request := c.Request
+		prepared, ok := prepareQueriesRequestElement(c, request, verifier)
 		if !ok {
 			return
 		}
 
 		secret, err := remoteCache.StoreSecretQuery(prepared)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 		writer.Header().Set("Content-Type", "text/plain")
 		_, err = writer.Write([]byte(secret))
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 	})
@@ -119,23 +123,24 @@ func PrepareDownloadEndpoints(router *httprouter.Router, config configuration.Co
 // @Failure      404
 // @Failure      500
 // @Router       /download/{secret} [GET]
-func DownloadEndpoints(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
-	router.GET("/download/:secret", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
-		prepared, err := remoteCache.GetSecretQuery(params.ByName("secret"))
+func DownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
+	router.GET("/download/:secret", func(c *gin.Context) {
+		writer := c.Writer
+		prepared, err := remoteCache.GetSecretQuery(c.Param("secret"))
 		if err != nil {
 			if err == memcache.ErrCacheMiss {
-				http.Error(writer, "not found", http.StatusNotFound)
+				c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
 			} else {
-				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				c.Error(errors.Join(err, model.ErrInternalServerError))
 			}
 			return
 		}
 
-		handleCSVDownload(prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Token, writer, config)
+		handleCSVDownload(c, prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Token, writer, config)
 	})
 }
 
-func prepareQueriesRequestElement(writer http.ResponseWriter, request *http.Request, verifier *verification.Verifier) (elem model.PreparedQueriesRequestElement, ok bool) {
+func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifier *verification.Verifier) (elem model.PreparedQueriesRequestElement, ok bool) {
 	elem = model.PreparedQueriesRequestElement{}
 	query := request.URL.Query().Get("query")
 	timeFormat := request.URL.Query().Get("time_format")
@@ -143,7 +148,7 @@ func prepareQueriesRequestElement(writer http.ResponseWriter, request *http.Requ
 	var requestElement model.QueriesRequestElement
 	err := json.Unmarshal([]byte(query), &requestElement)
 	if !requestElement.Valid() {
-		http.Error(writer, "invalid query", http.StatusBadRequest)
+		c.Error(errors.Join(errors.New("invalid query"), model.ErrBadRequest))
 		return elem, false
 	}
 	zero := 0
@@ -151,7 +156,7 @@ func prepareQueriesRequestElement(writer http.ResponseWriter, request *http.Requ
 	asc := model.Asc
 	requestElement.OrderDirection = &asc
 	if requestElement.Time == nil {
-		http.Error(writer, "need time element", http.StatusInternalServerError)
+		c.Error(errors.Join(errors.New("need time element"), model.ErrInternalServerError))
 		return elem, false
 	}
 
@@ -161,7 +166,7 @@ func prepareQueriesRequestElement(writer http.ResponseWriter, request *http.Requ
 			requestElement.Time.End = &end
 			d, err := time.ParseDuration(*requestElement.Time.Last)
 			if err != nil {
-				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				c.Error(errors.Join(err, model.ErrInternalServerError))
 				return elem, false
 			}
 			start := time.Now().Add(-1 * d).Format(time.RFC3339)
@@ -171,7 +176,7 @@ func prepareQueriesRequestElement(writer http.ResponseWriter, request *http.Requ
 			requestElement.Time.Start = &start
 			d, err := time.ParseDuration(*requestElement.Time.Ahead)
 			if err != nil {
-				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				c.Error(errors.Join(err, model.ErrInternalServerError))
 				return elem, false
 			}
 			end := time.Now().Add(d).Format(time.RFC3339)
@@ -181,16 +186,16 @@ func prepareQueriesRequestElement(writer http.ResponseWriter, request *http.Requ
 
 	userId, err := getUserId(request)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
+		c.Error(errors.Join(err, model.ErrBadRequest))
 		return elem, false
 	}
 	ok, _, err = verifier.VerifyAccess([]model.QueriesRequestElement{requestElement}, getToken(request), userId)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		c.Error(errors.Join(err, model.ErrInternalServerError))
 		return elem, false
 	}
 	if !ok {
-		http.Error(writer, "not found", http.StatusNotFound)
+		c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
 		return elem, false
 	}
 
@@ -201,17 +206,11 @@ func prepareQueriesRequestElement(writer http.ResponseWriter, request *http.Requ
 	}, true
 }
 
-func handleCSVDownload(requestElement model.QueriesRequestElement, timeFormat string, token string, writer http.ResponseWriter, config configuration.Config) {
-	responseWriterWithStatusCodeLog, ok := writer.(*util.ResponseWriterWithStatusCodeLog)
-	if !ok {
-		log.Logger.Error("not a ResponseWriterWithStatusCodeLog")
-		http.Error(writer, "", http.StatusInternalServerError)
-		return
-	}
-	flusher, ok := responseWriterWithStatusCodeLog.Parent.(http.Flusher)
+func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElement, timeFormat string, token string, writer http.ResponseWriter, config configuration.Config) {
+	flusher, ok := writer.(http.Flusher)
 	if !ok {
 		log.Logger.Error("not a flusher")
-		http.Error(writer, "", http.StatusInternalServerError)
+		c.Error(errors.Join(errors.New("not a flusher"), model.ErrInternalServerError))
 		return
 	}
 	writer.Header().Set("Content-Type", "application/csv")
@@ -223,7 +222,7 @@ func handleCSVDownload(requestElement model.QueriesRequestElement, timeFormat st
 	}
 	err := csvWriter.Write(headers)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		c.Error(errors.Join(err, model.ErrInternalServerError))
 		return
 	}
 	flusher.Flush() // no http.Error from now on! Use panic(http.ErrAbortHandler)

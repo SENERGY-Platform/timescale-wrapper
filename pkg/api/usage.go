@@ -18,8 +18,8 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
@@ -28,7 +28,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
-	"github.com/julienschmidt/httprouter"
+	"github.com/gin-gonic/gin"
 )
 
 func init() {
@@ -65,12 +65,14 @@ func UsageDevices() {} // for doc
 // @Router       /usage/exports [GET]
 func UsageExports() {} // for doc
 
-func UsageEndpoint(router *httprouter.Router, _ configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
-	router.POST("/usage/devices", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
+	router.POST("/usage/devices", func(c *gin.Context) {
+		writer := c.Writer
+		request := c.Request
 		deviceIds := []string{}
 		err := json.NewDecoder(request.Body).Decode(&deviceIds)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
 		elems := []model.QueriesRequestElement{}
@@ -81,21 +83,21 @@ func UsageEndpoint(router *httprouter.Router, _ configuration.Config, wrapper *t
 		}
 		userId, err := getUserId(request)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
 		ok, _, err := verifier.VerifyAccess(elems, getToken(request), userId)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 		if !ok {
-			http.Error(writer, "not found", http.StatusNotFound)
+			c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
 			return
 		}
 		response, err := wrapper.GetDeviceUsage(deviceIds)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 		writer.Header().Set("Content-Type", "application/json")
@@ -105,11 +107,13 @@ func UsageEndpoint(router *httprouter.Router, _ configuration.Config, wrapper *t
 		}
 	})
 
-	router.POST("/usage/exports", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+	router.POST("/usage/exports", func(c *gin.Context) {
+		writer := c.Writer
+		request := c.Request
 		exportIds := []string{}
 		err := json.NewDecoder(request.Body).Decode(&exportIds)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
 		elems := []model.QueriesRequestElement{}
@@ -120,21 +124,21 @@ func UsageEndpoint(router *httprouter.Router, _ configuration.Config, wrapper *t
 		}
 		userId, err := getUserId(request)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
 		ok, _, err := verifier.VerifyAccess(elems, getToken(request), userId)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 		if !ok {
-			http.Error(writer, "not found", http.StatusNotFound)
+			c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
 			return
 		}
 		response, err := wrapper.GetExportUsage(exportIds)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 		writer.Header().Set("Content-Type", "application/json")

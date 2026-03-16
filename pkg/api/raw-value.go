@@ -3,9 +3,9 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"net/http"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
@@ -14,7 +14,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
-	"github.com/julienschmidt/httprouter"
+	"github.com/gin-gonic/gin"
 )
 
 func init() {
@@ -39,9 +39,11 @@ func init() {
 // @Failure      404
 // @Failure      500
 // @Router       /raw-value [GET]
-func RawValueEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
+func RawValueEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	handler := lastValueHandler(config, wrapper, verifier, lastValueCache, converter)
-	router.GET("/raw-value", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+	router.GET("/raw-value", func(c *gin.Context) {
+		writer := c.Writer
+		request := c.Request
 		exportId := request.URL.Query().Get("export_id")
 		deviceId := request.URL.Query().Get("device_id")
 		serviceId := request.URL.Query().Get("service_id")
@@ -77,24 +79,23 @@ func RawValueEndpoint(router *httprouter.Router, config configuration.Config, wr
 
 		b, err := json.Marshal([]model.LastValuesRequestElement{elem})
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 		request.Body = io.NopCloser(bytes.NewBuffer(b))
-		resp, code, err := handler(request, params)
+		resp, code, err := handler(request)
 		if err != nil {
-			http.Error(writer, err.Error(), code)
+			c.Error(errors.Join(err, model.GetError(code)))
 			return
 		}
 		v := resp[0].Value
-		switch v.(type) {
+		switch v := v.(type) {
 		case string:
-			b = []byte(v.(string))
-			break
+			b = []byte(v)
 		default:
 			b, err = json.Marshal(v)
 			if err != nil {
-				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				c.Error(errors.Join(err, model.ErrInternalServerError))
 				return
 			}
 		}

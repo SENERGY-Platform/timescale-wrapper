@@ -28,22 +28,25 @@ import (
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
+	gin_mw "github.com/SENERGY-Platform/gin-middleware"
 	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/api/util"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
+	"github.com/gin-contrib/requestid"
+	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
-	"github.com/julienschmidt/httprouter"
 )
 
-var endpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client){}
-var unauthenticatedEndpoints = []func(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client){}
+var endpoints = []func(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client){}
+var unauthenticatedEndpoints = []func(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client){}
 
 func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) (err error) {
 	log.Logger.Info("start api")
+	http.DefaultClient.Timeout = 10 * time.Second
 	router := Router(config, wrapper, verifier, cache, converter, deviceSelection)
 	server := &http.Server{Addr: ":" + config.ApiPort, Handler: router, WriteTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, ReadHeaderTimeout: 2 * time.Second}
 	unauthenticatedRouter := UnauthenticatedRouter(config, wrapper, verifier, cache, converter, deviceSelection)
@@ -86,25 +89,39 @@ func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config,
 // @name Authorization
 // @description Type "Bearer" followed by a space and JWT token.
 func Router(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) http.Handler {
-	router := httprouter.New()
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	configureMW(router)
 	for _, e := range endpoints {
 		log.Logger.Info("add endpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
 		e(router, config, wrapper, verifier, cache, converter, deviceSelection)
 	}
-	log.Logger.Info("add logging and cors")
-	corsHandler := util.NewCors(router)
-	return util.NewLogger(corsHandler)
+	return router
 }
 
 func UnauthenticatedRouter(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) http.Handler {
-	router := httprouter.New()
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	configureMW(router)
 	for _, e := range unauthenticatedEndpoints {
 		log.Logger.Info("add unauthenticatedEndpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
 		e(router, config, wrapper, verifier, cache, converter, deviceSelection)
 	}
-	log.Logger.Info("add logging and cors")
-	corsHandler := util.NewCors(router)
-	return util.NewLogger(corsHandler)
+	return router
+}
+
+func configureMW(router *gin.Engine) {
+	router.Use(
+		gin_mw.StructLoggerHandlerWithDefaultGenerators(
+			log.Logger.With(attributes.LogRecordTypeKey, attributes.HttpAccessLogRecordTypeVal),
+			attributes.Provider,
+			[]string{},
+			nil,
+		),
+		requestid.New(requestid.WithCustomHeaderStrKey("X-Request-ID")),
+		gin_mw.ErrorHandler(model.GetStatusCode, ", "),
+		gin_mw.StructRecoveryHandler(log.Logger, gin_mw.DefaultRecoveryFunc),
+	)
 }
 
 func getToken(request *http.Request) string {

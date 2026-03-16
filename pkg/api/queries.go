@@ -36,7 +36,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
-	"github.com/julienschmidt/httprouter"
+	"github.com/gin-gonic/gin"
 )
 
 func init() {
@@ -61,36 +61,38 @@ func init() {
 // @Failure      404
 // @Failure      500
 // @Router       /queries [POST]
-func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
-	router.POST("/queries", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
+	router.POST("/queries", func(c *gin.Context) {
+		writer := c.Writer
+		request := c.Request
 		start := time.Now()
 		requestedFormat, orderColumnIndex, orderDirection, err := queriesParseQueryparams(request)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
 
 		var requestElements []model.QueriesRequestElement
 		err = json.NewDecoder(request.Body).Decode(&requestElements)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
+			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
 
 		for i := range requestElements {
 			if !requestElements[i].Valid() {
-				http.Error(writer, "Invalid request body", http.StatusBadRequest)
+				c.Error(errors.Join(errors.New("Invalid request body"), model.ErrBadRequest))
 				return
 			}
 			if requestElements[i].DeviceGroupId != nil {
-				http.Error(writer, "Setting DeviceGroupId is invalid for /queries, use /queries/v2", http.StatusBadRequest)
+				c.Error(errors.Join(errors.New("Setting DeviceGroupId is invalid for /queries, use /queries/v2"), model.ErrBadRequest))
 				return
 			}
 		}
 
 		userId, ownerUserIdsBefore, err, code := queriesVerify(requestElements, request, start, verifier, config)
 		if err != nil {
-			http.Error(writer, err.Error(), code)
+			c.Error(errors.Join(err, model.GetError(code)))
 			return
 		}
 
@@ -103,7 +105,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		beforeQueries := time.Now()
 		queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds, "", []models.Device{})
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 		if config.Debug {
@@ -112,7 +114,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		beforeQuery := time.Now()
 		data, err := wrapper.ExecuteQueries(queries)
 		if err != nil {
-			http.Error(writer, err.Error(), timescale.GetHTTPErrorCode(err))
+			c.Error(errors.Join(err, model.GetError(timescale.GetHTTPErrorCode(err))))
 			return
 		}
 		if config.Debug {
@@ -126,7 +128,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 		timeFormat := request.URL.Query().Get("time_format")
 		response, err := formatResponse(remoteCache, requestedFormat, requestElements, raw, orderColumnIndex, orderDirection, timeFormat, converter)
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 		if request.Header.Get("Accept") == "application/csv" || request.Header.Get("Accept") == "text/csv" {
@@ -140,7 +142,7 @@ func QueriesEndpoint(router *httprouter.Router, config configuration.Config, wra
 			}
 			err = csvWriter.Write(headers)
 			if err != nil {
-				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				c.Error(errors.Join(err, model.ErrInternalServerError))
 				return
 			}
 			err = writeCsv(response, csvWriter)

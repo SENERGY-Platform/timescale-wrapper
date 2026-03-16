@@ -18,17 +18,18 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
-	"github.com/julienschmidt/httprouter"
+	"github.com/gin-gonic/gin"
 )
 
 func init() {
@@ -48,26 +49,28 @@ func init() {
 // @Failure      404
 // @Failure      500
 // @Router       /last-message [GET]
-func LastMessageEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
-	router.GET("/last-message", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
+	router.GET("/last-message", func(c *gin.Context) {
+		writer := c.Writer
+		request := c.Request
 		deviceId := request.URL.Query().Get("device_id")
 		serviceId := request.URL.Query().Get("service_id")
 		if len(deviceId) == 0 {
-			http.Error(writer, "missing query param device_id", http.StatusBadRequest)
+			c.Error(errors.Join(errors.New("missing query param device_id"), model.ErrBadRequest))
 			return
 		}
 		if len(serviceId) == 0 {
-			http.Error(writer, "missing query param service_id", http.StatusBadRequest)
+			c.Error(errors.Join(errors.New("missing query param service_id"), model.ErrBadRequest))
 			return
 		}
 
 		ok, err := verifier.VerifyDevice(deviceId, getToken(request))
 		if err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 		if !ok.Ok {
-			http.Error(writer, "not found", http.StatusNotFound)
+			c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
 			return
 		}
 
@@ -77,12 +80,12 @@ func LastMessageEndpoint(router *httprouter.Router, config configuration.Config,
 		if err != nil {
 			service, err := remoteCache.GetService(serviceId)
 			if err != nil {
-				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				c.Error(errors.Join(err, model.ErrInternalServerError))
 				return
 			}
 			entry, err = wrapper.GetLastMessage(deviceId, serviceId, service)
 			if err != nil {
-				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				c.Error(errors.Join(err, model.ErrInternalServerError))
 				return
 			}
 		}

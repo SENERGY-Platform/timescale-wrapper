@@ -18,13 +18,14 @@ package timescale
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"sync"
 	"time"
 
 	serving "github.com/SENERGY-Platform/analytics-serving/client"
 	importRepo "github.com/SENERGY-Platform/import-repository/lib/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/jackc/pgx"
 )
 
@@ -58,7 +59,7 @@ func (wrapper *Wrapper) Migrate() error {
 	if wrapper.config.Debug {
 		defer func() {
 			start := time.Now()
-			log.Printf("DEBUG: Migration took %v\n", time.Since(start))
+			log.Logger.Debug(fmt.Sprintf("DEBUG: Migration took %v\n", time.Since(start)))
 		}()
 	}
 	return wrapper.removeOutdatedMaterializedRefreshJobs()

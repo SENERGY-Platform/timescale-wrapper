@@ -36,7 +36,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
-	"github.com/julienschmidt/httprouter"
+	"github.com/gin-gonic/gin"
 )
 
 func init() {
@@ -62,13 +62,15 @@ type queriesRequestElementColumn struct {
 // @Failure      404
 // @Failure      500
 // @Router       /last-values [POST]
-func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
+func LastValuesEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	handler := lastValueHandler(config, wrapper, verifier, remoteCache, converter)
 
-	router.POST("/last-values", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
-		resp, code, err := handler(request, params)
+	router.POST("/last-values", func(c *gin.Context) {
+		writer := c.Writer
+		request := c.Request
+		resp, code, err := handler(request)
 		if err != nil {
-			http.Error(writer, err.Error(), code)
+			c.Error(errors.Join(err, model.GetError(code)))
 			return
 		}
 		writer.Header().Set("Content-Type", "application/json")
@@ -79,8 +81,8 @@ func LastValuesEndpoint(router *httprouter.Router, config configuration.Config, 
 	})
 }
 
-func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) func(request *http.Request, params httprouter.Params) ([]model.LastValuesResponseElement, int, error) {
-	return func(request *http.Request, params httprouter.Params) ([]model.LastValuesResponseElement, int, error) {
+func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) func(request *http.Request) ([]model.LastValuesResponseElement, int, error) {
+	return func(request *http.Request) ([]model.LastValuesResponseElement, int, error) {
 		start := time.Now()
 
 		var requestElements []model.LastValuesRequestElement
