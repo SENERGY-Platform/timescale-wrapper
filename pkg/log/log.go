@@ -44,6 +44,7 @@ func Init(config configuration.Config) {
 	handler := slogger.GetHandler(config.LogHandler, os.Stdout, options, slog.Default().Handler())
 	handler = handler.WithAttrs([]slog.Attr{
 		slog.String(attributes.ProjectKey, "github.com/SENERGY-Platform/timescale-wrapper"),
+		slog.String(attributes.OrganizationKey, "github.com/SENERGY-Platform"),
 	})
 
 	Logger = slog.New(handler)
