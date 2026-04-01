@@ -40,7 +40,7 @@ func NewWrapper(ctx context.Context, wg *sync.WaitGroup, config configuration.Co
 			User:     config.PostgresUser,
 			Password: config.PostgresPw,
 		},
-		MaxConnections: 50,
+		MaxConnections: 5,
 		AcquireTimeout: 0,
 	})
 	if err != nil {
