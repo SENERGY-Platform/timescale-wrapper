@@ -126,7 +126,7 @@ func TestQueries(t *testing.T) {
 		}
 		expected := "SELECT \"time\", \"sensor.ENERGY.Total\"+5 AS \"sensor.ENERGY.Total\", \"sensor.ENERGY.Total\"+10" +
 			" AS \"sensor.ENERGY.Total\" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE" +
-			" \"sensor.ENERGY.Total\" +5 > 10 AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10"
+			" \"sensor.ENERGY.Total\"+5 > 10 AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10"
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
@@ -375,10 +375,10 @@ func TestQueries(t *testing.T) {
 		}
 		expected := []string{"SELECT \"time\", \"sensor.ENERGY.Total\"+5 AS \"sensor.ENERGY.Total\", \"sensor.ENERGY.Total\"+10" +
 			" AS \"sensor.ENERGY.Total\" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE" +
-			" \"sensor.ENERGY.Total\" +5 > 10 AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10",
+			" \"sensor.ENERGY.Total\"+5 > 10 AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10",
 			"SELECT \"time\", \"sensor.ENERGY.Total\" AS \"sensor.ENERGY.Total\", \"sensor.ENERGY.Total\"" +
 				" AS \"sensor.ENERGY.Total\" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE" +
-				" \"sensor.ENERGY.Total\" +5 > 10 AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10",
+				" \"sensor.ENERGY.Total\"+5 > 10 AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10",
 		}
 
 		if !reflect.DeepEqual(actual, expected) {
@@ -420,7 +420,7 @@ func TestQueries(t *testing.T) {
 		}
 		expected := "SELECT \"time\", \"sensor.ENERGY.Total\" AS \"sensor.ENERGY.Total\"" +
 			" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\"" +
-			" WHERE \"sensor.Time_unit\" = 'iso_format' AND \"sensor.ENERGY.Total_unit\" != 'invalid'" +
+			" WHERE \"sensor.Time_unit\"= 'iso_format' AND \"sensor.ENERGY.Total_unit\"!= 'invalid'" +
 			" AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10"
 
 		if actual[0] != expected {
@@ -457,7 +457,7 @@ func TestQueries(t *testing.T) {
 		}
 		expected := "SELECT \"time\", \"sensor.ENERGY.Total\"+5 AS \"sensor.ENERGY.Total\", \"sensor.ENERGY.Total\"+10" +
 			" AS \"sensor.ENERGY.Total\" FROM \"userid:reH7pvpfRwSZl4HcFo9i9A_export:l4BYIMoKRsWdzxbC44awUA\" WHERE" +
-			" \"sensor.ENERGY.Total\" +5 > 10 AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10"
+			" \"sensor.ENERGY.Total\"+5 > 10 AND \"time\" > now() - interval '1d' ORDER BY 1 ASC LIMIT 10"
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
@@ -495,7 +495,7 @@ func TestQueries(t *testing.T) {
 		}
 		expected := "SELECT \"time\", \"sensor.ENERGY.Total\"+5 AS \"sensor.ENERGY.Total\", \"sensor.ENERGY.Total\"+10" +
 			" AS \"sensor.ENERGY.Total\" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE" +
-			" \"sensor.ENERGY.Total\" +5 > 10 AND \"time\" > now() AND \"time\" < now() + interval '1d' ORDER BY 1 ASC LIMIT 10"
+			" \"sensor.ENERGY.Total\"+5 > 10 AND \"time\" > now() AND \"time\" < now() + interval '1d' ORDER BY 1 ASC LIMIT 10"
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
@@ -527,6 +527,114 @@ func TestQueries(t *testing.T) {
 			") sub WHERE bucket <= '1d'::interval ORDER BY bucket DESC LIMIT 1;"
 		if actual != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
+		}
+	})
+
+	t.Run("Test GenerateQueries Long Field Name (Hashing)", func(t *testing.T) {
+		elements := []model.QueriesRequestElement{{
+			DeviceId:  &deviceId,
+			ServiceId: &serviceId,
+			Time:      &time7d,
+			Limit:     &ten,
+			Columns: []model.QueriesRequestElementColumn{
+				{
+					Name: "sensor.ENERGY.Total",
+				},
+				{
+					Name: "thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed",
+				}},
+			OrderColumnIndex: &zero,
+			OrderDirection:   &desc,
+		}}
+
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		if err != nil {
+			t.Error(err)
+		}
+		if len(actual) != 1 {
+			t.Error("Unexpected number of queries", len(actual))
+		}
+		expected := "SELECT \"time\", \"sensor.ENERGY.Total\" AS \"sensor.ENERGY.Total\", \"2a697f637c7bc0af368f56d414fb6eb9c1d1026b1c7260b7baaf4da48e462c\" AS \"thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed\" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '7d' ORDER BY 1 DESC LIMIT 10"
+
+		if actual[0] != expected {
+			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
+		}
+	})
+
+	t.Run("Test GenerateQueries Long Field Name (Hashing) with Filter", func(t *testing.T) {
+		elements := []model.QueriesRequestElement{{
+			DeviceId:  &deviceId,
+			ServiceId: &serviceId,
+			Time:      &time7d,
+			Limit:     &ten,
+			Columns: []model.QueriesRequestElementColumn{
+				{
+					Name: "sensor.ENERGY.Total",
+				},
+				{
+					Name: "thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed",
+				}},
+			Filters: &[]model.QueriesRequestElementFilter{{
+				Column: "thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed",
+				Type:   ">",
+				Value:  5,
+			}},
+			OrderColumnIndex: &zero,
+			OrderDirection:   &desc,
+		}}
+
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		if err != nil {
+			t.Error(err)
+		}
+		if len(actual) != 1 {
+			t.Error("Unexpected number of queries", len(actual))
+		}
+		expected := "SELECT \"time\", \"sensor.ENERGY.Total\" AS \"sensor.ENERGY.Total\", \"2a697f637c7bc0af368f56d414fb6eb9c1d1026b1c7260b7baaf4da48e462c\" AS \"thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed\" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"2a697f637c7bc0af368f56d414fb6eb9c1d1026b1c7260b7baaf4da48e462c\"> 5 AND \"time\" > now() - interval '7d' ORDER BY 1 DESC LIMIT 10"
+
+		if actual[0] != expected {
+			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
+		}
+	})
+
+	t.Run("Test GenerateQueries Long Field Name (Hashing) with Difference Functions", func(t *testing.T) {
+		elements := []model.QueriesRequestElement{{
+			DeviceId:  &deviceId,
+			ServiceId: &serviceId,
+			Time:      &time7d,
+			Limit:     &ten,
+			Columns: []model.QueriesRequestElementColumn{
+				{
+					Name:      "sensor.ENERGY.Total",
+					GroupType: &dl,
+				},
+				{
+					Name:      "thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed",
+					GroupType: &df,
+					Math:      &plus5,
+				}},
+			GroupTime:        &d1,
+			OrderColumnIndex: &zero,
+			OrderDirection:   &desc,
+		}}
+
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		if err != nil {
+			t.Error(err)
+		}
+		if len(actual) != 1 {
+			t.Error("Unexpected number of queries", len(actual))
+		}
+		expected := "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY 1)) AS \"sensor.ENERGY.Total\"," +
+			" (sub1.value - lag(sub1.value) OVER (ORDER BY 1)) +5 AS \"thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed\" " +
+			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
+			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY " +
+			"1 ORDER BY 1 ASC LIMIT 9) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +
+			"first(\"2a697f637c7bc0af368f56d414fb6eb9c1d1026b1c7260b7baaf4da48e462c\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
+			"WHERE \"time\" > now() - interval '8d' GROUP BY 1 ORDER BY 1 ASC LIMIT 9) sub1 on sub0.time = sub1.time ORDER BY 1 DESC LIMIT 7"
+
+		if actual[0] != expected {
+			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
 		}
 	})
 }

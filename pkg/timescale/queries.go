@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/SENERGY-Platform/models/go/models"
+	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
@@ -96,13 +97,14 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 			elementTimeLastAheadModified := false
 			var l *int
 			for idx, column := range element.Columns {
+				hashedColumnName := util.HashFieldNameIfNeeded(column.Name)
 				query += "(SELECT time_bucket('" + *element.GroupTime + "', \"time\", '" + timezone + "') AS \"time\", "
 				if strings.HasPrefix(*column.GroupType, "difference") {
 					groupParts := strings.Split(*column.GroupType, "-")
 					if groupParts[1] == "first" || groupParts[1] == "last" {
-						query += groupParts[1] + "(\"" + column.Name + "\", \"time\")"
+						query += groupParts[1] + "(" + hashedColumnName + ", \"time\")"
 					} else {
-						query += translateFunctionName(groupParts[1]) + "\"" + column.Name + "\")"
+						query += translateFunctionName(groupParts[1]) + hashedColumnName + ")"
 					}
 					if element.Time != nil && (element.Time.Last != nil || element.Time.Ahead != nil) && !elementTimeLastAheadModified {
 						// manually increase the last offset by 1 to ensure unified results
@@ -200,11 +202,11 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 						elements[i] = element
 					}
 				} else if *column.GroupType == "first" || *column.GroupType == "last" {
-					query += *column.GroupType + "(\"" + column.Name + "\", \"time\")"
+					query += *column.GroupType + "(" + hashedColumnName + ", \"time\")"
 				} else if strings.HasPrefix(*column.GroupType, "time-weighted-") {
-					query += translateFunctionName(*column.GroupType) + "\"" + column.Name + "\"))"
+					query += translateFunctionName(*column.GroupType) + hashedColumnName + "))"
 				} else {
-					query += translateFunctionName(*column.GroupType) + "\"" + column.Name + "\")"
+					query += translateFunctionName(*column.GroupType) + hashedColumnName + ")"
 				}
 				query += " AS value"
 				query += " FROM \"" + table + "\""
@@ -251,7 +253,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 				if idx > 0 {
 					query += ", "
 				}
-				query += "\"" + column.Name + "\""
+				query += util.HashFieldNameIfNeeded(column.Name)
 				if column.Math != nil {
 					query += *column.Math
 				}
@@ -279,7 +281,7 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 				query += " AND "
 			}
 			_, valueIsString := filter.Value.(string)
-			query += "\"" + filter.Column + "\" "
+			query += util.HashFieldNameIfNeeded(filter.Column)
 			if filter.Math != nil {
 				query += *filter.Math + " "
 			}

@@ -20,9 +20,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/SENERGY-Platform/models/go/models"
+	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 )
 
@@ -74,9 +76,10 @@ func buildOutput(cv models.ContentVariable, jsonValues map[string]interface{}, p
 		path += "."
 	}
 	path += cv.Name
+	hashedPath := strings.ReplaceAll(util.HashFieldNameIfNeeded(path), "\"", "")
 	switch cv.Type {
 	case models.String, models.Boolean, models.Float, models.Integer:
-		result[cv.Name] = jsonValues[path]
+		result[cv.Name] = jsonValues[hashedPath]
 		return
 	case models.Structure:
 		m := map[string]interface{}{}
@@ -91,7 +94,7 @@ func buildOutput(cv models.ContentVariable, jsonValues map[string]interface{}, p
 		return
 	case models.List:
 		if len(cv.SubContentVariables) > 0 && cv.SubContentVariables[0].Name == "*" {
-			result[cv.Name] = jsonValues[path]
+			result[cv.Name] = jsonValues[hashedPath]
 			return
 		}
 		l := make([]interface{}, len(cv.SubContentVariables))
