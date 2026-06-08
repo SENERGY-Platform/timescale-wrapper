@@ -16,6 +16,7 @@ require (
 	github.com/SENERGY-Platform/timescale-tableworker v0.0.34
 	github.com/bradfitz/gomemcache v0.0.0-20230905024940-24af94b03874
 	github.com/coocood/freecache v1.2.4
+	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-contrib/requestid v1.0.5
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible

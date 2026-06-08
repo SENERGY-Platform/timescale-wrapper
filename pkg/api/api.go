@@ -36,6 +36,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/requestid"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
@@ -111,6 +112,10 @@ func UnauthenticatedRouter(config configuration.Config, wrapper *timescale.Wrapp
 }
 
 func configureMW(router *gin.Engine) {
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowAllOrigins = true
+	corsConfig.AddAllowHeaders("Authorization")
+
 	router.Use(
 		gin_mw.StructLoggerHandlerWithDefaultGenerators(
 			log.Logger.With(attributes.LogRecordTypeKey, attributes.HttpAccessLogRecordTypeVal),
@@ -119,6 +124,7 @@ func configureMW(router *gin.Engine) {
 			nil,
 		),
 		requestid.New(requestid.WithCustomHeaderStrKey("X-Request-ID")),
+		cors.New(corsConfig),
 		gin_mw.ErrorHandler(model.GetStatusCode, ", "),
 		gin_mw.StructRecoveryHandler(log.Logger, gin_mw.DefaultRecoveryFunc),
 	)
