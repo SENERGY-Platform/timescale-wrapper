@@ -280,17 +280,25 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 			if idx != 0 {
 				query += " AND "
 			}
-			_, valueIsString := filter.Value.(string)
-			query += util.HashFieldNameIfNeeded(filter.Column)
-			if filter.Math != nil {
-				query += *filter.Math + " "
-			}
-			query += filter.Type
-			if valueIsString {
-				query += " '" + filter.Value.(string) + "'"
+			if filter.Value == nil {
+				query += util.HashFieldNameIfNeeded(filter.Column) + " IS "
+				if filter.Type == "!=" {
+					query += "NOT "
+				}
+				query += "NULL"
 			} else {
-				value := fmt.Sprintf("%v", filter.Value)
-				query += " " + value
+				_, valueIsString := filter.Value.(string)
+				query += util.HashFieldNameIfNeeded(filter.Column)
+				if filter.Math != nil {
+					query += *filter.Math + " "
+				}
+				query += filter.Type
+				if valueIsString {
+					query += " '" + filter.Value.(string) + "'"
+				} else {
+					value := fmt.Sprintf("%v", filter.Value)
+					query += " " + value
+				}
 			}
 		}
 	}

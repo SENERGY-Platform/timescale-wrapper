@@ -94,6 +94,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		one := 1
 		exportQueriesRequestElementColumnMap := map[string][]queriesRequestElementColumn{}
 		deviceQueriesRequestElementColumnMap := map[string][]queriesRequestElementColumn{}
+		filters := []model.QueriesRequestElementFilter{}
 
 		for i := range requestElements {
 			if requestElements[i].ExportId != nil {
@@ -106,6 +107,13 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 					requestElements[i].TargetCharacteristicId, requestElements[i].ConceptId)
 			} else {
 				return nil, http.StatusBadRequest, errors.New("invalid request body")
+			}
+			if requestElements[i].NotNull {
+				filters = append(filters, model.QueriesRequestElementFilter{
+					Column: requestElements[i].ColumnName,
+					Type:   "!=",
+					Value:  nil,
+				})
 			}
 		}
 		fullRequestElements := make([]model.QueriesRequestElement, len(exportQueriesRequestElementColumnMap)+len(deviceQueriesRequestElementColumnMap))
@@ -124,6 +132,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 				Columns:          cols,
 				OrderColumnIndex: &zero,
 				OrderDirection:   &desc,
+				Filters:          &filters,
 			}
 			if !fullRequestElements[fullRequestElementsIndex].Valid() {
 				return nil, http.StatusBadRequest, errors.New("invalid request body")
@@ -142,6 +151,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 				Columns:          cols,
 				OrderColumnIndex: &zero,
 				OrderDirection:   &desc,
+				Filters:          &filters,
 			}
 			if !fullRequestElements[fullRequestElementsIndex].Valid() {
 				return nil, http.StatusBadRequest, errors.New("invalid request body")

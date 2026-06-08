@@ -220,14 +220,14 @@ func (filter *QueriesRequestElementFilter) Valid() bool {
 		return false
 	}
 	allowedTypes := []interface{}{}
-	allowedTypes = append(allowedTypes, "=", "<>", "!=", ">", ">=", "<", "<=")
-	if filter.Value == nil {
-		return false
-	}
-	s, ok := filter.Value.(string)
-	if ok {
-		if len(s) != len(valueMatcher.FindString(s)) {
-			return false
+	allowedTypes = append(allowedTypes, "=", "!=")
+	if filter.Value != nil {
+		allowedTypes = append(allowedTypes, "<>", ">", ">=", "<", "<=")
+		s, ok := filter.Value.(string)
+		if ok {
+			if len(s) != len(valueMatcher.FindString(s)) {
+				return false
+			}
 		}
 	}
 	return ElementInArray(filter.Type, allowedTypes) && columnNameValid(filter.Column)

@@ -32,6 +32,7 @@ func init() {
 // @Param		 source_characteristic_id query string false "source_characteristic_id"
 // @Param		 target_characteristic_id query string false "target_characteristic_id"
 // @Param		 concept_id query string false "concept_id"
+// @Param		 not_null query string false "not_null"
 // @Success      200 {object} any "the raw value"
 // @Failure      400
 // @Failure      401
@@ -51,9 +52,11 @@ func RawValueEndpoint(router gin.IRouter, config configuration.Config, wrapper *
 		sourceCharacteristicId := request.URL.Query().Get("source_characteristic_id")
 		targetCharacteristicId := request.URL.Query().Get("target_characteristic_id")
 		conceptId := request.URL.Query().Get("concept_id")
+		notNull := request.URL.Query().Get("not_null")
 
 		elem := model.LastValuesRequestElement{
 			ColumnName: request.URL.Query().Get("column"),
+			NotNull:    notNull == "true",
 		}
 		if len(exportId) > 0 {
 			elem.ExportId = &exportId

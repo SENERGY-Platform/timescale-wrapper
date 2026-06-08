@@ -41,6 +41,8 @@ definitions:
         type: string
       math:
         type: string
+      notNull:
+        type: boolean
       serviceId:
         type: string
       sourceCharacteristicId:
@@ -396,6 +398,44 @@ paths:
       security:
       - Bearer: []
       summary: prepare download
+    post:
+      consumes:
+      - application/json
+      description: genartes a secret for later download. can be used in native browser
+        downloads
+      parameters:
+      - description: JSON encoded QueriesRequestElement
+        in: body
+        name: query
+        required: true
+        schema:
+          type: string
+      - description: 'Textual representation of the date ''Mon Jan 2 15:04:05 -0700
+          MST 2006''. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps
+          as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format'
+        in: query
+        name: time_format
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
+      security:
+      - Bearer: []
+      summary: prepare download
   /queries:
     post:
       consumes:
@@ -561,6 +601,10 @@ paths:
       - description: concept_id
         in: query
         name: concept_id
+        type: string
+      - description: not_null
+        in: query
+        name: not_null
         type: string
       produces:
       - application/json

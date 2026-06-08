@@ -637,4 +637,48 @@ func TestQueries(t *testing.T) {
 			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
 		}
 	})
+
+	t.Run("Test GenerateQueries with NULL Filter", func(t *testing.T) {
+		elements := []model.QueriesRequestElement{{
+			DeviceId:  &deviceId,
+			ServiceId: &serviceId,
+			Time:      &time7d,
+			Limit:     &ten,
+			Columns: []model.QueriesRequestElementColumn{
+				{
+					Name: "sensor.ENERGY.Total",
+				},
+				{
+					Name: "column1",
+				},
+			},
+			Filters: &[]model.QueriesRequestElementFilter{
+				{
+					Column: "sensor.ENERGY.Total",
+					Type:   "!=",
+					Value:  nil,
+				},
+				{
+					Column: "column1",
+					Type:   "=",
+					Value:  nil,
+				},
+			},
+			OrderColumnIndex: &zero,
+			OrderDirection:   &desc,
+		}}
+
+		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		if err != nil {
+			t.Error(err)
+		}
+		if len(actual) != 1 {
+			t.Error("Unexpected number of queries", len(actual))
+		}
+		expected := "SELECT \"time\", \"sensor.ENERGY.Total\" AS \"sensor.ENERGY.Total\", \"column1\" AS \"column1\" FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"sensor.ENERGY.Total\" IS NOT NULL AND \"column1\" IS NULL AND \"time\" > now() - interval '7d' ORDER BY 1 DESC LIMIT 10"
+
+		if actual[0] != expected {
+			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
+		}
+	})
 }

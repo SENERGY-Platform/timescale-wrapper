@@ -334,6 +334,61 @@ const docTemplate = `{
                         "description": "Internal Server Error"
                     }
                 }
+            },
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "genartes a secret for later download. can be used in native browser downloads",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/plain"
+                ],
+                "summary": "prepare download",
+                "parameters": [
+                    {
+                        "description": "JSON encoded QueriesRequestElement",
+                        "name": "query",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
+                        "name": "time_format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
             }
         },
         "/queries": {
@@ -566,6 +621,12 @@ const docTemplate = `{
                         "description": "concept_id",
                         "name": "concept_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "not_null",
+                        "name": "not_null",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -765,6 +826,9 @@ const docTemplate = `{
                 },
                 "math": {
                     "type": "string"
+                },
+                "notNull": {
+                    "type": "boolean"
                 },
                 "serviceId": {
                     "type": "string"

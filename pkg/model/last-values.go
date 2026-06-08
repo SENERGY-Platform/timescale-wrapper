@@ -25,6 +25,7 @@ type LastValuesRequestElement struct {
 	TargetCharacteristicId *string `json:"targetCharacteristicId,omitempty"`
 	ConceptId              *string `json:"conceptId,omitempty"`
 	ColumnName             string  `json:"columnName,omitempty"`
+	NotNull                bool    `json:"notNull,omitempty"`
 }
 
 type LastValuesResponseElement struct {
