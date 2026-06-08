@@ -78,25 +78,37 @@ func GetDownload() {} // for doc generation
 // @Router       /prepare-download [GET]
 func GetPrepareDownload() {} // for doc generation
 
+// Query godoc
+// @Summary      prepare download
+// @Description  genartes a secret for later download. can be used in native browser downloads
+// @Accept       json
+// @Produce      plain
+// @Security Bearer
+// @Param        query body string true "JSON encoded QueriesRequestElement"
+// @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Success      200 {string} Secret
+// @Failure      400
+// @Failure      401
+// @Failure      403
+// @Failure      404
+// @Failure      500
+// @Router       /prepare-download [POST]
+func PostPrepareDownload() {} // for doc generation
+
 func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, _ *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/download", func(c *gin.Context) {
 		writer := c.Writer
 		request := c.Request
-		prepared, ok := prepareQueriesRequestElement(c, request, verifier)
+		marshalledQuery := request.URL.Query().Get("query")
+		prepared, ok := prepareQueriesRequestElement(c, request, verifier, marshalledQuery)
 		if !ok {
 			return
 		}
 		handleCSVDownload(c, prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Token, writer, config)
 	})
 
-	router.GET("/prepare-download", func(c *gin.Context) {
+	handleSecretGeneration := func(c *gin.Context, prepared model.PreparedQueriesRequestElement) {
 		writer := c.Writer
-		request := c.Request
-		prepared, ok := prepareQueriesRequestElement(c, request, verifier)
-		if !ok {
-			return
-		}
-
 		secret, err := remoteCache.StoreSecretQuery(prepared)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
@@ -108,6 +120,34 @@ func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, _
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
+	}
+
+	router.GET("/prepare-download", func(c *gin.Context) {
+		request := c.Request
+		marshalledQuery := request.URL.Query().Get("query")
+		prepared, ok := prepareQueriesRequestElement(c, request, verifier, marshalledQuery)
+		if !ok {
+			c.Error(model.ErrInternalServerError)
+			return
+		}
+
+		handleSecretGeneration(c, prepared)
+	})
+
+	router.POST("/prepare-download", func(c *gin.Context) {
+		request := c.Request
+		var marshalledQuery string
+		if err := c.ShouldBindPlain(&marshalledQuery); err != nil {
+			c.Error(errors.Join(err, model.ErrBadRequest))
+			return
+		}
+		prepared, ok := prepareQueriesRequestElement(c, request, verifier, marshalledQuery)
+		if !ok {
+			c.Error(model.ErrInternalServerError)
+			return
+		}
+
+		handleSecretGeneration(c, prepared)
 	})
 }
 
@@ -140,13 +180,12 @@ func DownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper 
 	})
 }
 
-func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifier *verification.Verifier) (elem model.PreparedQueriesRequestElement, ok bool) {
+func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifier *verification.Verifier, marshalledQuery string) (elem model.PreparedQueriesRequestElement, ok bool) {
 	elem = model.PreparedQueriesRequestElement{}
-	query := request.URL.Query().Get("query")
 	timeFormat := request.URL.Query().Get("time_format")
 
 	var requestElement model.QueriesRequestElement
-	err := json.Unmarshal([]byte(query), &requestElement)
+	err := json.Unmarshal([]byte(marshalledQuery), &requestElement)
 	if !requestElement.Valid() {
 		c.Error(errors.Join(errors.New("invalid query"), model.ErrBadRequest))
 		return elem, false
@@ -206,6 +245,10 @@ func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifie
 	}, true
 }
 
+var httpClient = http.Client{
+	Timeout: 2 * time.Minute,
+}
+
 func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElement, timeFormat string, token string, writer http.ResponseWriter, config configuration.Config) {
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
@@ -240,8 +283,26 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 	}
 
 	startValue := startTime.Unix()
-	var chunkSize int64 = 30 * 60 * 60 * 24
+	var chunkSize int64 = int64((time.Hour * 1).Seconds())
 	endValue := int64(math.Min(float64(startValue+chunkSize), float64(initialEndValue)))
+
+	/* channel setup:
+
+	chunks: for sending query results to the csv writer goroutine. the main routine will query the db and writes result to the channel, the csv writer goroutine will read from the channel and write to the response. this allows to query the next chunk while the previous one is still being written to the response, which can improve performance for large downloads.
+
+	writeErr: for receiving errors from the csv writer goroutine. if an error is received, the main goroutine will stop processing and return an error response. if nil is received, the main goroutine will stop processing and finish the request successfully. the csv writer goroutine will send nil if the chunks channel is closed and all chunks have been written successfully, signalling completion.
+	*/
+	chunks := make(chan [][]interface{}, 1)
+	writeErr := make(chan error, 1)
+	go func() {
+		for chunk := range chunks {
+			if err := writeCsv(chunk, csvWriter); err != nil {
+				writeErr <- err
+				return
+			}
+		}
+		writeErr <- nil
+	}()
 
 	for startValue < initialEndValue { // loop over time chunks
 		start := time.Unix(startValue, 0).Format(time.RFC3339)
@@ -260,13 +321,18 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 			panic(http.ErrAbortHandler)
 		}
 		req.Header.Set("Authorization", token)
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			log.Logger.Error("failed to execute query request", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
 		if resp.StatusCode != 200 {
 			reason, err := io.ReadAll(resp.Body)
+			closeErr := resp.Body.Close()
+			if closeErr != nil {
+				log.Logger.Error("failed to close query error response body", attributes.ErrorKey, closeErr)
+				panic(http.ErrAbortHandler)
+			}
 			if err != nil {
 				log.Logger.Error("failed to read query error response", attributes.ErrorKey, err)
 				panic(http.ErrAbortHandler)
@@ -276,17 +342,35 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 		}
 		var respData [][]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&respData)
+		closeErr := resp.Body.Close()
+		if closeErr != nil {
+			log.Logger.Error("failed to close query response body", attributes.ErrorKey, closeErr)
+			panic(http.ErrAbortHandler)
+		}
 		if err != nil {
 			log.Logger.Error("failed to decode query response", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
-		err = writeCsv(respData, csvWriter)
-		if err != nil {
-			log.Logger.Error("failed to write csv", attributes.ErrorKey, err)
+
+		select {
+		case err = <-writeErr:
+			if err != nil {
+				log.Logger.Error("failed to write csv", attributes.ErrorKey, err)
+			} else {
+				log.Logger.Error("csv writer stopped unexpectedly")
+			}
 			panic(http.ErrAbortHandler)
+		case chunks <- respData:
 		}
 
 		startValue = endValue
 		endValue = int64(math.Min(float64(endValue+chunkSize), float64(initialEndValue)))
+	}
+
+	close(chunks)
+	err = <-writeErr
+	if err != nil {
+		log.Logger.Error("failed to write csv", attributes.ErrorKey, err)
+		panic(http.ErrAbortHandler)
 	}
 }
