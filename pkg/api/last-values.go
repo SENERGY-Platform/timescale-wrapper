@@ -17,6 +17,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,6 +38,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel"
 )
 
 func init() {
@@ -68,7 +70,7 @@ func LastValuesEndpoint(router gin.IRouter, config configuration.Config, wrapper
 	router.POST("/last-values", func(c *gin.Context) {
 		writer := c.Writer
 		request := c.Request
-		resp, code, err := handler(request)
+		resp, code, err := handler(c.Request.Context(), request)
 		if err != nil {
 			c.Error(errors.Join(err, model.GetError(code)))
 			return
@@ -81,10 +83,9 @@ func LastValuesEndpoint(router gin.IRouter, config configuration.Config, wrapper
 	})
 }
 
-func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) func(request *http.Request) ([]model.LastValuesResponseElement, int, error) {
-	return func(request *http.Request) ([]model.LastValuesResponseElement, int, error) {
-		start := time.Now()
-
+func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) func(ctx context.Context, request *http.Request) ([]model.LastValuesResponseElement, int, error) {
+	return func(ctx context.Context, request *http.Request) ([]model.LastValuesResponseElement, int, error) {
+		tracer := otel.Tracer("api/last-values.go:LastValuesEndpoint")
 		var requestElements []model.LastValuesRequestElement
 		err := json.NewDecoder(request.Body).Decode(&requestElements)
 		if err != nil {
@@ -162,13 +163,12 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		if err != nil {
 			return nil, http.StatusBadRequest, err
 		}
-		ok, ownerUserIds, err := verifier.VerifyAccess(fullRequestElements, getToken(request), userId)
+		verifyCtx, verifySpan := tracer.Start(ctx, "verify access")
+		ok, ownerUserIds, err := verifier.VerifyAccess(verifyCtx, fullRequestElements, getToken(request), userId)
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}
-		if config.Debug {
-			log.Logger.Debug("Verification took " + time.Since(start).String())
-		}
+		verifySpan.End()
 		if !ok {
 			return nil, http.StatusNotFound, errors.New("not found")
 		}
@@ -176,61 +176,59 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		dbRequestElements := []model.QueriesRequestElement{}
 		dbRequestIndices := []int{}
 
-		beforeCache := time.Now()
 		raw := make([][][]interface{}, len(fullRequestElements))
 
+		_, cacheSpan := tracer.Start(ctx, "fetch from cache")
 		m := sync.Mutex{}
 		wg := sync.WaitGroup{}
 		wg.Add(len(fullRequestElements))
 		for i := range fullRequestElements {
 			i := i
 			go func() {
-				raw[i], err = remoteCache.GetLastValuesFromCache(fullRequestElements[i], nil)
+				raw[i], err = remoteCache.GetLastValuesFromCache(ctx, fullRequestElements[i], nil)
 				if err != nil {
 					m.Lock()
 					defer m.Unlock()
 					dbRequestElements = append(dbRequestElements, fullRequestElements[i])
 					dbRequestIndices = append(dbRequestIndices, i)
 					if err != cache.NotCachableError {
-						log.Logger.Warn("Could not get data from cache", attributes.ErrorKey, err)
+						log.Logger.WarnContext(ctx, "Could not get data from cache", attributes.ErrorKey, err)
 					}
 				}
 				wg.Done()
 			}()
 		}
 		wg.Wait()
+		cacheSpan.End()
 		if config.Debug {
-			log.Logger.Debug("Cache collection took " + time.Since(beforeCache).String())
-			log.Logger.Debug("Got " + strconv.Itoa(len(fullRequestElements)-len(dbRequestIndices)) + " from cache, requesting " + strconv.Itoa(len(dbRequestIndices)) + " from db")
+			log.Logger.DebugContext(ctx, "Got "+strconv.Itoa(len(fullRequestElements)-len(dbRequestIndices))+" from cache, requesting "+strconv.Itoa(len(dbRequestIndices))+" from db")
 		}
 
-		beforeQueries := time.Now()
-		queries, err := wrapper.GenerateQueries(dbRequestElements, userId, ownerUserIds, "", []models.Device{})
+		queriesCtx, queriesSpan := tracer.Start(ctx, "generate queries")
+		queries, err := wrapper.GenerateQueries(queriesCtx, dbRequestElements, userId, ownerUserIds, "", []models.Device{})
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}
-		if config.Debug {
-			log.Logger.Debug("Query generation took " + time.Since(beforeQueries).String())
-		}
-		beforeQuery := time.Now()
-		data, err := wrapper.ExecuteQueries(queries)
+		queriesSpan.End()
+
+		querySpanCtx, querySpan := tracer.Start(ctx, "fetch from db")
+		data, err := wrapper.ExecuteQueries(querySpanCtx, queries)
 		if err != nil {
 			return nil, timescale.GetHTTPErrorCode(err), err
 		}
-		if config.Debug {
-			log.Logger.Debug("Fetching took " + time.Since(beforeQuery).String())
-		}
+		querySpan.End()
 		// merge DB results with cache results
 		for i := range data {
 			raw[dbRequestIndices[i]] = data[i]
 		}
-		beforePP := time.Now()
+
+		_, ppSpan := tracer.Start(ctx, "postprocess")
 		timeFormat := request.URL.Query().Get("time_format")
 		if timeFormat == "" {
 			timeFormat = time.RFC3339Nano
 		}
 
-		responseRawData, err := formatResponse(remoteCache, model.PerQuery, fullRequestElements, raw, 0, model.Desc, timeFormat, converter)
+		responseRawData, err := formatResponse(ctx, remoteCache, model.PerQuery, fullRequestElements, raw, 0, model.Desc, timeFormat, converter)
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}
@@ -268,9 +266,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 			}
 		}
 
-		if config.Debug {
-			log.Logger.Debug("Postprocessing took " + time.Since(beforePP).String())
-		}
+		ppSpan.End()
 
 		return responseElements, http.StatusOK, nil
 	}

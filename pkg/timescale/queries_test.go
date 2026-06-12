@@ -117,7 +117,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -163,7 +163,7 @@ func TestQueries(t *testing.T) {
 				OrderDirection:   &asc,
 			}}
 
-			actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+			actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 			if err != nil {
 				t.Error(err)
 			}
@@ -220,7 +220,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -272,7 +272,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -307,7 +307,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -366,7 +366,7 @@ func TestQueries(t *testing.T) {
 				OrderColumnIndex: &zero,
 			}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{"", ""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{"", ""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -411,7 +411,7 @@ func TestQueries(t *testing.T) {
 			OrderColumnIndex: &zero,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -448,7 +448,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "ade1fba6-fa5f-4704-9997-81dc168f62f4", []string{"ade1fba6-fa5f-4704-9997-81dc168f62f4"}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "ade1fba6-fa5f-4704-9997-81dc168f62f4", []string{"ade1fba6-fa5f-4704-9997-81dc168f62f4"}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -486,7 +486,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &asc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -547,7 +547,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -583,7 +583,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -618,7 +618,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -668,7 +668,7 @@ func TestQueries(t *testing.T) {
 			OrderDirection:   &desc,
 		}}
 
-		actual, err := wrapper.GenerateQueries(elements, "", []string{""}, "", []models.Device{})
+		actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
 		if err != nil {
 			t.Error(err)
 		}

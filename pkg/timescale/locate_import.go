@@ -17,19 +17,20 @@
 package timescale
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	importModel "github.com/SENERGY-Platform/import-repository/lib/model"
 	"github.com/SENERGY-Platform/service-commons/pkg/jwt"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/jackc/pgerrcode"
-	"github.com/jackc/pgx"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/umahmood/haversine"
+	"go.opentelemetry.io/otel"
 )
 
 type distance struct {
@@ -37,12 +38,13 @@ type distance struct {
 	km         float64
 }
 
-func (wrapper *Wrapper) CreateFiltersForImport(exportId string, userId string, token string, lat float64, lon float64) ([]model.QueriesRequestElementFilter, error) {
+func (wrapper *Wrapper) CreateFiltersForImport(ctx context.Context, exportId string, userId string, token string, lat float64, lon float64) ([]model.QueriesRequestElementFilter, error) {
+	tracer := otel.Tracer("timescale/locate_import.go:CreateFiltersForImport")
+	c, span := tracer.Start(ctx, "CreateFiltersForImport")
+	defer span.End()
+
 	if wrapper.config.Debug {
-		start := time.Now()
-		defer func() {
-			log.Logger.Debug(fmt.Sprintf("CreateFiltersForImport took %v, is included in query generation", time.Since(start)))
-		}()
+		log.Logger.DebugContext(c, fmt.Sprintf("Creating filters for import with exportId %v, userId %v, lat %v and lon %v", exportId, userId, lat, lon))
 	}
 	exportInstance, err := wrapper.servingClient.GetInstance(token, exportId)
 	if err != nil {
@@ -100,28 +102,28 @@ func (wrapper *Wrapper) CreateFiltersForImport(exportId string, userId string, t
 		return nil, errors.New("missing identifier, lat or lon path in export")
 	}
 
-	tableName, err := wrapper.tableName(model.QueriesRequestElement{ExportId: &exportId}, exportInstance.UserId, wrapper.config.DefaultTimezone)
+	tableName, err := wrapper.tableName(ctx, model.QueriesRequestElement{ExportId: &exportId}, exportInstance.UserId, wrapper.config.DefaultTimezone)
 	if err != nil {
 		return nil, err
 	}
 	query := fmt.Sprintf("SELECT \"%v\", \"%v\", \"%v\" FROM \"%v\";", identifierPathTs, latPathTs, lonPathTs, wrapperMaterializedViewPrefix+tableName)
 	if wrapper.config.Debug {
-		log.Logger.Debug("Querying export of import locations with: " + query)
+		log.Logger.DebugContext(ctx, "Querying export of import locations with: "+query)
 	}
-	table, err := wrapper.ExecuteQuery(query)
+	table, err := wrapper.ExecuteQuery(ctx, query)
 	if err != nil {
-		err2, ok := err.(pgx.PgError)
+		err2, ok := err.(*pgconn.PgError)
 		if !ok || err2.Code != pgerrcode.UndefinedTable {
 			return nil, err
 		}
 		if wrapper.config.Debug {
-			log.Logger.Debug(fmt.Sprintf("DEBUG: setting up materialized view for table %v", tableName))
+			log.Logger.DebugContext(ctx, fmt.Sprintf("DEBUG: setting up materialized view for table %v", tableName))
 		}
-		err = wrapper.setupMaterializedRefreshJob(identifierPathTs, latPathTs, lonPathTs, tableName)
+		err = wrapper.setupMaterializedRefreshJob(ctx, identifierPathTs, latPathTs, lonPathTs, tableName)
 		if err != nil {
 			return nil, err
 		}
-		table, err = wrapper.ExecuteQuery(query)
+		table, err = wrapper.ExecuteQuery(ctx, query)
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +156,7 @@ func (wrapper *Wrapper) CreateFiltersForImport(exportId string, userId string, t
 	sort.Slice(distances, func(i, j int) bool { return distances[i].km < distances[j].km })
 
 	if wrapper.config.Debug {
-		log.Logger.Debug(fmt.Sprintf("DEBUG: Found %v options. Smallest distance %vkm (identifier %v), longest %vkm (identifier %v)", len(distances), distances[0].km, distances[0].identifier, distances[len(distances)-1].km, distances[len(distances)-1].identifier))
+		log.Logger.DebugContext(ctx, fmt.Sprintf("DEBUG: Found %v options. Smallest distance %vkm (identifier %v), longest %vkm (identifier %v)", len(distances), distances[0].km, distances[0].identifier, distances[len(distances)-1].km, distances[len(distances)-1].identifier))
 	}
 
 	return []model.QueriesRequestElementFilter{{
@@ -191,8 +193,8 @@ func findImportTypeContentVariable(content importModel.ContentVariable, find fin
 
 }
 
-func (wrapper *Wrapper) setupMaterializedRefreshJob(identifierPathTs, latPathTs, lonPathTs, tableName string) error {
-	_, err := wrapper.pool.Exec("CREATE OR REPLACE PROCEDURE " + wrapperMaterializedViewProcedureName + `(job_id INT, view JSONB) LANGUAGE PLPGSQL
+func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identifierPathTs, latPathTs, lonPathTs, tableName string) error {
+	_, err := wrapper.pool.Exec(ctx, "CREATE OR REPLACE PROCEDURE "+wrapperMaterializedViewProcedureName+`(job_id INT, view JSONB) LANGUAGE PLPGSQL
 		AS $$
 		BEGIN
 			EXECUTE format('REFRESH MATERIALIZED VIEW %s', view);
@@ -202,22 +204,23 @@ func (wrapper *Wrapper) setupMaterializedRefreshJob(identifierPathTs, latPathTs,
 	if err != nil {
 		return err
 	}
-	_, err = wrapper.pool.Exec(fmt.Sprintf("CREATE MATERIALIZED VIEW \"%v\" AS SELECT DISTINCT \"%v\", \"%v\", \"%v\" FROM \"%v\"", wrapperMaterializedViewPrefix+tableName, identifierPathTs, latPathTs, lonPathTs, tableName))
+	_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW \"%v\" AS SELECT DISTINCT \"%v\", \"%v\", \"%v\" FROM \"%v\"", wrapperMaterializedViewPrefix+tableName, identifierPathTs, latPathTs, lonPathTs, tableName))
 	if err != nil {
 		return err
 	}
-	_, err = wrapper.pool.Exec(fmt.Sprintf("SELECT add_job('ts_wrapper_refresh_mat_view', '1day', config => '\"%v\"');", tableName))
+	_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("SELECT add_job('ts_wrapper_refresh_mat_view', '1day', config => '\"%v\"');", tableName))
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (wrapper *Wrapper) removeOutdatedMaterializedRefreshJobs() error {
-	rows, err := wrapper.pool.Query(fmt.Sprintf("SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = '%v' AND config::text NOT IN (SELECT '\"' || table_name || '\"' FROM information_schema.tables);", wrapperMaterializedViewProcedureName))
+func (wrapper *Wrapper) removeOutdatedMaterializedRefreshJobs(ctx context.Context) error {
+	rows, err := wrapper.pool.Query(ctx, fmt.Sprintf("SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = '%v' AND config::text NOT IN (SELECT '\"' || table_name || '\"' FROM information_schema.tables);", wrapperMaterializedViewProcedureName))
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 
 	var jobId int64
 	for rows.Next() {
@@ -226,13 +229,16 @@ func (wrapper *Wrapper) removeOutdatedMaterializedRefreshJobs() error {
 			return err
 		}
 		if wrapper.config.Debug {
-			log.Logger.Debug(fmt.Sprintf("DEBUG: Deleting job for materialized view refresh %v (no longer needed)", jobId))
+			log.Logger.DebugContext(ctx, fmt.Sprintf("DEBUG: Deleting job for materialized view refresh %v (no longer needed)", jobId))
 		}
 
-		_, err = wrapper.pool.Exec(fmt.Sprintf("SELECT delete_job(%v);", jobId))
+		_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("SELECT delete_job(%v);", jobId))
 		if err != nil {
 			return err
 		}
+	}
+	if err = rows.Err(); err != nil {
+		return err
 	}
 
 	return nil

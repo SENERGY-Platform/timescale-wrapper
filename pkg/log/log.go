@@ -22,6 +22,7 @@ import (
 
 	slogger "github.com/SENERGY-Platform/go-service-base/struct-logger"
 	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
+	"github.com/SENERGY-Platform/go-service-base/struct-logger/handlers"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 )
 
@@ -41,7 +42,7 @@ func Init(config configuration.Config) {
 		Level:     level,
 	}
 
-	handler := slogger.GetHandler(config.LogHandler, os.Stdout, options, slog.Default().Handler())
+	handler := handlers.NewOpenTelemetryHandler(slogger.GetHandler(config.LogHandler, os.Stdout, options, slog.Default().Handler()))
 	handler = handler.WithAttrs([]slog.Attr{
 		slog.String(attributes.ProjectKey, "github.com/SENERGY-Platform/timescale-wrapper"),
 		slog.String(attributes.OrganizationKey, "github.com/SENERGY-Platform"),

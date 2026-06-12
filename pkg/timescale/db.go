@@ -17,29 +17,35 @@
 package timescale
 
 import (
+	"context"
 	"math"
 	"sync"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
-	"github.com/jackc/pgx/pgtype"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func (wrapper *Wrapper) ExecuteQueries(queries []string) (res [][][]interface{}, err error) {
+func (wrapper *Wrapper) ExecuteQueries(ctx context.Context, queries []string) (res [][][]interface{}, err error) {
 	res = make([][][]interface{}, len(queries))
 	wg := sync.WaitGroup{} // handle multiple queries in parallel
+	mux := sync.Mutex{}    // prevent overwriting error in case of multiple queries
 	for i, query := range queries {
 		wg.Add(1)
 		i := i         // make thread safe
 		query := query // make thread safe
 		go func() {
 			if wrapper.config.Debug {
-				log.Logger.Debug("Query", "index", i, "query", query)
+				log.Logger.DebugContext(ctx, "Query", "index", i, "query", query)
 			}
-			resS, errS := wrapper.ExecuteQuery(query)
+			resS, errS := wrapper.ExecuteQuery(ctx, query)
 			if errS != nil { // Prevents overwriting with nil
+				mux.Lock()
 				err = errS
+				mux.Unlock()
 			} else {
+				mux.Lock()
 				res[i] = resS
+				mux.Unlock()
 			}
 			wg.Done()
 		}()
@@ -48,22 +54,28 @@ func (wrapper *Wrapper) ExecuteQueries(queries []string) (res [][][]interface{},
 	return
 }
 
-func (wrapper *Wrapper) ExecuteQuery(query string) (res [][]interface{}, err error) {
-	rows, err := wrapper.pool.Query(query)
+func (wrapper *Wrapper) ExecuteQuery(ctx context.Context, query string) (res [][]interface{}, err error) {
+	rows, err := wrapper.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	res = [][]interface{}{}
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
-			rows.Close()
 			return nil, err
 		}
 		for i, v := range values {
-			numeric, ok := v.(*pgtype.Numeric)
-			if ok {
-				if numeric.Status == pgtype.Present {
+			switch numeric := v.(type) {
+			case pgtype.Numeric:
+				if numeric.Valid {
+					values[i] = int64(float64(numeric.Int.Int64()) * math.Pow10(int(numeric.Exp)))
+				} else {
+					values[i] = nil
+				}
+			case *pgtype.Numeric:
+				if numeric != nil && numeric.Valid {
 					values[i] = int64(float64(numeric.Int.Int64()) * math.Pow10(int(numeric.Exp)))
 				} else {
 					values[i] = nil
@@ -71,6 +83,9 @@ func (wrapper *Wrapper) ExecuteQuery(query string) (res [][]interface{}, err err
 			}
 		}
 		res = append(res, values)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 	if len(res) == 0 { // no results --> append nil for each requested field
 		res = append(res, make([]interface{}, len(rows.FieldDescriptions())))

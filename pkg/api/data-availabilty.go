@@ -59,7 +59,7 @@ func DataAvailabilityEndpoint(router gin.IRouter, _ configuration.Config, wrappe
 			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
-		access, err := verifier.VerifyAccessOnce(model.QueriesRequestElement{
+		access, err := verifier.VerifyAccessOnce(c.Request.Context(), model.QueriesRequestElement{
 			DeviceId: &deviceId,
 		}, getToken(request), userId)
 		if err != nil {
@@ -70,7 +70,7 @@ func DataAvailabilityEndpoint(router gin.IRouter, _ configuration.Config, wrappe
 			c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
 			return
 		}
-		response, err := wrapper.GetDataAvailability(deviceId)
+		response, err := wrapper.GetDataAvailability(c.Request.Context(), deviceId)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return

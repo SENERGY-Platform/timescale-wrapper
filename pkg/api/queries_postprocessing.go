@@ -17,6 +17,7 @@
 package api
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -31,7 +32,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
-func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []model.QueriesRequestElement, results [][][]interface{},
+func formatResponse(ctx context.Context, remoteCache *cache.RemoteCache, f model.Format, request []model.QueriesRequestElement, results [][][]interface{},
 	orderColumnIndex int, orderDirection model.Direction, timeFormat string, conv *converter.Converter) (data interface{}, err error) {
 
 	sourceCharacteristicIds := map[int]map[int]*string{}        // seriesIndex to seriesColumnIndex to sourceCharacteristicId
@@ -47,7 +48,7 @@ func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []mo
 					if serviceId == nil {
 						return nil, errors.New("service id cant be nil")
 					}
-					service, err := remoteCache.GetService(*serviceId)
+					service, err := remoteCache.GetService(ctx, *serviceId)
 					if err != nil {
 						return nil, err
 					}
@@ -65,7 +66,7 @@ func formatResponse(remoteCache *cache.RemoteCache, f model.Format, request []mo
 				if request[seriesIndex].Columns[seriesColumnIndex].ConceptId == nil {
 					return nil, errors.New("concept id cant be nil")
 				}
-				concept, err := remoteCache.GetConcept(*request[seriesIndex].Columns[seriesColumnIndex].ConceptId)
+				concept, err := remoteCache.GetConcept(ctx, *request[seriesIndex].Columns[seriesColumnIndex].ConceptId)
 				if err != nil {
 					return nil, err
 				}

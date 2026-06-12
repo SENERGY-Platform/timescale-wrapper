@@ -18,16 +18,17 @@ package timescale
 
 import (
 	"errors"
-	"github.com/jackc/pgerrcode"
-	"github.com/jackc/pgx"
 	"net/http"
+
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func GetHTTPErrorCode(err error) int {
 	if err == nil {
 		return http.StatusOK
 	}
-	var pgErr pgx.PgError
+	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch {
 		case pgerrcode.IsWarning(pgErr.Code):

@@ -17,12 +17,14 @@
 package timescale
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"github.com/SENERGY-Platform/models/go/models"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"regexp"
 	"sync"
+
+	"github.com/SENERGY-Platform/models/go/models"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
 const servicePrefix = "urn:infai:ses:service:"
@@ -31,19 +33,17 @@ var serviceRegex = regexp.MustCompile("device:.*_service:(.{22})")
 var intervalRegex = regexp.MustCompile("time_bucket\\('(.*)'")
 var typeRegex = regexp.MustCompile("(\\S*)\\(\"")
 
-func (wrapper *Wrapper) GetDataAvailability(deviceId string) (res []model.DataAvailabilityResponseElement, err error) {
+func (wrapper *Wrapper) GetDataAvailability(ctx context.Context, deviceId string) (res []model.DataAvailabilityResponseElement, err error) {
 	shortDeviceId, err := shortenId(deviceId)
 	if err != nil {
 		return nil, err
 	}
 	tablePrefix := "device:" + shortDeviceId + "_"
+	rows, err := wrapper.pool.Query(ctx, "SELECT view_name, view_definition FROM timescaledb_information.continuous_aggregates WHERE hypertable_name LIKE '"+tablePrefix+"%';")
 	if err != nil {
 		return nil, err
 	}
-	rows, err := wrapper.pool.Query("SELECT view_name, view_definition FROM timescaledb_information.continuous_aggregates WHERE hypertable_name LIKE '" + tablePrefix + "%';")
-	if err != nil {
-		return nil, err
-	}
+	defer rows.Close()
 	mtx := sync.Mutex{}
 	wg := sync.WaitGroup{}
 	var anyErr error
@@ -58,7 +58,7 @@ func (wrapper *Wrapper) GetDataAvailability(deviceId string) (res []model.DataAv
 		go func() {
 			defer wg.Done()
 
-			elem, err := wrapper.parseDataAvailability(viewName, &viewDescription)
+			elem, err := wrapper.parseDataAvailability(ctx, viewName, &viewDescription)
 			if err != nil {
 				anyErr = err
 				return
@@ -68,11 +68,16 @@ func (wrapper *Wrapper) GetDataAvailability(deviceId string) (res []model.DataAv
 			mtx.Unlock()
 		}()
 	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
 
-	rows, err = wrapper.pool.Query("SELECT table_name FROM information_schema.tables WHERE table_name ~ '" + tablePrefix + "service:.{22}$';")
+	rows, err = wrapper.pool.Query(ctx, "SELECT table_name FROM information_schema.tables WHERE table_name ~ '"+tablePrefix+"service:.{22}$';")
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	for rows.Next() {
 		var tableName string
 		err = rows.Scan(&tableName)
@@ -82,7 +87,7 @@ func (wrapper *Wrapper) GetDataAvailability(deviceId string) (res []model.DataAv
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			elem, err := wrapper.parseDataAvailability(tableName, nil)
+			elem, err := wrapper.parseDataAvailability(ctx, tableName, nil)
 			if err != nil {
 				anyErr = err
 				return
@@ -92,6 +97,9 @@ func (wrapper *Wrapper) GetDataAvailability(deviceId string) (res []model.DataAv
 			mtx.Unlock()
 		}()
 	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 	wg.Wait()
 	if anyErr != nil {
 		return nil, anyErr
@@ -99,7 +107,7 @@ func (wrapper *Wrapper) GetDataAvailability(deviceId string) (res []model.DataAv
 	return
 }
 
-func (wrapper *Wrapper) parseDataAvailability(viewTableName string, viewDescription *string) (*model.DataAvailabilityResponseElement, error) {
+func (wrapper *Wrapper) parseDataAvailability(ctx context.Context, viewTableName string, viewDescription *string) (*model.DataAvailabilityResponseElement, error) {
 	serviceMatches := serviceRegex.FindStringSubmatch(viewTableName)
 	if len(serviceMatches) < 2 {
 		return nil, errors.New("unexpected service matches from view name")
@@ -127,10 +135,11 @@ func (wrapper *Wrapper) parseDataAvailability(viewTableName string, viewDescript
 		GroupTime: groupTime,
 	}
 
-	subRows, err := wrapper.pool.Query(fmt.Sprintf("(SELECT time from \"%s\" ORDER BY time ASC LIMIT 1) UNION ALL (SELECT time from \"%s\" ORDER BY time DESC LIMIT 1);", viewTableName, viewTableName))
+	subRows, err := wrapper.pool.Query(ctx, fmt.Sprintf("(SELECT time from \"%s\" ORDER BY time ASC LIMIT 1) UNION ALL (SELECT time from \"%s\" ORDER BY time DESC LIMIT 1);", viewTableName, viewTableName))
 	if err != nil {
 		return nil, err
 	}
+	defer subRows.Close()
 
 	i := 0
 	for subRows.Next() {
@@ -143,6 +152,9 @@ func (wrapper *Wrapper) parseDataAvailability(viewTableName string, viewDescript
 		if err != nil {
 			return nil, err
 		}
+	}
+	if err = subRows.Err(); err != nil {
+		return nil, err
 	}
 	return &elem, nil
 }

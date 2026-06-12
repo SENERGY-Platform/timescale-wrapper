@@ -35,7 +35,7 @@ func Start(ctx context.Context, config configuration.Config) (wg *sync.WaitGroup
 	if err != nil {
 		return wg, err
 	}
-	err = wrapper.Migrate()
+	err = wrapper.Migrate(ctx)
 	if err != nil {
 		return wg, err
 	}

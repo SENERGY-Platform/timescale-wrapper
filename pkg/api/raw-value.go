@@ -86,7 +86,7 @@ func RawValueEndpoint(router gin.IRouter, config configuration.Config, wrapper *
 			return
 		}
 		request.Body = io.NopCloser(bytes.NewBuffer(b))
-		resp, code, err := handler(request)
+		resp, code, err := handler(c.Request.Context(), request)
 		if err != nil {
 			c.Error(errors.Join(err, model.GetError(code)))
 			return

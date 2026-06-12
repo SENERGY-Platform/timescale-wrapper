@@ -86,7 +86,7 @@ func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescal
 			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
-		ok, _, err := verifier.VerifyAccess(elems, getToken(request), userId)
+		ok, _, err := verifier.VerifyAccess(c.Request.Context(), elems, getToken(request), userId)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
@@ -95,7 +95,7 @@ func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescal
 			c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
 			return
 		}
-		response, err := wrapper.GetDeviceUsage(deviceIds)
+		response, err := wrapper.GetDeviceUsage(c.Request.Context(), deviceIds)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
@@ -127,7 +127,7 @@ func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescal
 			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
-		ok, _, err := verifier.VerifyAccess(elems, getToken(request), userId)
+		ok, _, err := verifier.VerifyAccess(c.Request.Context(), elems, getToken(request), userId)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
@@ -136,7 +136,7 @@ func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescal
 			c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
 			return
 		}
-		response, err := wrapper.GetExportUsage(exportIds)
+		response, err := wrapper.GetExportUsage(c.Request.Context(), exportIds)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return

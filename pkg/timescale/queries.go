@@ -17,6 +17,7 @@
 package timescale
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -51,7 +52,7 @@ func translateFunctionName(name string) string {
 	}
 }
 
-func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, userId string, ownerUserIds []string, forceTz string, devices []models.Device) (queries []string, err error) {
+func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.QueriesRequestElement, userId string, ownerUserIds []string, forceTz string, devices []models.Device) (queries []string, err error) {
 	queries = make([]string, len(elements))
 	for i, element := range elements {
 		var timezone string
@@ -64,7 +65,7 @@ func (wrapper *Wrapper) GenerateQueries(elements []model.QueriesRequestElement, 
 				timezone = wrapper.config.DefaultTimezone // no special tz support for exports
 			}
 		}
-		table, err := wrapper.tableName(element, ownerUserIds[i], timezone)
+		table, err := wrapper.tableName(ctx, element, ownerUserIds[i], timezone)
 		if err != nil {
 			return queries, err
 		}
@@ -350,7 +351,7 @@ func getOrderLimitString(element model.QueriesRequestElement, group bool, overri
 	return
 }
 
-func (wrapper *Wrapper) tableName(element model.QueriesRequestElement, userId string, timezone string) (table string, err error) {
+func (wrapper *Wrapper) tableName(ctx context.Context, element model.QueriesRequestElement, userId string, timezone string) (table string, err error) {
 	if element.ExportId != nil {
 		shortUserId, err := shortenId(userId)
 		if err != nil {
@@ -376,15 +377,15 @@ func (wrapper *Wrapper) tableName(element model.QueriesRequestElement, userId st
 		// check if CA View available
 		query, err := getCAQuery(element, table, timezone)
 		if err != nil {
-			log.Logger.Warn("getCAQuery failed", "error", err)
+			log.Logger.WarnContext(ctx, "getCAQuery failed", "error", err)
 			return table, nil
 		}
 
 		var caTable string
 		if wrapper.config.Debug {
-			log.Logger.Debug("Checking for CA View with: " + query)
+			log.Logger.DebugContext(ctx, "Checking for CA View with: "+query)
 		}
-		err = wrapper.pool.QueryRow(query).Scan(&caTable)
+		err = wrapper.pool.QueryRow(ctx, query).Scan(&caTable)
 		if err == nil {
 			return caTable, nil
 		} else {

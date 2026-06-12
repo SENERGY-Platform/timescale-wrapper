@@ -20,7 +20,7 @@ import (
 	serving "github.com/SENERGY-Platform/analytics-serving/client"
 	importRepo "github.com/SENERGY-Platform/import-repository/lib/client"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
-	"github.com/jackc/pgx"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const wrapperMaterializedViewPrefix = "_wmv_"
@@ -28,7 +28,7 @@ const wrapperMaterializedViewProcedureName = "ts_wrapper_refresh_mat_view"
 
 type Wrapper struct {
 	config           configuration.Config
-	pool             *pgx.ConnPool
+	pool             *pgxpool.Pool
 	importRepoClient importRepo.Interface
 	servingClient    *serving.Client
 }

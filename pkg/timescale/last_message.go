@@ -17,6 +17,7 @@
 package timescale
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -28,7 +29,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 )
 
-func (wrapper *Wrapper) GetLastMessage(deviceId string, serviceId string, service models.Service) (entry cache.Entry, err error) {
+func (wrapper *Wrapper) GetLastMessage(ctx context.Context, deviceId string, serviceId string, service models.Service) (entry cache.Entry, err error) {
 	shortDeviceId, err := shortenId(deviceId)
 	if err != nil {
 		return entry, err
@@ -38,7 +39,7 @@ func (wrapper *Wrapper) GetLastMessage(deviceId string, serviceId string, servic
 		return entry, err
 	}
 	var rawValues string
-	err = wrapper.pool.QueryRow("select to_json(r) from (select * from \"device:" + shortDeviceId + "_service:" + shortServiceId + "\" order by time desc limit 1) r;").Scan(&rawValues)
+	err = wrapper.pool.QueryRow(ctx, "select to_json(r) from (select * from \"device:"+shortDeviceId+"_service:"+shortServiceId+"\" order by time desc limit 1) r;").Scan(&rawValues)
 	if err != nil {
 		return entry, err
 	}

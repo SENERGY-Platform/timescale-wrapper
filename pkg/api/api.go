@@ -29,6 +29,7 @@ import (
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	gin_mw "github.com/SENERGY-Platform/gin-middleware"
+	"github.com/SENERGY-Platform/gin-middleware/otelx"
 	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
@@ -48,9 +49,15 @@ var unauthenticatedEndpoints = []func(router gin.IRouter, config configuration.C
 func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) (err error) {
 	log.Logger.Info("start api")
 	http.DefaultClient.Timeout = 10 * time.Second
-	router := Router(config, wrapper, verifier, cache, converter, deviceSelection)
+	router, err := Router(ctx, config, wrapper, verifier, cache, converter, deviceSelection)
+	if err != nil {
+		return err
+	}
 	server := &http.Server{Addr: ":" + config.ApiPort, Handler: router, WriteTimeout: 30 * time.Second, ReadTimeout: 2 * time.Second, ReadHeaderTimeout: 2 * time.Second}
-	unauthenticatedRouter := UnauthenticatedRouter(config, wrapper, verifier, cache, converter, deviceSelection)
+	unauthenticatedRouter, err := UnauthenticatedRouter(ctx, config, wrapper, verifier, cache, converter, deviceSelection)
+	if err != nil {
+		return err
+	}
 	unauthenticatedServer := &http.Server{Addr: ":" + config.UnauthenticatedApiPort, Handler: unauthenticatedRouter, WriteTimeout: 30 * time.Minute, ReadTimeout: 2 * time.Second, ReadHeaderTimeout: 2 * time.Second}
 	wg.Add(1)
 	go func() {
@@ -89,34 +96,45 @@ func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config,
 // @in header
 // @name Authorization
 // @description Type "Bearer" followed by a space and JWT token.
-func Router(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) http.Handler {
+func Router(ctx context.Context, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) (http.Handler, error) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
-	configureMW(router)
+	err := configureMW(ctx, router)
+	if err != nil {
+		return nil, err
+	}
 	for _, e := range endpoints {
 		log.Logger.Info("add endpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
 		e(router, config, wrapper, verifier, cache, converter, deviceSelection)
 	}
-	return router
+	return router, nil
 }
 
-func UnauthenticatedRouter(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) http.Handler {
+func UnauthenticatedRouter(ctx context.Context, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) (http.Handler, error) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
-	configureMW(router)
+	err := configureMW(ctx, router)
+	if err != nil {
+		return nil, err
+	}
 	for _, e := range unauthenticatedEndpoints {
 		log.Logger.Info("add unauthenticatedEndpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
 		e(router, config, wrapper, verifier, cache, converter, deviceSelection)
 	}
-	return router
+	return router, nil
 }
 
-func configureMW(router *gin.Engine) {
+func configureMW(ctx context.Context, router *gin.Engine) error {
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowAllOrigins = true
 	corsConfig.AddAllowHeaders("Authorization")
+	otel, err := otelx.GinOpenTelemetry(ctx, "timescale-wrapper", "")
+	if err != nil {
+		return err
+	}
 
 	router.Use(
+		otel,
 		gin_mw.StructLoggerHandlerWithDefaultGenerators(
 			log.Logger.With(attributes.LogRecordTypeKey, attributes.HttpAccessLogRecordTypeVal),
 			attributes.Provider,
@@ -128,6 +146,7 @@ func configureMW(router *gin.Engine) {
 		gin_mw.ErrorHandler(model.GetStatusCode, ", "),
 		gin_mw.StructRecoveryHandler(log.Logger, gin_mw.DefaultRecoveryFunc),
 	)
+	return nil
 }
 
 func getToken(request *http.Request) string {

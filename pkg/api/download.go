@@ -109,7 +109,7 @@ func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, _
 
 	handleSecretGeneration := func(c *gin.Context, prepared model.PreparedQueriesRequestElement) {
 		writer := c.Writer
-		secret, err := remoteCache.StoreSecretQuery(prepared)
+		secret, err := remoteCache.StoreSecretQuery(c.Request.Context(), prepared)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
@@ -166,7 +166,7 @@ func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, _
 func DownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/download/:secret", func(c *gin.Context) {
 		writer := c.Writer
-		prepared, err := remoteCache.GetSecretQuery(c.Param("secret"))
+		prepared, err := remoteCache.GetSecretQuery(c.Request.Context(), c.Param("secret"))
 		if err != nil {
 			if err == memcache.ErrCacheMiss {
 				c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
@@ -228,7 +228,7 @@ func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifie
 		c.Error(errors.Join(err, model.ErrBadRequest))
 		return elem, false
 	}
-	ok, _, err = verifier.VerifyAccess([]model.QueriesRequestElement{requestElement}, getToken(request), userId)
+	ok, _, err = verifier.VerifyAccess(c.Request.Context(), []model.QueriesRequestElement{requestElement}, getToken(request), userId)
 	if err != nil {
 		c.Error(errors.Join(err, model.ErrInternalServerError))
 		return elem, false
@@ -252,7 +252,7 @@ var httpClient = http.Client{
 func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElement, timeFormat string, token string, writer http.ResponseWriter, config configuration.Config) {
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
-		log.Logger.Error("not a flusher")
+		log.Logger.ErrorContext(c, "not a flusher")
 		c.Error(errors.Join(errors.New("not a flusher"), model.ErrInternalServerError))
 		return
 	}
@@ -272,13 +272,13 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 
 	endTime, err := time.Parse(time.RFC3339, *requestElement.Time.End)
 	if err != nil {
-		log.Logger.Error("failed to parse end time", attributes.ErrorKey, err)
+		log.Logger.ErrorContext(c, "failed to parse end time", attributes.ErrorKey, err)
 		panic(http.ErrAbortHandler)
 	}
 	initialEndValue := endTime.Unix()
 	startTime, err := time.Parse(time.RFC3339, *requestElement.Time.Start)
 	if err != nil {
-		log.Logger.Error("failed to parse start time", attributes.ErrorKey, err)
+		log.Logger.ErrorContext(c, "failed to parse start time", attributes.ErrorKey, err)
 		panic(http.ErrAbortHandler)
 	}
 
@@ -312,52 +312,52 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 		// post /queries
 		b, err := json.Marshal([]model.QueriesRequestElement{requestElement})
 		if err != nil {
-			log.Logger.Error("failed to marshal query request", attributes.ErrorKey, err)
+			log.Logger.ErrorContext(c, "failed to marshal query request", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
 		req, err := http.NewRequest(http.MethodPost, "http://localhost:"+config.ApiPort+"/queries?format=table&order_column_index=0&order_direction=asc&time_format="+timeFormat, bytes.NewBuffer(b))
 		if err != nil {
-			log.Logger.Error("failed to create query request", attributes.ErrorKey, err)
+			log.Logger.ErrorContext(c, "failed to create query request", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
 		req.Header.Set("Authorization", token)
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			log.Logger.Error("failed to execute query request", attributes.ErrorKey, err)
+			log.Logger.ErrorContext(c, "failed to execute query request", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
 		if resp.StatusCode != 200 {
 			reason, err := io.ReadAll(resp.Body)
 			closeErr := resp.Body.Close()
 			if closeErr != nil {
-				log.Logger.Error("failed to close query error response body", attributes.ErrorKey, closeErr)
+				log.Logger.ErrorContext(c, "failed to close query error response body", attributes.ErrorKey, closeErr)
 				panic(http.ErrAbortHandler)
 			}
 			if err != nil {
-				log.Logger.Error("failed to read query error response", attributes.ErrorKey, err)
+				log.Logger.ErrorContext(c, "failed to read query error response", attributes.ErrorKey, err)
 				panic(http.ErrAbortHandler)
 			}
-			log.Logger.Error("query request returned non-200 status", attributes.ErrorKey, string(reason))
+			log.Logger.ErrorContext(c, "query request returned non-200 status", attributes.ErrorKey, string(reason))
 			panic(http.ErrAbortHandler)
 		}
 		var respData [][]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&respData)
 		closeErr := resp.Body.Close()
 		if closeErr != nil {
-			log.Logger.Error("failed to close query response body", attributes.ErrorKey, closeErr)
+			log.Logger.ErrorContext(c, "failed to close query response body", attributes.ErrorKey, closeErr)
 			panic(http.ErrAbortHandler)
 		}
 		if err != nil {
-			log.Logger.Error("failed to decode query response", attributes.ErrorKey, err)
+			log.Logger.ErrorContext(c, "failed to decode query response", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
 
 		select {
 		case err = <-writeErr:
 			if err != nil {
-				log.Logger.Error("failed to write csv", attributes.ErrorKey, err)
+				log.Logger.ErrorContext(c, "failed to write csv", attributes.ErrorKey, err)
 			} else {
-				log.Logger.Error("csv writer stopped unexpectedly")
+				log.Logger.ErrorContext(c, "csv writer stopped unexpectedly")
 			}
 			panic(http.ErrAbortHandler)
 		case chunks <- respData:
@@ -370,7 +370,7 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 	close(chunks)
 	err = <-writeErr
 	if err != nil {
-		log.Logger.Error("failed to write csv", attributes.ErrorKey, err)
+		log.Logger.ErrorContext(c, "failed to write csv", attributes.ErrorKey, err)
 		panic(http.ErrAbortHandler)
 	}
 }

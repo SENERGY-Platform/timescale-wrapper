@@ -17,13 +17,15 @@
 package verification
 
 import (
+	"context"
+
 	"github.com/SENERGY-Platform/permissions-v2/pkg/client"
 )
 
 const ServingExportInstanceTopic string = "export-instances"
 
-func (verifier *Verifier) VerifyExport(id string, token string, userId string) (result VerifierCacheEntry, err error) {
-	access, err, _ := verifier.permClient.CheckPermission(token, ServingExportInstanceTopic, id, client.Execute)
+func (verifier *Verifier) VerifyExport(ctx context.Context, id string, token string, userId string) (result VerifierCacheEntry, err error) {
+	access, err, _ := verifier.permClient.CheckPermissionContext(ctx, token, ServingExportInstanceTopic, id, client.Execute)
 	if !access || err != nil {
 		return result, err
 	}

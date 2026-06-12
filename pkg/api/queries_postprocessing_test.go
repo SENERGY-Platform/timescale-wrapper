@@ -43,7 +43,7 @@ func TestPostProcessing(t *testing.T) {
 	t2, _ := time.Parse(time.RFC3339, "2022-12-06T07:00:00+01:00")
 	t.Run("Test Format as Table", func(t *testing.T) {
 		t.Parallel()
-		response, err := formatResponse(nil, model.Table, []model.QueriesRequestElement{{
+		response, err := formatResponse(context.Background(), nil, model.Table, []model.QueriesRequestElement{{
 			ExportId: &one,
 			Columns:  []model.QueriesRequestElementColumn{{Name: one}},
 		}, {
@@ -109,7 +109,7 @@ func TestPostProcessing(t *testing.T) {
 		}}
 		t.Run("as Table", func(t *testing.T) {
 			t.Parallel()
-			response, err := formatResponse(remoteCache, model.Table, request, [][][]interface{}{
+			response, err := formatResponse(context.Background(), remoteCache, model.Table, request, [][][]interface{}{
 				{{t1, 1}},
 				{{t2, 2}},
 			}, 0, model.Asc, "", conv)
@@ -123,7 +123,7 @@ func TestPostProcessing(t *testing.T) {
 		})
 		t.Run("per Query", func(t *testing.T) {
 			t.Parallel()
-			response, err := formatResponse(remoteCache, model.PerQuery, request, [][][]interface{}{
+			response, err := formatResponse(context.Background(), remoteCache, model.PerQuery, request, [][][]interface{}{
 				{{t1, 1}},
 				{{t2, 2}},
 			}, 0, model.Asc, "", conv)

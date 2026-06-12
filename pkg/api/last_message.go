@@ -64,7 +64,7 @@ func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrappe
 			return
 		}
 
-		ok, err := verifier.VerifyDevice(deviceId, getToken(request))
+		ok, err := verifier.VerifyDevice(c.Request.Context(), deviceId, getToken(request))
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
@@ -76,14 +76,14 @@ func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrappe
 
 		deviceId = strings.Split(deviceId, "$")[0]
 
-		entry, err := remoteCache.GetLastMessageFromCache(deviceId, serviceId)
+		entry, err := remoteCache.GetLastMessageFromCache(c.Request.Context(), deviceId, serviceId)
 		if err != nil {
-			service, err := remoteCache.GetService(serviceId)
+			service, err := remoteCache.GetService(c.Request.Context(), serviceId)
 			if err != nil {
 				c.Error(errors.Join(err, model.ErrInternalServerError))
 				return
 			}
-			entry, err = wrapper.GetLastMessage(deviceId, serviceId, service)
+			entry, err = wrapper.GetLastMessage(c.Request.Context(), deviceId, serviceId, service)
 			if err != nil {
 				c.Error(errors.Join(err, model.ErrInternalServerError))
 				return

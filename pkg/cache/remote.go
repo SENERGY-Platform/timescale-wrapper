@@ -17,6 +17,7 @@
 package cache
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -38,6 +39,8 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type RemoteCache struct {
@@ -45,6 +48,7 @@ type RemoteCache struct {
 	config          configuration.Config
 	deviceRepo      api.Controller
 	deviceSelection deviceSelection.Client
+	tracer          trace.Tracer
 }
 
 var NotCachableError = errors.New("not cachable")
@@ -55,17 +59,21 @@ type Entry struct {
 }
 
 func NewRemote(config configuration.Config, deviceRepo api.Controller, deviceSelection deviceSelection.Client) *RemoteCache {
-	rc := &RemoteCache{config: config, deviceRepo: deviceRepo, deviceSelection: deviceSelection}
-	rc.initMemcached()
+	rc := &RemoteCache{config: config, deviceRepo: deviceRepo, deviceSelection: deviceSelection, tracer: otel.Tracer("cache")}
+	rc.initMemcached(context.Background())
 	return rc
 }
 
-func (lv *RemoteCache) initMemcached() {
+func (lv *RemoteCache) initMemcached(ctx context.Context) {
+	_, span := lv.tracer.Start(ctx, "RemoteCache.initMemcached")
+	defer span.End()
 	log.Logger.Info("(Re-)init memcached Client")
 	lv.mc = memcache.New(lv.config.MemcachedUrls...)
 }
 
-func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElement, forceTZ *string) ([][]interface{}, error) {
+func (lv *RemoteCache) GetLastValuesFromCache(ctx context.Context, request model.QueriesRequestElement, forceTZ *string) ([][]interface{}, error) {
+	ctx, span := lv.tracer.Start(ctx, "RemoteCache.GetLastValuesFromCache")
+	defer span.End()
 	if request.DeviceId == nil || request.ServiceId == nil || request.Limit == nil || *request.Limit != 1 ||
 		request.Time != nil || request.GroupTime != nil || request.Filters != nil || request.DeviceGroupId != nil || forceTZ != nil {
 		return nil, NotCachableError
@@ -78,7 +86,7 @@ func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElemen
 	}
 
 	key := "device_" + *request.DeviceId + "_service_" + *request.ServiceId
-	item, err := lv.mcGet(key)
+	item, err := lv.mcGet(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -96,9 +104,11 @@ func (lv *RemoteCache) GetLastValuesFromCache(request model.QueriesRequestElemen
 	return [][]interface{}{res}, nil
 }
 
-func (lv *RemoteCache) GetLastMessageFromCache(deviceId string, serviceId string) (entry Entry, err error) {
+func (lv *RemoteCache) GetLastMessageFromCache(ctx context.Context, deviceId string, serviceId string) (entry Entry, err error) {
+	ctx, span := lv.tracer.Start(ctx, "RemoteCache.GetLastMessageFromCache")
+	defer span.End()
 	key := "device_" + deviceId + "_service_" + serviceId
-	item, err := lv.mcGet(key)
+	item, err := lv.mcGet(ctx, key)
 	if err != nil {
 		return entry, err
 	}
@@ -109,8 +119,10 @@ func (lv *RemoteCache) GetLastMessageFromCache(deviceId string, serviceId string
 	return
 }
 
-func (this *RemoteCache) GetService(serviceId string) (service models.Service, err error) {
-	cachedItem, err := this.mcGet("service_" + serviceId)
+func (this *RemoteCache) GetService(ctx context.Context, serviceId string) (service models.Service, err error) {
+	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetService")
+	defer span.End()
+	cachedItem, err := this.mcGet(ctx, "service_"+serviceId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &service)
 		if err != nil {
@@ -125,7 +137,7 @@ func (this *RemoteCache) GetService(serviceId string) (service models.Service, e
 		if err != nil {
 			return service, err
 		}
-		this.mcSet(&memcache.Item{
+		this.mcSet(ctx, &memcache.Item{
 			Key:        "service_" + service.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
@@ -134,8 +146,10 @@ func (this *RemoteCache) GetService(serviceId string) (service models.Service, e
 	return service, err
 }
 
-func (this *RemoteCache) GetConcept(conceptId string) (concept models.Concept, err error) {
-	cachedItem, err := this.mcGet("concept_" + conceptId)
+func (this *RemoteCache) GetConcept(ctx context.Context, conceptId string) (concept models.Concept, err error) {
+	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetConcept")
+	defer span.End()
+	cachedItem, err := this.mcGet(ctx, "concept_"+conceptId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &concept)
 		if err != nil {
@@ -150,7 +164,7 @@ func (this *RemoteCache) GetConcept(conceptId string) (concept models.Concept, e
 		if err != nil {
 			return concept, err
 		}
-		this.mcSet(&memcache.Item{
+		this.mcSet(ctx, &memcache.Item{
 			Key:        "concept_" + concept.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
@@ -159,7 +173,9 @@ func (this *RemoteCache) GetConcept(conceptId string) (concept models.Concept, e
 	return
 }
 
-func (this *RemoteCache) StoreSecretQuery(query model.PreparedQueriesRequestElement) (secret string, err error) {
+func (this *RemoteCache) StoreSecretQuery(ctx context.Context, query model.PreparedQueriesRequestElement) (secret string, err error) {
+	_, span := this.tracer.Start(ctx, "RemoteCache.StoreSecretQuery")
+	defer span.End()
 	bytes, err := json.Marshal(query)
 	if err != nil {
 		return "", err
@@ -173,9 +189,11 @@ func (this *RemoteCache) StoreSecretQuery(query model.PreparedQueriesRequestElem
 	return uid, err
 }
 
-func (this *RemoteCache) GetSecretQuery(secret string) (query model.PreparedQueriesRequestElement, err error) {
+func (this *RemoteCache) GetSecretQuery(ctx context.Context, secret string) (query model.PreparedQueriesRequestElement, err error) {
+	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetSecretQuery")
+	defer span.End()
 	query = model.PreparedQueriesRequestElement{}
-	item, err := this.mcGet("secretquery_" + secret)
+	item, err := this.mcGet(ctx, "secretquery_"+secret)
 	if err != nil {
 		return query, err
 	}
@@ -187,8 +205,10 @@ func (this *RemoteCache) GetSecretQuery(secret string) (query model.PreparedQuer
 	return query, err
 }
 
-func (this *RemoteCache) GetDeviceGroup(deviceGroupId string, token string) (deviceGroup models.DeviceGroup, err error) {
-	cachedItem, err := this.mcGet("device_group_" + deviceGroupId)
+func (this *RemoteCache) GetDeviceGroup(ctx context.Context, deviceGroupId string, token string) (deviceGroup models.DeviceGroup, err error) {
+	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetDeviceGroup")
+	defer span.End()
+	cachedItem, err := this.mcGet(ctx, "device_group_"+deviceGroupId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &deviceGroup)
 		if err != nil {
@@ -203,7 +223,7 @@ func (this *RemoteCache) GetDeviceGroup(deviceGroupId string, token string) (dev
 		if err != nil {
 			return deviceGroup, err
 		}
-		this.mcSet(&memcache.Item{
+		this.mcSet(ctx, &memcache.Item{
 			Key:        "device_group_" + deviceGroup.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
@@ -212,8 +232,10 @@ func (this *RemoteCache) GetDeviceGroup(deviceGroupId string, token string) (dev
 	return
 }
 
-func (this *RemoteCache) GetDevice(deviceId string, token string) (device models.Device, err error) {
-	cachedItem, err := this.mcGet("device_" + deviceId)
+func (this *RemoteCache) GetDevice(ctx context.Context, deviceId string, token string) (device models.Device, err error) {
+	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetDevice")
+	defer span.End()
+	cachedItem, err := this.mcGet(ctx, "device_"+deviceId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &device)
 		if err != nil {
@@ -228,7 +250,7 @@ func (this *RemoteCache) GetDevice(deviceId string, token string) (device models
 		if err != nil {
 			return device, err
 		}
-		this.mcSet(&memcache.Item{
+		this.mcSet(ctx, &memcache.Item{
 			Key:        "device_" + device.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
@@ -237,8 +259,10 @@ func (this *RemoteCache) GetDevice(deviceId string, token string) (device models
 	return device, err
 }
 
-func (this *RemoteCache) GetFunction(functionId string) (function models.Function, err error) {
-	cachedItem, err := this.mcGet("function_" + functionId)
+func (this *RemoteCache) GetFunction(ctx context.Context, functionId string) (function models.Function, err error) {
+	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetFunction")
+	defer span.End()
+	cachedItem, err := this.mcGet(ctx, "function_"+functionId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &function)
 		if err != nil {
@@ -253,7 +277,7 @@ func (this *RemoteCache) GetFunction(functionId string) (function models.Functio
 		if err != nil {
 			return function, err
 		}
-		this.mcSet(&memcache.Item{
+		this.mcSet(ctx, &memcache.Item{
 			Key:        "function_" + function.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
@@ -262,8 +286,10 @@ func (this *RemoteCache) GetFunction(functionId string) (function models.Functio
 	return
 }
 
-func (this *RemoteCache) GetLocation(locationId string, token string) (location models.Location, err error) {
-	cachedItem, err := this.mcGet("location_" + locationId)
+func (this *RemoteCache) GetLocation(ctx context.Context, locationId string, token string) (location models.Location, err error) {
+	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetLocation")
+	defer span.End()
+	cachedItem, err := this.mcGet(ctx, "location_"+locationId)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &location)
 		if err != nil {
@@ -278,7 +304,7 @@ func (this *RemoteCache) GetLocation(locationId string, token string) (location 
 		if err != nil {
 			return location, err
 		}
-		this.mcSet(&memcache.Item{
+		this.mcSet(ctx, &memcache.Item{
 			Key:        "location_" + location.Id,
 			Value:      bytes,
 			Expiration: 5 * 60,
@@ -287,7 +313,9 @@ func (this *RemoteCache) GetLocation(locationId string, token string) (location 
 	return
 }
 
-func (this *RemoteCache) GetSelectables(userid string, token string, criteria []models.DeviceGroupFilterCriteria, options *deviceSelection.GetSelectablesOptions) (res []dsmodel.Selectable, code int, err error) {
+func (this *RemoteCache) GetSelectables(ctx context.Context, userid string, token string, criteria []models.DeviceGroupFilterCriteria, options *deviceSelection.GetSelectablesOptions) (res []dsmodel.Selectable, code int, err error) {
+	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetSelectables")
+	defer span.End()
 	hasher := sha256.New()
 	criteriaBytes, err := json.Marshal(criteria)
 	if err != nil {
@@ -312,7 +340,7 @@ func (this *RemoteCache) GetSelectables(userid string, token string, criteria []
 	}
 
 	key := "selectables_" + hex.EncodeToString(hasher.Sum(nil))
-	cachedItem, err := this.mcGet(key)
+	cachedItem, err := this.mcGet(ctx, key)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &res)
 		if err != nil {
@@ -327,7 +355,7 @@ func (this *RemoteCache) GetSelectables(userid string, token string, criteria []
 		if err != nil {
 			return res, http.StatusInternalServerError, err
 		}
-		this.mcSet(&memcache.Item{
+		this.mcSet(ctx, &memcache.Item{
 			Key:        key,
 			Value:      bytes,
 			Expiration: 5 * 60,
@@ -336,10 +364,12 @@ func (this *RemoteCache) GetSelectables(userid string, token string, criteria []
 	return
 }
 
-func (rc *RemoteCache) mcSet(item *memcache.Item) {
+func (rc *RemoteCache) mcSet(ctx context.Context, item *memcache.Item) {
+	ctx, span := rc.tracer.Start(ctx, "RemoteCache.mcSet")
+	defer span.End()
 	err := rc.mc.Set(item)
 	if err != nil {
-		rc.initMemcached()
+		rc.initMemcached(ctx)
 		err := rc.mc.Set(item)
 		if err != nil {
 			log.Logger.Warn("mc set failed", attributes.ErrorKey, err)
@@ -347,10 +377,12 @@ func (rc *RemoteCache) mcSet(item *memcache.Item) {
 	}
 }
 
-func (rc *RemoteCache) mcGet(key string) (item *memcache.Item, err error) {
+func (rc *RemoteCache) mcGet(ctx context.Context, key string) (item *memcache.Item, err error) {
+	ctx, span := rc.tracer.Start(ctx, "RemoteCache.mcGet")
+	defer span.End()
 	item, err = rc.mc.Get(key)
 	if err != nil && err != memcache.ErrCacheMiss && err != memcache.ErrCASConflict && err != memcache.ErrNotStored && err != memcache.ErrServerError && err != memcache.ErrNoStats && err != memcache.ErrMalformedKey {
-		rc.initMemcached()
+		rc.initMemcached(ctx)
 		item, err = rc.mc.Get(key)
 		if err != nil {
 			log.Logger.Warn("mc get failed", attributes.ErrorKey, err)

@@ -17,6 +17,7 @@
 package verification
 
 import (
+	"context"
 	"errors"
 
 	serving "github.com/SENERGY-Platform/analytics-serving/client"
@@ -54,7 +55,7 @@ func New(config configuration.Config) *Verifier {
 
 var errUnexpectedUpstreamStatuscode = errors.New("unexpected upstream statuscode")
 
-func (verifier *Verifier) VerifyAccess(elements []model.QueriesRequestElement, token string, userId string) (ok bool, userIds []string, err error) {
+func (verifier *Verifier) VerifyAccess(ctx context.Context, elements []model.QueriesRequestElement, token string, userId string) (ok bool, userIds []string, err error) {
 	ok = true
 	userIds = make([]string, len(elements))
 	wg := &sync.WaitGroup{}
@@ -62,7 +63,7 @@ func (verifier *Verifier) VerifyAccess(elements []model.QueriesRequestElement, t
 		i := i // thread safe
 		wg.Add(1)
 		go func() {
-			result, errS := verifier.VerifyAccessOnce(elements[i], token, userId)
+			result, errS := verifier.VerifyAccessOnce(ctx, elements[i], token, userId)
 			if errS != nil {
 				err = errS
 				ok = false
@@ -78,25 +79,25 @@ func (verifier *Verifier) VerifyAccess(elements []model.QueriesRequestElement, t
 	return ok, userIds, err
 }
 
-func (verifier *Verifier) VerifyAccessOnce(element model.QueriesRequestElement, token string, userId string) (result VerifierCacheEntry, err error) {
+func (verifier *Verifier) VerifyAccessOnce(ctx context.Context, element model.QueriesRequestElement, token string, userId string) (result VerifierCacheEntry, err error) {
 	if element.ExportId != nil {
 		err = verifier.c.Use(userId+*element.ExportId, func() (interface{}, error) {
-			return verifier.VerifyExport(*element.ExportId, token, userId)
+			return verifier.VerifyExport(ctx, *element.ExportId, token, userId)
 		}, &result)
 		return
 	} else if element.DeviceId != nil {
 		err = verifier.c.Use(userId+*element.DeviceId, func() (interface{}, error) {
-			return verifier.VerifyDevice(*element.DeviceId, token)
+			return verifier.VerifyDevice(ctx, *element.DeviceId, token)
 		}, &result)
 		return
 	} else if element.DeviceGroupId != nil {
 		err = verifier.c.Use(userId+*element.DeviceGroupId, func() (interface{}, error) {
-			return verifier.VerifyDeviceGroup(*element.DeviceGroupId, token)
+			return verifier.VerifyDeviceGroup(ctx, *element.DeviceGroupId, token)
 		}, &result)
 		return
 	} else if element.LocationId != nil {
 		err = verifier.c.Use(userId+*element.LocationId, func() (interface{}, error) {
-			return verifier.VerifyLocation(*element.LocationId, token)
+			return verifier.VerifyLocation(ctx, *element.LocationId, token)
 		}, &result)
 		return
 	}

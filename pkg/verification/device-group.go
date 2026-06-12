@@ -17,11 +17,13 @@
 package verification
 
 import (
+	"context"
+
 	"github.com/SENERGY-Platform/permissions-v2/pkg/client"
 )
 
-func (verifier *Verifier) VerifyDeviceGroup(id string, token string) (result VerifierCacheEntry, err error) {
-	access, err, _ := verifier.permClient.CheckPermission(token, "device-groups", id, client.Execute)
+func (verifier *Verifier) VerifyDeviceGroup(ctx context.Context, id string, token string) (result VerifierCacheEntry, err error) {
+	access, err, _ := verifier.permClient.CheckPermissionContext(ctx, token, "device-groups", id, client.Execute)
 	result.Ok = access
 	return result, err
 }
