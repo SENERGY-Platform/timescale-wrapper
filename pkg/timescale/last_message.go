@@ -19,6 +19,7 @@ package timescale
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,6 +28,8 @@ import (
 	"github.com/SENERGY-Platform/models/go/models"
 	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/jackc/pgx/v5"
 )
 
 func (wrapper *Wrapper) GetLastMessage(ctx context.Context, deviceId string, serviceId string, service models.Service) (entry cache.Entry, err error) {
@@ -41,6 +44,9 @@ func (wrapper *Wrapper) GetLastMessage(ctx context.Context, deviceId string, ser
 	var rawValues string
 	err = wrapper.pool.QueryRow(ctx, "select to_json(r) from (select * from \"device:"+shortDeviceId+"_service:"+shortServiceId+"\" order by time desc limit 1) r;").Scan(&rawValues)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return entry, model.ErrNoContent
+		}
 		return entry, err
 	}
 	var jsonValues map[string]interface{}

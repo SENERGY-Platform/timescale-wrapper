@@ -26,6 +26,7 @@ var ErrBadRequest = errors.New("bad request")
 var ErrInternalServerError = errors.New("internal server error")
 var ErrForbidden = fmt.Errorf("forbidden")
 var ErrNotFound = fmt.Errorf("not found")
+var ErrNoContent = fmt.Errorf("no content")
 
 func GetStatusCode(err error) int {
 	if err == nil {
@@ -43,6 +44,9 @@ func GetStatusCode(err error) int {
 	if errors.Is(err, ErrForbidden) {
 		return http.StatusForbidden
 	}
+	if errors.Is(err, ErrNoContent) {
+		return http.StatusNoContent
+	}
 	return http.StatusInternalServerError
 }
 
@@ -58,6 +62,8 @@ func GetError(code int) error {
 		return ErrNotFound
 	case http.StatusForbidden:
 		return ErrForbidden
+	case http.StatusNoContent:
+		return ErrNoContent
 	default:
 		return ErrInternalServerError
 	}

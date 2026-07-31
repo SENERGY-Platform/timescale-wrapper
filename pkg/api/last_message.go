@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
@@ -43,6 +44,7 @@ func init() {
 // @Param		 device_id query string true "device_id"
 // @Param		 service_id query string true "service_id"
 // @Success      200 {object} cache.Entry "The last message"
+// @Success      204 "No message available"
 // @Failure      400
 // @Failure      401
 // @Failure      403
@@ -85,6 +87,10 @@ func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrappe
 			}
 			entry, err = wrapper.GetLastMessage(c.Request.Context(), deviceId, serviceId, service)
 			if err != nil {
+				if errors.Is(err, model.ErrNoContent) {
+					c.Status(http.StatusNoContent)
+					return
+				}
 				c.Error(errors.Join(err, model.ErrInternalServerError))
 				return
 			}
