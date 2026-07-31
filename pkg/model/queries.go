@@ -17,6 +17,7 @@
 package model
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
 	"time"
@@ -177,12 +178,13 @@ type QueriesRequestElementColumn struct {
 }
 
 func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
-	nameValid := columnNameValid(elementColumn.Name)
-	criteriaValid := DeviceGroupFilterCriteriaValid(elementColumn.Criteria)
-	if !nameValid && !criteriaValid {
-		return false
-	}
-	if nameValid && criteriaValid {
+	// exactly one of name/criteria may be used. the name of a criteria based column is resolved
+	// server side, so any client supplied name must be rejected instead of being left unvalidated.
+	if DeviceGroupFilterCriteriaValid(elementColumn.Criteria) {
+		if len(elementColumn.Name) > 0 {
+			return false
+		}
+	} else if !columnNameValid(elementColumn.Name) {
 		return false
 	}
 	if elementColumn.GroupType != nil && !hasTime {
@@ -213,7 +215,7 @@ type QueriesRequestElementFilter struct {
 	Value  interface{} `json:"value,omitempty"`
 }
 
-var valueMatcher = regexp.MustCompile("[a-zA-Z0-9äöüß:{}\"\\.\\-_\\/ ]*")
+var valueMatcher = regexp.MustCompile("^[a-zA-Z0-9äöüß:{}\"\\.\\-_\\/ ]*$")
 
 func (filter *QueriesRequestElementFilter) Valid() bool {
 	if filter.Math != nil && !mathValid(*filter.Math) {
@@ -223,40 +225,56 @@ func (filter *QueriesRequestElementFilter) Valid() bool {
 	allowedTypes = append(allowedTypes, "=", "!=")
 	if filter.Value != nil {
 		allowedTypes = append(allowedTypes, "<>", ">", ">=", "<", "<=")
-		s, ok := filter.Value.(string)
-		if ok {
-			if len(s) != len(valueMatcher.FindString(s)) {
+		switch v := filter.Value.(type) {
+		case string:
+			if !valueMatcher.MatchString(v) {
 				return false
 			}
+		case bool, float64, float32, int, int32, int64, json.Number:
+			// rendered as a numeric/boolean literal
+		default:
+			// anything else (json objects, arrays) would be rendered with %v and reach the
+			// query unvalidated
+			return false
 		}
 	}
 	return ElementInArray(filter.Type, allowedTypes) && columnNameValid(filter.Column)
 }
 
-var mathMatcher = regexp.MustCompile("([+\\-*/])\\d+(([.,])\\d+)?")
+// the comma used to be allowed as a decimal separator, but postgres reads it as a list
+// separator, which turns "+1,5" into an additional select list item
+var mathMatcher = regexp.MustCompile("^([+\\-*/])\\d+(\\.\\d+)?$")
 
 func mathValid(math string) bool {
-	return len(mathMatcher.FindString(math)) == len(math)
+	return mathMatcher.MatchString(math)
 }
 
-var timeMatcher = regexp.MustCompile("(\\d)+\\s*(ms|s|months|mon|m|h|day|d|w|y|:\\d\\d:\\d\\d)")
+var timeMatcher = regexp.MustCompile("^(\\d)+\\s*(ms|s|months|mon|m|h|day|d|w|y|:\\d\\d:\\d\\d)$")
 
 func timeIntervalValid(timeInterval string) bool {
-	lengthOfFoundMatch := len(timeMatcher.FindString(timeInterval))
-	return lengthOfFoundMatch == len(timeInterval) && lengthOfFoundMatch > 0
+	return timeMatcher.MatchString(timeInterval)
 }
 
-var columnMatcher = regexp.MustCompile("([a-zA-Z0-9\\.\\-_])+")
+var columnMatcher = regexp.MustCompile("^([a-zA-Z0-9\\.\\-_])+$")
 
 func columnNameValid(column string) bool {
-	return len(column) != 0 && len(column) == len(columnMatcher.FindString(column))
+	return columnMatcher.MatchString(column)
 }
 
-var uuidMatcher = regexp.MustCompile("([a-z0-9\\-_])+")
+// TimezoneValid checks a timezone name before it is placed into a query. It intentionally does
+// not check that the zone actually exists (postgres will report that) but rules out anything
+// that could terminate the surrounding string literal.
+var timezoneMatcher = regexp.MustCompile("^[a-zA-Z0-9_/+:.-]{1,64}$")
+
+func TimezoneValid(timezone string) bool {
+	return timezoneMatcher.MatchString(timezone)
+}
+
+var uuidMatcher = regexp.MustCompile("^([a-z0-9\\-_])+$")
 
 func serviceIdValid(serviceId string) bool {
 	splitted := strings.Split(serviceId, "urn:infai:ses:service:")
-	return len(splitted) == 2 && len(splitted[1]) == 36 && len(splitted[1]) == len(uuidMatcher.FindString(splitted[1]))
+	return len(splitted) == 2 && len(splitted[1]) == 36 && uuidMatcher.MatchString(splitted[1])
 }
 
 type Format string

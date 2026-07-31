@@ -18,6 +18,7 @@ package timescale
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -106,7 +107,10 @@ func (wrapper *Wrapper) CreateFiltersForImport(ctx context.Context, exportId str
 	if err != nil {
 		return nil, err
 	}
-	query := fmt.Sprintf("SELECT \"%v\", \"%v\", \"%v\" FROM \"%v\";", identifierPathTs, latPathTs, lonPathTs, wrapperMaterializedViewPrefix+tableName)
+	// the column names originate from the export definition, the table name may come from a
+	// continuous aggregate lookup
+	query := fmt.Sprintf("SELECT %v, %v, %v FROM %v;", quoteIdentifier(identifierPathTs), quoteIdentifier(latPathTs),
+		quoteIdentifier(lonPathTs), quoteIdentifier(wrapperMaterializedViewPrefix+tableName))
 	if wrapper.config.Debug {
 		log.Logger.DebugContext(ctx, "Querying export of import locations with: "+query)
 	}
@@ -204,11 +208,18 @@ func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identif
 	if err != nil {
 		return err
 	}
-	_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW \"%v\" AS SELECT DISTINCT \"%v\", \"%v\", \"%v\" FROM \"%v\"", wrapperMaterializedViewPrefix+tableName, identifierPathTs, latPathTs, lonPathTs, tableName))
+	_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW %v AS SELECT DISTINCT %v, %v, %v FROM %v",
+		quoteIdentifier(wrapperMaterializedViewPrefix+tableName), quoteIdentifier(identifierPathTs),
+		quoteIdentifier(latPathTs), quoteIdentifier(lonPathTs), quoteIdentifier(tableName)))
 	if err != nil {
 		return err
 	}
-	_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("SELECT add_job('ts_wrapper_refresh_mat_view', '1day', config => '\"%v\"');", tableName))
+	config, err := json.Marshal(tableName) // the job config is a jsonb string
+	if err != nil {
+		return err
+	}
+	_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("SELECT add_job('ts_wrapper_refresh_mat_view', '1day', config => %v);",
+		quoteSQLString(string(config))))
 	if err != nil {
 		return err
 	}

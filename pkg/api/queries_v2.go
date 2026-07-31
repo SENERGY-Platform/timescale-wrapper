@@ -97,6 +97,10 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		forceTz := request.URL.Query().Get("force_tz")
 		var forceTzp *string
 		if len(forceTz) > 0 {
+			if !model.TimezoneValid(forceTz) {
+				c.Error(errors.Join(errors.New("invalid force_tz"), model.ErrBadRequest))
+				return
+			}
 			forceTzp = &forceTz
 		}
 

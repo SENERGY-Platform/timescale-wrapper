@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -31,7 +32,62 @@ import (
 	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/jackc/pgx/v5"
 )
+
+// quoteIdentifier renders name as a quoted SQL identifier, escaping any embedded quotes.
+func quoteIdentifier(name string) string {
+	return pgx.Identifier{name}.Sanitize()
+}
+
+// hashedColumnName mirrors util.HashFieldNameIfNeeded, which quotes without escaping.
+func quoteColumnName(name string) string {
+	hashed := util.HashFieldNameIfNeeded(name)
+	return quoteIdentifier(strings.TrimSuffix(strings.TrimPrefix(hashed, "\""), "\""))
+}
+
+// escapeSQLString escapes s for use inside a single quoted SQL string literal, without adding
+// the surrounding quotes.
+func escapeSQLString(s string) string {
+	s = strings.ReplaceAll(s, string([]byte{0}), "")
+	return strings.ReplaceAll(s, "'", "''")
+}
+
+// quoteSQLString renders s as a single quoted SQL string literal.
+func quoteSQLString(s string) string {
+	return "'" + escapeSQLString(s) + "'"
+}
+
+// filterValueLiteral renders a filter value as a SQL literal. Values may originate from a
+// request body or from a previous query (see CreateFiltersForImport), so unknown types are
+// rejected rather than printed with %v.
+func filterValueLiteral(value interface{}) (string, error) {
+	switch v := value.(type) {
+	case string:
+		return quoteSQLString(v), nil
+	case bool:
+		return strconv.FormatBool(v), nil
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), nil
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32), nil
+	case int:
+		return strconv.Itoa(v), nil
+	case int16:
+		return strconv.FormatInt(int64(v), 10), nil
+	case int32:
+		return strconv.FormatInt(int64(v), 10), nil
+	case int64:
+		return strconv.FormatInt(v, 10), nil
+	case json.Number:
+		if _, err := v.Float64(); err != nil {
+			return "", fmt.Errorf("invalid numeric filter value %v", v)
+		}
+		return v.String(), nil
+	default:
+		return "", fmt.Errorf("unsupported filter value type %T", value)
+	}
+}
 
 func translateFunctionName(name string) string {
 	switch name {
@@ -57,6 +113,9 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 	for i, element := range elements {
 		var timezone string
 		if len(forceTz) > 0 {
+			if !model.TimezoneValid(forceTz) {
+				return nil, errors.New("invalid timezone")
+			}
 			timezone = forceTz
 		} else {
 			if element.DeviceId != nil {
@@ -92,14 +151,14 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				if column.Math != nil {
 					query += *column.Math + " "
 				}
-				query += "AS \"" + column.Name + "\""
+				query += "AS " + quoteIdentifier(column.Name)
 			}
 			query += " FROM "
 			elementTimeLastAheadModified := false
 			var l *int
 			for idx, column := range element.Columns {
-				hashedColumnName := util.HashFieldNameIfNeeded(column.Name)
-				query += "(SELECT time_bucket('" + *element.GroupTime + "', \"time\", '" + timezone + "') AS \"time\", "
+				hashedColumnName := quoteColumnName(column.Name)
+				query += "(SELECT time_bucket(" + quoteSQLString(*element.GroupTime) + ", \"time\", " + quoteSQLString(timezone) + ") AS \"time\", "
 				if strings.HasPrefix(*column.GroupType, "difference") {
 					groupParts := strings.Split(*column.GroupType, "-")
 					if groupParts[1] == "first" || groupParts[1] == "last" {
@@ -210,7 +269,7 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 					query += translateFunctionName(*column.GroupType) + hashedColumnName + ")"
 				}
 				query += " AS value"
-				query += " FROM \"" + table + "\""
+				query += " FROM " + quoteIdentifier(table)
 				filterString := ""
 				if l != nil {
 					n := *l
@@ -254,13 +313,13 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				if idx > 0 {
 					query += ", "
 				}
-				query += util.HashFieldNameIfNeeded(column.Name)
+				query += quoteColumnName(column.Name)
 				if column.Math != nil {
 					query += *column.Math
 				}
-				query += " AS \"" + column.Name + "\""
+				query += " AS " + quoteIdentifier(column.Name)
 			}
-			query += " FROM \"" + table + "\""
+			query += " FROM " + quoteIdentifier(table)
 			filterString, err := getFilterString(element, false, nil, nil, nil)
 			if err != nil {
 				return nil, err
@@ -282,24 +341,22 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 				query += " AND "
 			}
 			if filter.Value == nil {
-				query += util.HashFieldNameIfNeeded(filter.Column) + " IS "
+				query += quoteColumnName(filter.Column) + " IS "
 				if filter.Type == "!=" {
 					query += "NOT "
 				}
 				query += "NULL"
 			} else {
-				_, valueIsString := filter.Value.(string)
-				query += util.HashFieldNameIfNeeded(filter.Column)
+				value, err := filterValueLiteral(filter.Value)
+				if err != nil {
+					return "", err
+				}
+				query += quoteColumnName(filter.Column)
 				if filter.Math != nil {
 					query += *filter.Math + " "
 				}
 				query += filter.Type
-				if valueIsString {
-					query += " '" + filter.Value.(string) + "'"
-				} else {
-					value := fmt.Sprintf("%v", filter.Value)
-					query += " " + value
-				}
+				query += " " + value
 			}
 		}
 	}
@@ -308,11 +365,11 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 			query += " AND "
 		}
 		if element.Time.Last != nil {
-			query += "\"time\" > now() - interval '" + *element.Time.Last + "'"
+			query += "\"time\" > now() - interval " + quoteSQLString(*element.Time.Last)
 		} else if element.Time.Ahead != nil {
-			query += "\"time\" > now() AND \"time\" < now() + interval '" + *element.Time.Ahead + "'"
+			query += "\"time\" > now() AND \"time\" < now() + interval " + quoteSQLString(*element.Time.Ahead)
 		} else {
-			query += "\"time\" > '" + *element.Time.Start + "' AND \"time\" < '" + *element.Time.End + "'"
+			query += "\"time\" > " + quoteSQLString(*element.Time.Start) + " AND \"time\" < " + quoteSQLString(*element.Time.End)
 		}
 	}
 	query += getOrderLimitString(element, group, overrideSortIndex, overrideOrderDirection, overrideLimit)
@@ -408,7 +465,9 @@ func shortenId(uuid string) (string, error) {
 }
 
 func getCAQuery(element model.QueriesRequestElement, table string, timezone string) (string, error) {
-	query := "SELECT view_name FROM (SELECT view_name, substring(view_definition, 'time_bucket\\((.*?)::interval, \"time\", ''" + timezone + "''')::interval as bucket FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = '" + table + "' "
+	// timezone, table and column names are embedded in string literals, so single quotes have
+	// to be doubled
+	query := "SELECT view_name FROM (SELECT view_name, substring(view_definition, 'time_bucket\\((.*?)::interval, \"time\", ''" + escapeSQLString(timezone) + "''')::interval as bucket FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = " + quoteSQLString(table) + " "
 
 	for _, column := range element.Columns {
 		if column.GroupType == nil {
@@ -418,22 +477,23 @@ func getCAQuery(element model.QueriesRequestElement, table string, timezone stri
 			// not implemented
 			return table, errors.New("")
 		}
+		escapedName := escapeSQLString(column.Name)
 		query += "AND view_definition LIKE '%" + strings.ReplaceAll(translateFunctionName(*column.GroupType), "'", "''")
 		containsDot := strings.Contains(column.Name, ".")
 		if containsDot {
-			query += "\"" + column.Name + "\""
+			query += "\"" + escapedName + "\""
 		} else {
-			query += column.Name
+			query += escapedName
 		}
 		query += ", \"time\") AS "
 		if containsDot {
-			query += "\"" + column.Name + "\""
+			query += "\"" + escapedName + "\""
 		} else {
-			query += column.Name
+			query += escapedName
 		}
 		query += "%'"
 	}
-	query += ") sub WHERE bucket <= '" + *element.GroupTime + "'::interval ORDER BY bucket DESC"
+	query += ") sub WHERE bucket <= " + quoteSQLString(*element.GroupTime) + "::interval ORDER BY bucket DESC"
 	query += " LIMIT 1;"
 
 	return query, nil
@@ -444,6 +504,9 @@ func getTZ(deviceId string, devices []models.Device, defaultTZ string) string {
 		if d.Id == deviceId {
 			for _, a := range d.Attributes {
 				if strings.ToLower(a.Key) == "timezone" {
+					if !model.TimezoneValid(a.Value) {
+						return defaultTZ // device attributes are not trusted input
+					}
 					return a.Value
 				}
 			}

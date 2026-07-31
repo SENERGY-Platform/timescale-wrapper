@@ -135,7 +135,8 @@ func (wrapper *Wrapper) parseDataAvailability(ctx context.Context, viewTableName
 		GroupTime: groupTime,
 	}
 
-	subRows, err := wrapper.pool.Query(ctx, fmt.Sprintf("(SELECT time from \"%s\" ORDER BY time ASC LIMIT 1) UNION ALL (SELECT time from \"%s\" ORDER BY time DESC LIMIT 1);", viewTableName, viewTableName))
+	quotedViewTableName := quoteIdentifier(viewTableName) // read from the database
+	subRows, err := wrapper.pool.Query(ctx, fmt.Sprintf("(SELECT time from %s ORDER BY time ASC LIMIT 1) UNION ALL (SELECT time from %s ORDER BY time DESC LIMIT 1);", quotedViewTableName, quotedViewTableName))
 	if err != nil {
 		return nil, err
 	}
