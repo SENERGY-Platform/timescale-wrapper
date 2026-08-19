@@ -30,8 +30,17 @@ import (
 const servicePrefix = "urn:infai:ses:service:"
 
 var serviceRegex = regexp.MustCompile("device:.*_service:(.{22})")
-var intervalRegex = regexp.MustCompile("time_bucket\\('(.*)'")
-var typeRegex = regexp.MustCompile("(\\S*)\\(\"")
+
+// Postgres renders the view definition of a continuous aggregate like this, quoting column
+// identifiers only where required:
+//
+//	SELECT time_bucket('1 day'::interval, "time", 'Europe/Berlin'::text) AS "time",
+//	   last(lwt, "time") AS lwt,
+//	   last("sensor.POWER", "time") AS "sensor.POWER"
+//	  FROM "device:cFbkUpzDSoa8iYOCMVAYrw_service:8Poq-YNIREmO_5Gl8uebCA"
+//	 GROUP BY (time_bucket('1 day'::interval, "time", 'Europe/Berlin'::text));
+var intervalRegex = regexp.MustCompile(`time_bucket\('([^']*)'`)
+var typeRegex = regexp.MustCompile(`(\w+)\((?:"(?:[^"]|"")*"|\w+), "time"\)`)
 
 func (wrapper *Wrapper) GetDataAvailability(ctx context.Context, deviceId string) (res []model.DataAvailabilityResponseElement, err error) {
 	shortDeviceId, err := shortenId(deviceId)
@@ -118,16 +127,12 @@ func (wrapper *Wrapper) parseDataAvailability(ctx context.Context, viewTableName
 	}
 	var groupType, groupTime *string
 	if viewDescription != nil {
-		intervalMatches := intervalRegex.FindStringSubmatch(*viewDescription)
-		if len(intervalMatches) < 2 {
-			return nil, errors.New("unexpected interval matches from view description")
+		parsedType, parsedTime, err := parseViewDescription(*viewDescription)
+		if err != nil {
+			return nil, err
 		}
-		typeMatches := typeRegex.FindStringSubmatch(*viewDescription)
-		if len(typeMatches) < 2 {
-			return nil, errors.New("unexpected type matches from view description")
-		}
-		groupType = &typeMatches[1]
-		groupTime = &intervalMatches[1]
+		groupType = &parsedType
+		groupTime = &parsedTime
 	}
 	elem := model.DataAvailabilityResponseElement{
 		ServiceId: servicePrefix + longServiceId,
@@ -158,4 +163,18 @@ func (wrapper *Wrapper) parseDataAvailability(ctx context.Context, viewTableName
 		return nil, err
 	}
 	return &elem, nil
+}
+
+// parseViewDescription reads the aggregation function and the bucket interval of a continuous
+// aggregate from its view definition.
+func parseViewDescription(viewDescription string) (groupType string, groupTime string, err error) {
+	intervalMatches := intervalRegex.FindStringSubmatch(viewDescription)
+	if len(intervalMatches) < 2 {
+		return "", "", errors.New("unexpected interval matches from view description")
+	}
+	typeMatches := typeRegex.FindStringSubmatch(viewDescription)
+	if len(typeMatches) < 2 {
+		return "", "", errors.New("unexpected type matches from view description")
+	}
+	return typeMatches[1], intervalMatches[1], nil
 }
