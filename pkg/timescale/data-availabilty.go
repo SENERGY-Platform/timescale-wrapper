@@ -68,13 +68,15 @@ func (wrapper *Wrapper) GetDataAvailability(ctx context.Context, deviceId string
 			defer wg.Done()
 
 			elem, err := wrapper.parseDataAvailability(ctx, viewName, &viewDescription)
+			mtx.Lock()
+			defer mtx.Unlock()
 			if err != nil {
-				anyErr = err
+				if anyErr == nil {
+					anyErr = err
+				}
 				return
 			}
-			mtx.Lock()
 			res = append(res, *elem)
-			mtx.Unlock()
 		}()
 	}
 	if err = rows.Err(); err != nil {
@@ -97,13 +99,15 @@ func (wrapper *Wrapper) GetDataAvailability(ctx context.Context, deviceId string
 		go func() {
 			defer wg.Done()
 			elem, err := wrapper.parseDataAvailability(ctx, tableName, nil)
+			mtx.Lock()
+			defer mtx.Unlock()
 			if err != nil {
-				anyErr = err
+				if anyErr == nil {
+					anyErr = err
+				}
 				return
 			}
-			mtx.Lock()
 			res = append(res, *elem)
-			mtx.Unlock()
 		}()
 	}
 	if err = rows.Err(); err != nil {
