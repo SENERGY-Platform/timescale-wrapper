@@ -97,8 +97,8 @@ func formatResponse(ctx context.Context, remoteCache *cache.RemoteCache, f model
 			if err != nil {
 				return nil, err
 			}
-			if request[seriesIndex].Limit != nil {
-				results[seriesIndex] = results[seriesIndex][:*request[seriesIndex].Limit]
+			if limit := request[seriesIndex].Limit; limit != nil && *limit >= 0 && len(results[seriesIndex]) > *limit {
+				results[seriesIndex] = results[seriesIndex][:*limit]
 			}
 			if request[seriesIndex].Time != nil && (request[seriesIndex].Time.EndOriginal != nil || request[seriesIndex].Time.End != nil) {
 				// if tables do not contain enough data, LIMIT clauses miss their intention.

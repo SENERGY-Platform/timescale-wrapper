@@ -62,6 +62,44 @@ func TestPostProcessing(t *testing.T) {
 		}
 	})
 
+	// LIMIT is applied again in the post-processing, on a result set that may be shorter than
+	// the caller asked for. Slicing to the limit without a length check panicked the process.
+	t.Run("Test Limit", func(t *testing.T) {
+		t.Parallel()
+		request := func(limit int) []model.QueriesRequestElement {
+			return []model.QueriesRequestElement{{
+				ExportId: &one,
+				Columns:  []model.QueriesRequestElementColumn{{Name: one}},
+				Limit:    &limit,
+			}}
+		}
+		results := func() [][][]interface{} {
+			return [][][]interface{}{{{t1, 1}, {t2, 2}}}
+		}
+
+		t.Run("larger than the rows available", func(t *testing.T) {
+			t.Parallel()
+			response, err := formatResponse(context.Background(), nil, model.PerQuery, request(25000), results(), 0, model.Asc, "", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(response, [][][]interface{}{{{t1, 1}, {t2, 2}}}) {
+				t.Errorf("unexpected result: %v", response)
+			}
+		})
+
+		t.Run("smaller than the rows available", func(t *testing.T) {
+			t.Parallel()
+			response, err := formatResponse(context.Background(), nil, model.PerQuery, request(1), results(), 0, model.Asc, "", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(response, [][][]interface{}{{{t1, 1}}}) {
+				t.Errorf("unexpected result: %v", response)
+			}
+		})
+	})
+
 	t.Run("Test With Conversions", func(t *testing.T) {
 		t.Parallel()
 		log.InitForTest()

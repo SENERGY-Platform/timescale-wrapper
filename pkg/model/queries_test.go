@@ -132,6 +132,23 @@ func TestRequestElementValidation(t *testing.T) {
 			Body:     `{"columns":[{"name":"value","groupType":"mean\") FROM x --"}],"groupTime":"1h"}`,
 			Expected: false,
 		},
+		{
+			Name:     "limit",
+			Body:     `{"columns":[{"name":"value"}],"limit":100}`,
+			Expected: true,
+		},
+		{
+			Name:     "zero limit",
+			Body:     `{"columns":[{"name":"value"}],"limit":0}`,
+			Expected: true,
+		},
+		{
+			// a negative limit is rejected by postgres and would be an invalid slice bound
+			// in the post-processing, so it must not get past the validator
+			Name:     "negative limit",
+			Body:     `{"columns":[{"name":"value"}],"limit":-1}`,
+			Expected: false,
+		},
 	}
 	for _, tc := range tt {
 		t.Run(tc.Name, func(t *testing.T) {

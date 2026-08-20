@@ -93,6 +93,9 @@ func (element *QueriesRequestElement) Valid() bool {
 	if element.OrderColumnIndex != nil && (*element.OrderColumnIndex < 0 || *element.OrderColumnIndex > len(element.Columns)) {
 		return false
 	}
+	if element.Limit != nil && *element.Limit < 0 {
+		return false
+	}
 	/*
 		if element.OrderColumnIndex == nil {
 			zero := 0
