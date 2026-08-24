@@ -38,12 +38,12 @@ func init() {
 	endpoints = append(endpoints, DocEndpoint)
 }
 
-//go:generate go tool swag init -o ../../docs --parseDependency -d .. -g api/api.go
+//go:generate go tool swag init --instanceName timescalewrapper -o ../../docs --parseDependency -d .. -g api/api.go
 func DocEndpoint(router gin.IRouter, config configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/doc", func(c *gin.Context) {
 		writer := c.Writer
 		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-		doc, err := swag.ReadDoc()
+		doc, err := swag.ReadDoc("timescalewrapper")
 		if err != nil {
 			c.Error(errors.Join(errors.New(http.StatusText(http.StatusInternalServerError)), model.ErrInternalServerError))
 			return

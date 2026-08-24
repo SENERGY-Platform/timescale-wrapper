@@ -306,6 +306,8 @@ paths:
           description: The last message
           schema:
             $ref: '#/definitions/cache.Entry'
+        "204":
+          description: No message available
         "400":
           description: Bad Request
         "401":
