@@ -227,9 +227,9 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
-		expected := "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY 1)) AS \"sensor.ENERGY.Total\"," +
-			" (sub1.value - lag(sub1.value) OVER (ORDER BY 1)) +5 AS \"sensor.ENERGY.Total\", (sub2.value) AS \"sensor.ENERGY.Total\"," +
-			" (sub3.value) AS \"sensor.ENERGY.Total\", (sub4.value - lag(sub4.value) OVER (ORDER BY 1)) AS \"sensor.ENERGY.Total\" " +
+		expected := "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\"," +
+			" (sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) +5 AS \"sensor.ENERGY.Total\", (sub2.value) AS \"sensor.ENERGY.Total\"," +
+			" (sub3.value) AS \"sensor.ENERGY.Total\", (sub4.value - lag(sub4.value) OVER (ORDER BY sub4.time)) AS \"sensor.ENERGY.Total\" " +
 			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
 			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY " +
 			"1 ORDER BY 1 ASC LIMIT 9) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +
@@ -246,6 +246,75 @@ func TestQueries(t *testing.T) {
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
+		}
+	})
+
+	// The window of an element with difference columns is widened by one bucket so the first
+	// requested bucket has a predecessor. That widening applies to the element, not to a column:
+	// every subquery has to read the same window with the same limit, otherwise the FULL OUTER JOIN
+	// leaves rows unmatched and the differences are computed over gapped series.
+	t.Run("Test GenerateQueries Difference Functions Share One Window", func(t *testing.T) {
+		h1 := "1h"
+		water := "sensor.WATER.Total"
+		cases := []struct {
+			name     string
+			columns  []model.QueriesRequestElementColumn
+			expected string
+		}{
+			{
+				name: "two difference columns",
+				columns: []model.QueriesRequestElementColumn{
+					{Name: "sensor.ENERGY.Total", GroupType: &dl},
+					{Name: water, GroupType: &dl},
+				},
+				expected: "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\", " +
+					"(sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) AS \"sensor.WATER.Total\" FROM " +
+					"(SELECT time_bucket('1h', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
+					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > '2021-06-19T23:00:00Z' AND " +
+					"\"time\" < '2021-06-22T00:00:00Z' GROUP BY 1 ORDER BY 1 ASC LIMIT 50) sub0 FULL OUTER JOIN " +
+					"(SELECT time_bucket('1h', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.WATER.Total\", \"time\") AS value FROM " +
+					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > '2021-06-19T23:00:00Z' AND " +
+					"\"time\" < '2021-06-22T00:00:00Z' GROUP BY 1 ORDER BY 1 ASC LIMIT 50) sub1 on sub0.time = sub1.time " +
+					"ORDER BY 1 DESC LIMIT 48",
+			},
+			{
+				name: "difference column behind a plain aggregate",
+				columns: []model.QueriesRequestElementColumn{
+					{Name: "sensor.ENERGY.Total", GroupType: &l},
+					{Name: water, GroupType: &dl},
+				},
+				expected: "SELECT sub0.time AS \"time\", (sub0.value) AS \"sensor.ENERGY.Total\", " +
+					"(sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) AS \"sensor.WATER.Total\" FROM " +
+					"(SELECT time_bucket('1h', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
+					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > '2021-06-19T23:00:00Z' AND " +
+					"\"time\" < '2021-06-22T00:00:00Z' GROUP BY 1 ORDER BY 1 ASC LIMIT 50) sub0 FULL OUTER JOIN " +
+					"(SELECT time_bucket('1h', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.WATER.Total\", \"time\") AS value FROM " +
+					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > '2021-06-19T23:00:00Z' AND " +
+					"\"time\" < '2021-06-22T00:00:00Z' GROUP BY 1 ORDER BY 1 ASC LIMIT 50) sub1 on sub0.time = sub1.time " +
+					"ORDER BY 1 DESC LIMIT 48",
+			},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				elementTime := timeFormTo
+				elements := []model.QueriesRequestElement{{
+					DeviceId:  &deviceId,
+					ServiceId: &serviceId,
+					Time:      &elementTime,
+					Columns:   c.columns,
+					GroupTime: &h1,
+				}}
+				actual, err := wrapper.GenerateQueries(t.Context(), elements, "", []string{""}, "", []models.Device{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(actual) != 1 {
+					t.Fatal("Unexpected number of queries", len(actual))
+				}
+				if actual[0] != c.expected {
+					t.Error("Expected/Actual\n\n", c.expected, "\n\n", actual[0])
+				}
+			})
 		}
 	})
 
@@ -625,8 +694,8 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
-		expected := "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY 1)) AS \"sensor.ENERGY.Total\"," +
-			" (sub1.value - lag(sub1.value) OVER (ORDER BY 1)) +5 AS \"thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed\" " +
+		expected := "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\"," +
+			" (sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) +5 AS \"thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed\" " +
 			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
 			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY " +
 			"1 ORDER BY 1 ASC LIMIT 9) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +

@@ -1,9 +1,26 @@
 version: '3'
 
 services:
+  timescale:
+    image: timescale/timescaledb:2.25.2-pg17
+    environment:
+      POSTGRES_PASSWORD: pw
+      POSTGRES_DB: test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
   test:
     build:
       context: ..
       dockerfile: Dockerfile
       target: test
-  
+    # queries_db_test.go executes generated queries against a real database. Without this the
+    # test skips, and the difference-* queries are only covered as strings.
+    environment:
+      TEST_POSTGRES_DSN: postgres://postgres:pw@timescale:5432/test
+    depends_on:
+      timescale:
+        condition: service_healthy

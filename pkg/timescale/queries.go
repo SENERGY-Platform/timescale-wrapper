@@ -145,7 +145,10 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				}
 				query += "(sub" + strconv.Itoa(idx) + ".value"
 				if strings.HasPrefix(*column.GroupType, "difference") {
-					query += " - lag(sub" + strconv.Itoa(idx) + ".value) OVER (ORDER BY 1)"
+					// ORDER BY 1 would be the constant 1, not a positional reference: all rows
+					// would be peers and lag() would pair whatever rows the join happens to emit
+					// next to each other. Order by the column's own bucket instead.
+					query += " - lag(sub" + strconv.Itoa(idx) + ".value) OVER (ORDER BY sub" + strconv.Itoa(idx) + ".time)"
 				}
 				query += ") "
 				if column.Math != nil {
@@ -154,8 +157,11 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				query += "AS " + quoteIdentifier(column.Name)
 			}
 			query += " FROM "
-			elementTimeLastAheadModified := false
-			var l *int
+			l, err := widenTimeWindowForDifference(&element)
+			if err != nil {
+				return nil, err
+			}
+			elements[i] = element
 			for idx, column := range element.Columns {
 				hashedColumnName := quoteColumnName(column.Name)
 				query += "(SELECT time_bucket(" + quoteSQLString(*element.GroupTime) + ", \"time\", " + quoteSQLString(timezone) + ") AS \"time\", "
@@ -165,101 +171,6 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 						query += groupParts[1] + "(" + hashedColumnName + ", \"time\")"
 					} else {
 						query += translateFunctionName(groupParts[1]) + hashedColumnName + ")"
-					}
-					if element.Time != nil && (element.Time.Last != nil || element.Time.Ahead != nil) && !elementTimeLastAheadModified {
-						// manually increase the last offset by 1 to ensure unified results
-						copy := element.Time.Copy() // ensure no other elements are affected that share this pointer
-						element.Time = &copy
-						elements[i] = element
-						re := regexp.MustCompile(`\d+`)
-						var prefix string
-						if element.Time.Last != nil {
-							prefix = string(re.Find([]byte(*element.Time.Last)))
-						} else {
-							prefix = string(re.Find([]byte(*element.Time.Ahead)))
-						}
-						num, err := strconv.Atoi(prefix)
-						if err != nil {
-							return nil, err
-						}
-						n := num
-						l = &n
-						num++
-						if element.Time.Last != nil {
-							modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Last, prefix)
-							element.Time.Last = &modified
-						} else {
-							modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Ahead, prefix)
-							element.Time.Ahead = &modified
-						}
-						elementTimeLastAheadModified = true
-					} else if element.Time != nil && element.Time.Start != nil && element.Time.End != nil && element.GroupTime != nil && !elementTimeLastAheadModified {
-						copy := element.Time.Copy() // ensure no other elements are affected that share this pointer
-						element.Time = &copy
-						re := regexp.MustCompile(`\D+`)
-						suffix := re.Find([]byte(*element.GroupTime))
-						if suffix == nil {
-							return nil, fmt.Errorf("could not parse GroupTime %v", *element.GroupTime)
-						}
-						endT, err := time.Parse(time.RFC3339, *element.Time.End)
-						if err != nil {
-							return nil, err
-						}
-						startT, err := time.Parse(time.RFC3339, *element.Time.Start)
-						if err != nil {
-							return nil, err
-						}
-						diff := endT.Sub(startT)
-						diffT := 0
-						const before = -1
-						const after = 0
-						var start time.Time
-						var end time.Time
-						switch string(suffix) {
-						case "ms":
-							diffT = int(diff.Milliseconds())
-							start = startT.Add(before * time.Millisecond)
-							end = endT.Add(after * time.Millisecond)
-						case "s":
-							diffT = int(diff.Seconds())
-							start = startT.Add(before * time.Second)
-							end = endT.Add(after * time.Second)
-						case "months":
-							fallthrough
-						case "mon":
-							start = startT.AddDate(0, before, 0)
-							end = endT.AddDate(0, after, 0)
-							diffT = (endT.Year()-startT.Year())*12 + (int(endT.Month()) - int(startT.Month()))
-						case "m":
-							start = startT.Add(before * time.Minute)
-							end = endT.Add(after * time.Minute)
-							diffT = int(diff.Minutes())
-						case "h":
-							start = startT.Add(before * time.Hour)
-							end = endT.Add(after * time.Hour)
-							diffT = int(diff.Hours())
-						case "day":
-							fallthrough
-						case "d":
-							start = startT.Add(before * 24 * time.Hour)
-							end = endT.Add(after * 24 * time.Hour)
-							diffT = int(diff.Hours() / 24)
-						case "w":
-							start = startT.Add(before * 24 * 7 * time.Hour)
-							end = endT.Add(after * 24 * 7 * time.Hour)
-							diffT = int(diff.Hours() / 24 / 7)
-						case "y":
-							start = startT.AddDate(before, 0, 0)
-							end = endT.AddDate(after, 0, 0)
-							diffT = endT.Year() - startT.Year()
-						}
-						l = &diffT
-						startS := start.Format(time.RFC3339)
-						element.Time.Start = &startS
-						endS := end.Format(time.RFC3339)
-						element.Time.EndOriginal = element.Time.End
-						element.Time.End = &endS
-						elements[i] = element
 					}
 				} else if *column.GroupType == "first" || *column.GroupType == "last" {
 					query += *column.GroupType + "(" + hashedColumnName + ", \"time\")"
@@ -329,6 +240,129 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 		queries[i] = query
 	}
 	return
+}
+
+// widenTimeWindowForDifference extends the time window of an element that has difference-* columns
+// by one unit, so that the first requested bucket has a predecessor to be differenced against, and
+// reports how many buckets the caller originally asked for. Elements without a difference column,
+// and elements without a time window, are left untouched and yield a nil bucket count.
+//
+// It runs once per element, before the first column subquery is generated. Every column of such an
+// element then reads the same window with the same row limit: widening per column would give the
+// subqueries different bucket sets, and the FULL OUTER JOIN combining them would then emit rows
+// that match nothing on the other side.
+//
+// Two limits of the widening, both older than this function and both unchanged by it: it moves the
+// window by one unit rather than by one bucket, which is the same thing only while the group time
+// has no multiplier ("1h", not "6h"); and for Time.Ahead it moves the far end into the future,
+// which does not produce a predecessor for the first bucket at all.
+func widenTimeWindowForDifference(element *model.QueriesRequestElement) (buckets *int, err error) {
+	hasDifference := false
+	for _, column := range element.Columns {
+		if column.GroupType != nil && strings.HasPrefix(*column.GroupType, "difference") {
+			hasDifference = true
+			break
+		}
+	}
+	if !hasDifference || element.Time == nil {
+		return nil, nil
+	}
+
+	if element.Time.Last != nil || element.Time.Ahead != nil {
+		// manually increase the last offset by 1 to ensure unified results
+		copy := element.Time.Copy() // ensure no other elements are affected that share this pointer
+		element.Time = &copy
+		re := regexp.MustCompile(`\d+`)
+		var prefix string
+		if element.Time.Last != nil {
+			prefix = string(re.Find([]byte(*element.Time.Last)))
+		} else {
+			prefix = string(re.Find([]byte(*element.Time.Ahead)))
+		}
+		num, err := strconv.Atoi(prefix)
+		if err != nil {
+			return nil, err
+		}
+		n := num
+		num++
+		if element.Time.Last != nil {
+			modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Last, prefix)
+			element.Time.Last = &modified
+		} else {
+			modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Ahead, prefix)
+			element.Time.Ahead = &modified
+		}
+		return &n, nil
+	}
+
+	if element.Time.Start == nil || element.Time.End == nil || element.GroupTime == nil {
+		return nil, nil
+	}
+	copy := element.Time.Copy() // ensure no other elements are affected that share this pointer
+	element.Time = &copy
+	re := regexp.MustCompile(`\D+`)
+	suffix := re.Find([]byte(*element.GroupTime))
+	if suffix == nil {
+		return nil, fmt.Errorf("could not parse GroupTime %v", *element.GroupTime)
+	}
+	endT, err := time.Parse(time.RFC3339, *element.Time.End)
+	if err != nil {
+		return nil, err
+	}
+	startT, err := time.Parse(time.RFC3339, *element.Time.Start)
+	if err != nil {
+		return nil, err
+	}
+	diff := endT.Sub(startT)
+	diffT := 0
+	const before = -1
+	const after = 0
+	var start time.Time
+	var end time.Time
+	switch string(suffix) {
+	case "ms":
+		diffT = int(diff.Milliseconds())
+		start = startT.Add(before * time.Millisecond)
+		end = endT.Add(after * time.Millisecond)
+	case "s":
+		diffT = int(diff.Seconds())
+		start = startT.Add(before * time.Second)
+		end = endT.Add(after * time.Second)
+	case "months":
+		fallthrough
+	case "mon":
+		start = startT.AddDate(0, before, 0)
+		end = endT.AddDate(0, after, 0)
+		diffT = (endT.Year()-startT.Year())*12 + (int(endT.Month()) - int(startT.Month()))
+	case "m":
+		start = startT.Add(before * time.Minute)
+		end = endT.Add(after * time.Minute)
+		diffT = int(diff.Minutes())
+	case "h":
+		start = startT.Add(before * time.Hour)
+		end = endT.Add(after * time.Hour)
+		diffT = int(diff.Hours())
+	case "day":
+		fallthrough
+	case "d":
+		start = startT.Add(before * 24 * time.Hour)
+		end = endT.Add(after * 24 * time.Hour)
+		diffT = int(diff.Hours() / 24)
+	case "w":
+		start = startT.Add(before * 24 * 7 * time.Hour)
+		end = endT.Add(after * 24 * 7 * time.Hour)
+		diffT = int(diff.Hours() / 24 / 7)
+	case "y":
+		start = startT.AddDate(before, 0, 0)
+		end = endT.AddDate(after, 0, 0)
+		diffT = endT.Year() - startT.Year()
+	}
+	startS := start.Format(time.RFC3339)
+	element.Time.Start = &startS
+	endS := end.Format(time.RFC3339)
+	element.Time.EndOriginal = element.Time.End
+	element.Time.End = &endS
+	return &diffT, nil
 }
 
 func getFilterString(element model.QueriesRequestElement, group bool, overrideSortIndex *int, overrideOrderDirection *model.Direction, overrideLimit *int) (query string, err error) {
