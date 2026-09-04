@@ -17,39 +17,45 @@
 package client
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 )
 
+// GetDeviceUsage reads /usage/devices without a caller context. See Client.
 func (c impl) GetDeviceUsage(token string, deviceIds []string) (result []Usage, code int, err error) {
+	return c.GetDeviceUsageContext(context.TODO(), token, deviceIds)
+}
+
+func (c impl) GetDeviceUsageContext(ctx context.Context, token string, deviceIds []string) (result []Usage, code int, err error) {
 	body, err := json.Marshal(deviceIds)
 	if err != nil {
 		return result, 0, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseUrl+"/usage/devices", bytes.NewReader(body))
+	req, err := newRequest(ctx, http.MethodPost, c.baseUrl+"/usage/devices", token, body)
 	if err != nil {
 		return result, 0, err
 	}
 
-	req.Header.Add("Authorization", token)
-
 	return do[[]Usage](req)
 }
 
+// GetExportUsage reads /usage/exports without a caller context. See Client.
 func (c impl) GetExportUsage(token string, exportIds []string) (result []Usage, code int, err error) {
+	return c.GetExportUsageContext(context.TODO(), token, exportIds)
+}
+
+func (c impl) GetExportUsageContext(ctx context.Context, token string, exportIds []string) (result []Usage, code int, err error) {
 	body, err := json.Marshal(exportIds)
 	if err != nil {
 		return result, 0, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseUrl+"/usage/exports", bytes.NewReader(body))
+	req, err := newRequest(ctx, http.MethodPost, c.baseUrl+"/usage/exports", token, body)
 	if err != nil {
 		return result, 0, err
 	}
-
-	req.Header.Add("Authorization", token)
 
 	return do[[]Usage](req)
 }

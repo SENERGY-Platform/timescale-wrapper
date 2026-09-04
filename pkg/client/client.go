@@ -17,6 +17,8 @@
 package client
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,12 +26,25 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/SENERGY-Platform/gin-middleware/otelx"
 )
 
+// Client is the timescale wrapper's HTTP API as a Go interface.
+//
+// Every call exists twice. The Context variants put the caller's context on
+// the request and inject the trace context and the baggage into it, so the
+// call appears as a child span in the caller's own trace and stops when the
+// caller stops. The variants without a context pass context.TODO() and are
+// kept so that existing callers keep building; new code should use the
+// Context variants.
 type Client interface {
 	GetDeviceUsage(token string, deviceIds []string) (result []Usage, code int, err error)
+	GetDeviceUsageContext(ctx context.Context, token string, deviceIds []string) (result []Usage, code int, err error)
 	GetExportUsage(token string, exportIds []string) (result []Usage, code int, err error)
+	GetExportUsageContext(ctx context.Context, token string, exportIds []string) (result []Usage, code int, err error)
 	GetQueriesV2(token string, requestElements []QueriesRequestElement, options *QueriesV2Options) (result []QueriesV2ResponseElement, code int, err error)
+	GetQueriesV2Context(ctx context.Context, token string, requestElements []QueriesRequestElement, options *QueriesV2Options) (result []QueriesV2ResponseElement, code int, err error)
 }
 
 type impl struct {
@@ -38,6 +53,31 @@ type impl struct {
 
 func NewClient(baseUrl string) Client {
 	return &impl{baseUrl: baseUrl}
+}
+
+// newRequest builds a request carrying the caller's context, its trace and
+// its bearer token.
+//
+// http.NewRequestWithContext and not http.NewRequest, which is the difference
+// between a call that can be cancelled and one that cannot:
+// otelx.InjectContextToRequest writes the traceparent and baggage headers but
+// calls req.WithContext on a copy of its own, so the context has to be put on
+// the request here. Without this, a caller's timeout bounds nothing and
+// whatever http.DefaultClient does is the only limit - and it has no timeout.
+func newRequest(ctx context.Context, method string, url string, token string, body []byte) (*http.Request, error) {
+	var payload io.Reader
+	if body != nil {
+		payload = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, payload)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Authorization", token)
+	if err = otelx.InjectContextToRequest(ctx, req); err != nil {
+		return nil, err
+	}
+	return req, nil
 }
 
 func do[T any](req *http.Request) (result T, code int, err error) {

@@ -17,7 +17,7 @@
 package client
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -33,18 +33,23 @@ type QueriesV2Options struct {
 	ForceTz          *string
 }
 
+// GetQueriesV2 reads through /queries/v2 without a caller context. See Client:
+// new code should use GetQueriesV2Context, which joins the caller's trace and
+// honours its cancellation.
 func (c impl) GetQueriesV2(token string, requestElements []QueriesRequestElement, options *QueriesV2Options) (result []QueriesV2ResponseElement, code int, err error) {
+	return c.GetQueriesV2Context(context.TODO(), token, requestElements, options)
+}
+
+func (c impl) GetQueriesV2Context(ctx context.Context, token string, requestElements []QueriesRequestElement, options *QueriesV2Options) (result []QueriesV2ResponseElement, code int, err error) {
 	body, err := json.Marshal(requestElements)
 	if err != nil {
 		return result, 0, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseUrl+"/queries/v2", bytes.NewReader(body))
+	req, err := newRequest(ctx, http.MethodPost, c.baseUrl+"/queries/v2", token, body)
 	if err != nil {
 		return result, 0, err
 	}
-
-	req.Header.Add("Authorization", token)
 
 	q := req.URL.Query()
 	if options != nil {
