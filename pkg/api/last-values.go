@@ -36,9 +36,11 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tracing"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func init() {
@@ -178,14 +180,17 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 
 		raw := make([][][]interface{}, len(fullRequestElements))
 
-		_, cacheSpan := tracer.Start(ctx, "fetch from cache")
+		cacheCtx, cacheSpan := tracer.Start(ctx, "fetch from cache")
+		elementCtx := tracing.SuppressChildren(cacheCtx, config.DetailedTracing)
 		m := sync.Mutex{}
 		wg := sync.WaitGroup{}
 		wg.Add(len(fullRequestElements))
 		for i := range fullRequestElements {
 			i := i
 			go func() {
-				raw[i], err = remoteCache.GetLastValuesFromCache(ctx, fullRequestElements[i], nil)
+				// err is local: the goroutines used to share the outer one
+				var err error
+				raw[i], err = remoteCache.GetLastValuesFromCache(elementCtx, fullRequestElements[i], nil)
 				if err != nil {
 					m.Lock()
 					defer m.Unlock()
@@ -199,6 +204,11 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 			}()
 		}
 		wg.Wait()
+		cacheSpan.SetAttributes(
+			attribute.Int("request.elements", len(fullRequestElements)),
+			attribute.Int("cache.hits", len(fullRequestElements)-len(dbRequestIndices)),
+			attribute.Int("cache.misses", len(dbRequestIndices)),
+		)
 		cacheSpan.End()
 		if config.Debug {
 			log.Logger.DebugContext(ctx, "Got "+strconv.Itoa(len(fullRequestElements)-len(dbRequestIndices))+" from cache, requesting "+strconv.Itoa(len(dbRequestIndices))+" from db")
@@ -222,13 +232,13 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 			raw[dbRequestIndices[i]] = data[i]
 		}
 
-		_, ppSpan := tracer.Start(ctx, "postprocess")
+		ppCtx, ppSpan := tracer.Start(ctx, "postprocess")
 		timeFormat := request.URL.Query().Get("time_format")
 		if timeFormat == "" {
 			timeFormat = time.RFC3339Nano
 		}
 
-		responseRawData, err := formatResponse(ctx, remoteCache, model.PerQuery, fullRequestElements, raw, 0, model.Desc, timeFormat, converter)
+		responseRawData, err := formatResponse(tracing.SuppressChildren(ppCtx, config.DetailedTracing), remoteCache, model.PerQuery, fullRequestElements, raw, 0, model.Desc, timeFormat, converter)
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}

@@ -45,6 +45,7 @@ type ConfigStruct struct {
 	ImportRepoUrl          string   `json:"import_repo_url"`
 	DefaultTimezone        string   `json:"default_timezone"`
 	LogHandler             string   `json:"log_handler"`
+	DetailedTracing        bool     `json:"detailed_tracing"` // one span per request element instead of one per batch, see pkg/tracing
 }
 
 type Config = *ConfigStruct

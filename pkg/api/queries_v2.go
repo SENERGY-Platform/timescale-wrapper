@@ -32,9 +32,12 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tracing"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 func init() {
@@ -104,7 +107,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			forceTzp = &forceTz
 		}
 
-		queryCacheCtx, queryCacheSpan := tracer.Start(c.Request.Context(), "query generation")
+		queryCacheCtx, queryCacheSpan := tracer.Start(c.Request.Context(), "fetch from cache")
 		raw, dbRequestElementsBefore, dbRequestIndices := queriesGetFromCache(queryCacheCtx, requestElements, remoteCache, config, forceTzp)
 		response := []model.QueriesV2ResponseElement{}
 		for i, r := range raw {
@@ -136,7 +139,11 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			}
 		}
 
-		queryGenCtx, queryGenSpan := tracer.Start(c.Request.Context(), "query generation")
+		queryGenCtx, queryGenSpan := tracer.Start(c.Request.Context(), "generate and execute queries")
+		// The loop below runs per request element and calls cache, device
+		// repository, device selection and database once per element, so its
+		// spans are suppressed and this one span covers the whole fan-out.
+		elementCtx := tracing.SuppressChildren(queryGenCtx, config.DetailedTracing)
 		mux := sync.Mutex{}
 		wg := sync.WaitGroup{}
 		devices := []models.Device{}
@@ -168,7 +175,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 						}
 						if dbRequestElement.ExportId != nil && len(locateLat) > 0 && len(locateLon) > 0 {
 							token := getToken(request)
-							importFilters, err := wrapper.CreateFiltersForImport(queryGenCtx, *dbRequestElement.ExportId, userId, token, locateLatFloat, locateLonFloat)
+							importFilters, err := wrapper.CreateFiltersForImport(elementCtx, *dbRequestElement.ExportId, userId, token, locateLatFloat, locateLonFloat)
 							if err != nil {
 								raiseError(errors.Join(err, model.ErrBadRequest))
 								return
@@ -177,7 +184,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 						}
 
 						if dbRequestElement.DeviceId != nil {
-							device, err := remoteCache.GetDevice(queryGenCtx, *dbRequestElement.DeviceId, token)
+							device, err := remoteCache.GetDevice(elementCtx, *dbRequestElement.DeviceId, token)
 							if err != nil {
 								raiseError(errors.Join(err, model.ErrInternalServerError))
 								return
@@ -220,7 +227,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 						deviceGroupIds = append(deviceGroupIds, *dbRequestElement.DeviceGroupId)
 					}
 					if dbRequestElement.LocationId != nil {
-						location, err := remoteCache.GetLocation(queryGenCtx, *dbRequestElement.LocationId, token)
+						location, err := remoteCache.GetLocation(elementCtx, *dbRequestElement.LocationId, token)
 						if err != nil {
 							raiseError(errors.Join(err, model.ErrInternalServerError))
 							return
@@ -230,7 +237,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 					}
 
 					for _, deviceGroupid := range deviceGroupIds {
-						deviceGroup, err := remoteCache.GetDeviceGroup(queryGenCtx, deviceGroupid, token)
+						deviceGroup, err := remoteCache.GetDeviceGroup(elementCtx, deviceGroupid, token)
 						if err != nil {
 							raiseError(errors.Join(err, model.ErrInternalServerError))
 							return
@@ -238,7 +245,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 						deviceIds = append(deviceIds, deviceGroup.DeviceIds...)
 					}
 					for colIdx, col := range dbRequestElement.Columns {
-						f, err := remoteCache.GetFunction(queryGenCtx, col.Criteria.FunctionId)
+						f, err := remoteCache.GetFunction(elementCtx, col.Criteria.FunctionId)
 						if err != nil {
 							raiseError(errors.Join(err, model.GetError(code)))
 							return
@@ -246,7 +253,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 
 						criteria := []models.DeviceGroupFilterCriteria{col.Criteria}
 
-						selectables, code, err := remoteCache.GetSelectables(queryGenCtx, userId, token, criteria, &deviceSelection.GetSelectablesOptions{
+						selectables, code, err := remoteCache.GetSelectables(elementCtx, userId, token, criteria, &deviceSelection.GetSelectablesOptions{
 							IncludeDevices:    true,
 							WithDeviceIds:     deviceIds,
 							IncludeIdModified: true,
@@ -302,20 +309,17 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 					}
 				}
 
-				queries, err := wrapper.GenerateQueries(queryGenCtx, dbRequestElements, userId, ownerUserIds, forceTz, devices)
+				queries, err := wrapper.GenerateQueries(elementCtx, dbRequestElements, userId, ownerUserIds, forceTz, devices)
 				if err != nil {
 					raiseError(errors.Join(err, model.ErrInternalServerError))
 					return
 				}
-				queryGenSpan.End()
 
-				queryExecutionCtx, queryExecutionSpan := tracer.Start(c.Request.Context(), "query execution")
-				data, err := wrapper.ExecuteQueries(queryExecutionCtx, queries)
+				data, err := wrapper.ExecuteQueries(elementCtx, queries)
 				if err != nil {
 					raiseError(errors.Join(err, model.GetError(timescale.GetHTTPErrorCode(err))))
 					return
 				}
-				queryExecutionSpan.End()
 
 				orderColumnIndex := 0
 				if dbRequestElement.OrderColumnIndex != nil {
@@ -326,7 +330,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 					orderDirection = *dbRequestElement.OrderDirection
 				}
 
-				subResponse, err := formatResponse(queryGenCtx, remoteCache, model.PerQuery, dbRequestElements, data, orderColumnIndex, orderDirection, timeFormat, converter)
+				subResponse, err := formatResponse(elementCtx, remoteCache, model.PerQuery, dbRequestElements, data, orderColumnIndex, orderDirection, timeFormat, converter)
 				if err != nil {
 					raiseError(errors.Join(err, model.ErrInternalServerError))
 					return
@@ -392,6 +396,12 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			}()
 		}
 		wg.Wait()
+		queryGenSpan.SetAttributes(attribute.Int("request.elements", len(dbRequestElementsBefore)))
+		if raisedErr != nil {
+			queryGenSpan.RecordError(raisedErr)
+			queryGenSpan.SetStatus(codes.Error, raisedErr.Error())
+		}
+		queryGenSpan.End()
 		if raisedErr != nil {
 			c.Error(raisedErr)
 			return

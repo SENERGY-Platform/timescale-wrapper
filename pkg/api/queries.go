@@ -35,9 +35,11 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tracing"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func init() {
@@ -126,9 +128,9 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 		for i := range data {
 			raw[dbRequestIndices[i]] = data[i]
 		}
-		_, ppSpan := tracer.Start(c.Request.Context(), "postprocess results")
+		ppCtx, ppSpan := tracer.Start(c.Request.Context(), "postprocess results")
 		timeFormat := request.URL.Query().Get("time_format")
-		response, err := formatResponse(c.Request.Context(), remoteCache, requestedFormat, requestElements, raw, orderColumnIndex, orderDirection, timeFormat, converter)
+		response, err := formatResponse(tracing.SuppressChildren(ppCtx, config.DetailedTracing), remoteCache, requestedFormat, requestElements, raw, orderColumnIndex, orderDirection, timeFormat, converter)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
@@ -214,6 +216,7 @@ func queriesGetFromCache(ctx context.Context, requestElements []model.QueriesReq
 
 	raw = make([][][]interface{}, len(requestElements))
 
+	elementCtx := tracing.SuppressChildren(c, config.DetailedTracing)
 	m := sync.Mutex{}
 	wg := sync.WaitGroup{}
 	wg.Add(len(requestElements))
@@ -221,7 +224,7 @@ func queriesGetFromCache(ctx context.Context, requestElements []model.QueriesReq
 		i := i
 		go func() {
 			var err error
-			raw[i], err = remoteCache.GetLastValuesFromCache(c, requestElements[i], forceTz)
+			raw[i], err = remoteCache.GetLastValuesFromCache(elementCtx, requestElements[i], forceTz)
 			if err != nil {
 				m.Lock()
 				defer m.Unlock()
@@ -235,6 +238,11 @@ func queriesGetFromCache(ctx context.Context, requestElements []model.QueriesReq
 		}()
 	}
 	wg.Wait()
+	span.SetAttributes(
+		attribute.Int("request.elements", len(requestElements)),
+		attribute.Int("cache.hits", len(requestElements)-len(dbRequestIndices)),
+		attribute.Int("cache.misses", len(dbRequestIndices)),
+	)
 	if config.Debug {
 		log.Logger.DebugContext(c, "Got "+strconv.Itoa(len(requestElements)-len(dbRequestIndices))+" from remoteCache, requesting "+strconv.Itoa(len(dbRequestIndices))+" from db")
 	}

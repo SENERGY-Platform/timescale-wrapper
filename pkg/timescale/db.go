@@ -22,11 +22,19 @@ import (
 	"sync"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tracing"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func (wrapper *Wrapper) ExecuteQueries(ctx context.Context, queries []string) (res [][][]interface{}, err error) {
 	res = make([][][]interface{}, len(queries))
+	// otelpgx traces every query and every pool acquire, which is one span pair
+	// per query of the batch. The count goes on the span of the calling phase
+	// instead.
+	trace.SpanFromContext(ctx).SetAttributes(attribute.Int("db.queries", len(queries)))
+	ctx = tracing.SuppressChildren(ctx, wrapper.config.DetailedTracing)
 	wg := sync.WaitGroup{} // handle multiple queries in parallel
 	mux := sync.Mutex{}    // prevent overwriting error in case of multiple queries
 	for i, query := range queries {
