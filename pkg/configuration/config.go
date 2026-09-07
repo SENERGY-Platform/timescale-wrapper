@@ -46,6 +46,23 @@ type ConfigStruct struct {
 	DefaultTimezone        string   `json:"default_timezone"`
 	LogHandler             string   `json:"log_handler"`
 	DetailedTracing        bool     `json:"detailed_tracing"` // one span per request element instead of one per batch, see pkg/tracing
+
+	// PostgresMaxConns is the size of the connection pool, and it bounds how
+	// many of a request's queries run at once.
+	//
+	// One query per request element: a caller sending a hundred elements in
+	// one batch offers a hundred queries, and the pool decides how many of
+	// them the database sees. It was hard-coded at 5, which made the pool the
+	// binding constraint on every batched read - measured against
+	// energy-metrics, 108 elements per call queued five at a time and a
+	// year's window came to 108 seconds of waiting that was almost entirely
+	// queue.
+	//
+	// int64 rather than the int32 pgxpool wants, because
+	// HandleEnvironmentVars reads Int64 and not Int32; NewWrapper narrows it.
+	// Zero or negative falls back to timescale.DefaultMaxConns rather than
+	// reaching pgxpool, which panics below one.
+	PostgresMaxConns int64 `json:"postgres_max_conns"`
 }
 
 type Config = *ConfigStruct

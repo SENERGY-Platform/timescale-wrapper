@@ -19,6 +19,7 @@ package timescale
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/url"
 	"sync"
 
@@ -30,6 +31,36 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel"
 )
+
+// DefaultMaxConns is the pool size a configuration that names none gets.
+//
+// Twenty-five, and the number comes from a measurement rather than a habit.
+// One request element is one query, so a batched read offers the pool as many
+// queries as it has elements at once; with the pool at five, a reader sending
+// 108 elements per call spent its whole latency in the queue - a year's
+// window measured 1512 queries in 28.40 seconds of wall clock, which is
+// exactly 5 connections at 94 ms per query, and no other term mattered.
+//
+// Not larger, because these connections point at a database several services
+// share and this bound is per replica: what the database sees is this times
+// however many of them are running.
+const DefaultMaxConns = 25
+
+// MaxConns is the configured pool size, narrowed to what pgxpool takes.
+//
+// Guarded rather than passed through: pgxpool's own pool panics below a size
+// of one, so a configuration file that simply omits the field - which is
+// every deployment until this one is rolled out - would take the process down
+// at startup instead of falling back.
+func MaxConns(config configuration.Config) int32 {
+	if config.PostgresMaxConns <= 0 {
+		return DefaultMaxConns
+	}
+	if config.PostgresMaxConns > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(config.PostgresMaxConns)
+}
 
 func NewWrapper(ctx context.Context, wg *sync.WaitGroup, config configuration.Config) (wrapper *Wrapper, err error) {
 	servingClient := serving.New(config.ServingUrl)
@@ -47,7 +78,7 @@ func NewWrapper(ctx context.Context, wg *sync.WaitGroup, config configuration.Co
 	}
 	otelx.GinOpenTelemetry(ctx, "timescale-wrapper", "") // Initialize OpenTelemetry with default settings. Required for otelpgx
 	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer()
-	poolConfig.MaxConns = 5
+	poolConfig.MaxConns = MaxConns(config)
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
