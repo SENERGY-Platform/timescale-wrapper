@@ -43,7 +43,7 @@ var intervalRegex = regexp.MustCompile(`time_bucket\('([^']*)'`)
 var typeRegex = regexp.MustCompile(`(\w+)\((?:"(?:[^"]|"")*"|\w+), "time"\)`)
 
 func (wrapper *Wrapper) GetDataAvailability(ctx context.Context, deviceId string) (res []model.DataAvailabilityResponseElement, err error) {
-	shortDeviceId, err := shortenId(deviceId)
+	shortDeviceId, err := models.ShortenId(deviceId)
 	if err != nil {
 		return nil, err
 	}

@@ -33,11 +33,11 @@ import (
 )
 
 func (wrapper *Wrapper) GetLastMessage(ctx context.Context, deviceId string, serviceId string, service models.Service) (entry cache.Entry, err error) {
-	shortDeviceId, err := shortenId(deviceId)
+	shortDeviceId, err := models.ShortenId(deviceId)
 	if err != nil {
 		return entry, err
 	}
-	shortServiceId, err := shortenId(serviceId)
+	shortServiceId, err := models.ShortenId(serviceId)
 	if err != nil {
 		return entry, err
 	}

@@ -217,11 +217,11 @@ func diffs(values []float64) (result []float64) {
 
 func dbTestSetup(ctx context.Context, t *testing.T, pool *pgxpool.Pool, readings []dbTestReading) (table string) {
 	t.Helper()
-	shortDeviceId, err := shortenId(dbTestDeviceId)
+	shortDeviceId, err := models.ShortenId(dbTestDeviceId)
 	if err != nil {
 		t.Fatal(err)
 	}
-	shortServiceId, err := shortenId(dbTestServiceId)
+	shortServiceId, err := models.ShortenId(dbTestServiceId)
 	if err != nil {
 		t.Fatal(err)
 	}

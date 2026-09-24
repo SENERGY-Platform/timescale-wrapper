@@ -21,23 +21,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	importModel "github.com/SENERGY-Platform/import-repository/lib/model"
 	"github.com/SENERGY-Platform/service-commons/pkg/jwt"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/locate"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/umahmood/haversine"
 	"go.opentelemetry.io/otel"
 )
-
-type distance struct {
-	identifier interface{}
-	km         float64
-}
 
 func (wrapper *Wrapper) CreateFiltersForImport(ctx context.Context, exportId string, userId string, token string, lat float64, lon float64) ([]model.QueriesRequestElementFilter, error) {
 	tracer := otel.Tracer("timescale/locate_import.go:CreateFiltersForImport")
@@ -107,10 +101,18 @@ func (wrapper *Wrapper) CreateFiltersForImport(ctx context.Context, exportId str
 	if err != nil {
 		return nil, err
 	}
-	// the column names originate from the export definition, the table name may come from a
-	// continuous aggregate lookup
-	query := fmt.Sprintf("SELECT %v, %v, %v FROM %v;", quoteIdentifier(identifierPathTs), quoteIdentifier(latPathTs),
-		quoteIdentifier(lonPathTs), quoteIdentifier(wrapperMaterializedViewPrefix+tableName))
+	// The column names originate from the export definition. The table name is always the plain
+	// export hypertable, never a continuous aggregate view: tableName was called above with a
+	// QueriesRequestElement carrying only ExportId, so GroupTime is nil and its CA branch cannot
+	// fire. An earlier version of this comment claimed the opposite.
+	//
+	// since is empty because the materialized view is already deduplicated and kept fresh by
+	// setupMaterializedRefreshJob's daily refresh job, so no time window is needed here the way it
+	// would be for a caller reading the raw hypertable.
+	query, err := locate.LocationsQuery(locate.ViewName(tableName), identifierPathTs, latPathTs, lonPathTs, "")
+	if err != nil {
+		return nil, err
+	}
 	if wrapper.config.Debug {
 		log.Logger.DebugContext(ctx, "Querying export of import locations with: "+query)
 	}
@@ -137,10 +139,8 @@ func (wrapper *Wrapper) CreateFiltersForImport(ctx context.Context, exportId str
 		return []model.QueriesRequestElementFilter{}, nil
 	}
 
-	distances := []distance{}
-	source := haversine.Coord{Lat: lat, Lon: lon}
-
-	for _, t := range table {
+	candidates := make([]locate.Candidate, len(table))
+	for i, t := range table {
 		dLat, ok := t[1].(float64)
 		if !ok {
 			return nil, errors.New("lat coorindate not float64")
@@ -149,24 +149,25 @@ func (wrapper *Wrapper) CreateFiltersForImport(ctx context.Context, exportId str
 		if !ok {
 			return nil, errors.New("lon coorindate not float64")
 		}
-		destination := haversine.Coord{Lat: dLat, Lon: dLon}
-		_, km := haversine.Distance(source, destination)
-		distances = append(distances, distance{
-			identifier: t[0],
-			km:         km,
-		})
+		candidates[i] = locate.Candidate{Id: t[0], Lat: dLat, Lon: dLon}
 	}
 
-	sort.Slice(distances, func(i, j int) bool { return distances[i].km < distances[j].km })
+	nearest, ok := locate.Nearest(candidates, lat, lon)
+	if !ok {
+		// every row had a nil identifier column, so none of them can be turned into a usable
+		// filter value; the identifier column is expected to be a required tag on the underlying
+		// import, so this should not happen in practice.
+		return nil, errors.New("no usable location candidate found")
+	}
 
 	if wrapper.config.Debug {
-		log.Logger.DebugContext(ctx, fmt.Sprintf("DEBUG: Found %v options. Smallest distance %vkm (identifier %v), longest %vkm (identifier %v)", len(distances), distances[0].km, distances[0].identifier, distances[len(distances)-1].km, distances[len(distances)-1].identifier))
+		log.Logger.DebugContext(ctx, fmt.Sprintf("DEBUG: Found %v options, nearest identifier %v", len(candidates), nearest.Id))
 	}
 
 	return []model.QueriesRequestElementFilter{{
 		Column: identifierPathTs,
 		Type:   "=",
-		Value:  distances[0].identifier,
+		Value:  nearest.Id,
 	}}, nil
 
 }
@@ -209,7 +210,7 @@ func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identif
 		return err
 	}
 	_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW %v AS SELECT DISTINCT %v, %v, %v FROM %v",
-		quoteIdentifier(wrapperMaterializedViewPrefix+tableName), quoteIdentifier(identifierPathTs),
+		quoteIdentifier(locate.ViewName(tableName)), quoteIdentifier(identifierPathTs),
 		quoteIdentifier(latPathTs), quoteIdentifier(lonPathTs), quoteIdentifier(tableName)))
 	if err != nil {
 		return err

@@ -24,6 +24,7 @@ import (
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tablenames"
 )
 
 func TestQueries(t *testing.T) {
@@ -70,7 +71,7 @@ func TestQueries(t *testing.T) {
 	wrapper := &Wrapper{config: &configuration.ConfigStruct{DefaultTimezone: "Europe/Berlin"}}
 	t.Parallel()
 	t.Run("Test ShortenId", func(t *testing.T) {
-		actual, err := shortenId("urn:infai:ses:device:d42d8d24-f2a2-4dd7-8ad3-4cabfb6f8062")
+		actual, err := models.ShortenId("urn:infai:ses:device:d42d8d24-f2a2-4dd7-8ad3-4cabfb6f8062")
 		if err != nil {
 			t.Error(err.Error())
 		}
@@ -79,7 +80,7 @@ func TestQueries(t *testing.T) {
 			t.Error("Mismatched shortId. Expected/Actual\n", expected, "\n", actual)
 		}
 
-		actual, err = shortenId("urn:infai:ses:device:e3a9d39f-d833-45df-81c0-e479d17c2e06")
+		actual, err = models.ShortenId("urn:infai:ses:device:e3a9d39f-d833-45df-81c0-e479d17c2e06")
 		if err != nil {
 			t.Error(err.Error())
 		}
@@ -87,7 +88,7 @@ func TestQueries(t *testing.T) {
 		if actual != expected {
 			t.Error("Mismatched shortId. Expected/Actual\n", expected, "\n", actual)
 		}
-		actual, err = shortenId("e3a9d39f-d833-45df-81c0-e479d17c2e06")
+		actual, err = models.ShortenId("e3a9d39f-d833-45df-81c0-e479d17c2e06")
 		if err != nil {
 			t.Error(err.Error())
 		}
@@ -96,6 +97,9 @@ func TestQueries(t *testing.T) {
 			t.Error("Mismatched shortId. Expected/Actual\n", expected, "\n", actual)
 		}
 	})
+
+	// DeviceTableName and ExportTableName moved to pkg/tablenames along with their tests
+	// (TestDeviceTableName, TestExportTableName); tableName below now calls them there.
 
 	t.Run("Test GenerateQueries Simple", func(t *testing.T) {
 		elements := []model.QueriesRequestElement{{
@@ -596,6 +600,22 @@ func TestQueries(t *testing.T) {
 			") sub WHERE bucket <= '1d'::interval ORDER BY bucket DESC LIMIT 1;"
 		if actual != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)
+		}
+
+		// getCAQuery is now a thin adapter over pkg/tablenames.ContinuousAggregateQuery: for the
+		// same element, translated into tablenames.ContinuousAggregateColumn by hand here, both
+		// must produce byte-identical SQL. ContinuousAggregateQuery's own expectations live in
+		// pkg/tablenames; this is the one comparison that needs both sides and so stays here.
+		columns := make([]tablenames.ContinuousAggregateColumn, len(element.Columns))
+		for i, column := range element.Columns {
+			columns[i] = tablenames.ContinuousAggregateColumn{Name: column.Name, GroupType: *column.GroupType}
+		}
+		exported, err := tablenames.ContinuousAggregateQuery("table", *element.GroupTime, "Europe/Berlin", columns)
+		if err != nil {
+			t.Error(err)
+		}
+		if exported != actual {
+			t.Error("tablenames.ContinuousAggregateQuery diverges from getCAQuery. getCAQuery/ContinuousAggregateQuery\n", actual, "\n", exported)
 		}
 	})
 

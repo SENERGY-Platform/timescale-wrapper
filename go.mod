@@ -25,7 +25,6 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/swaggo/swag v1.16.6
-	github.com/umahmood/haversine v0.0.0-20151105152445-808ab04add26
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0

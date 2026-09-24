@@ -23,7 +23,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const wrapperMaterializedViewPrefix = "_wmv_"
+// the materialized view name prefix used to be defined here as wrapperMaterializedViewPrefix; it
+// moved to locate.MaterializedViewPrefix (via locate.ViewName) so that a caller outside this
+// module - the measures service - builds the same view name without depending on this package.
 const wrapperMaterializedViewProcedureName = "ts_wrapper_refresh_mat_view"
 
 type Wrapper struct {

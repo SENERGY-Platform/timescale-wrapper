@@ -18,9 +18,6 @@ package timescale
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -30,8 +27,10 @@ import (
 
 	"github.com/SENERGY-Platform/models/go/models"
 	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/locate"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tablenames"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -47,65 +46,28 @@ func quoteColumnName(name string) string {
 }
 
 // escapeSQLString escapes s for use inside a single quoted SQL string literal, without adding
-// the surrounding quotes.
+// the surrounding quotes. The implementation lives in pkg/tablenames, which also needs it and
+// must not import this package back, so this is a forwarder rather than a second copy.
 func escapeSQLString(s string) string {
-	s = strings.ReplaceAll(s, string([]byte{0}), "")
-	return strings.ReplaceAll(s, "'", "''")
+	return tablenames.EscapeSQLString(s)
 }
 
-// quoteSQLString renders s as a single quoted SQL string literal.
+// quoteSQLString renders s as a single quoted SQL string literal. See escapeSQLString for why
+// this forwards to pkg/tablenames instead of implementing it locally.
 func quoteSQLString(s string) string {
-	return "'" + escapeSQLString(s) + "'"
+	return tablenames.QuoteSQLString(s)
 }
 
-// filterValueLiteral renders a filter value as a SQL literal. Values may originate from a
-// request body or from a previous query (see CreateFiltersForImport), so unknown types are
+// filterValueLiteral forwards to pkg/locate; see escapeSQLString for why. Values may originate
+// from a request body or from a previous query (see CreateFiltersForImport), so unknown types are
 // rejected rather than printed with %v.
 func filterValueLiteral(value interface{}) (string, error) {
-	switch v := value.(type) {
-	case string:
-		return quoteSQLString(v), nil
-	case bool:
-		return strconv.FormatBool(v), nil
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64), nil
-	case float32:
-		return strconv.FormatFloat(float64(v), 'f', -1, 32), nil
-	case int:
-		return strconv.Itoa(v), nil
-	case int16:
-		return strconv.FormatInt(int64(v), 10), nil
-	case int32:
-		return strconv.FormatInt(int64(v), 10), nil
-	case int64:
-		return strconv.FormatInt(v, 10), nil
-	case json.Number:
-		if _, err := v.Float64(); err != nil {
-			return "", fmt.Errorf("invalid numeric filter value %v", v)
-		}
-		return v.String(), nil
-	default:
-		return "", fmt.Errorf("unsupported filter value type %T", value)
-	}
+	return locate.ValueLiteral(value)
 }
 
+// translateFunctionName forwards to pkg/tablenames; see escapeSQLString for why.
 func translateFunctionName(name string) string {
-	switch name {
-	case "mean":
-		return "avg("
-	case "median":
-		return "percentile_disc(0.5) WITHIN GROUP (ORDER BY "
-	case "time-weighted-mean-linear":
-		return "average(time_weight('Linear', \"time\", "
-	case "time-weighted-mean-locf":
-		return "average(time_weight('LOCF', \"time\", "
-	default:
-		if strings.HasPrefix(name, "difference") {
-			parts := strings.Split(name, "-")
-			return parts[1] + "("
-		}
-		return name + "("
-	}
+	return tablenames.TranslateFunctionName(name)
 }
 
 func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.QueriesRequestElement, userId string, ownerUserIds []string, forceTz string, devices []models.Device) (queries []string, err error) {
@@ -442,27 +404,22 @@ func getOrderLimitString(element model.QueriesRequestElement, group bool, overri
 	return
 }
 
+// tableName builds the hypertable name and, if a matching continuous aggregate view exists,
+// substitutes it. DeviceTableName, ExportTableName and the continuous-aggregate lookup itself
+// live in pkg/tablenames so a caller outside this module can reuse them without depending on the
+// wrapper's request types or its other, heavier dependencies; this method and getCAQuery are the
+// callers within this module.
 func (wrapper *Wrapper) tableName(ctx context.Context, element model.QueriesRequestElement, userId string, timezone string) (table string, err error) {
 	if element.ExportId != nil {
-		shortUserId, err := shortenId(userId)
+		table, err = tablenames.ExportTableName(userId, *element.ExportId)
 		if err != nil {
 			return "", err
 		}
-		shortExportId, err := shortenId(*element.ExportId)
-		if err != nil {
-			return "", err
-		}
-		table = "userid:" + shortUserId + "_" + "export:" + shortExportId
 	} else {
-		shortDeviceId, err := shortenId(*element.DeviceId)
+		table, err = tablenames.DeviceTableName(*element.DeviceId, *element.ServiceId)
 		if err != nil {
 			return "", err
 		}
-		shortServiceId, err := shortenId(*element.ServiceId)
-		if err != nil {
-			return "", err
-		}
-		table = "device:" + shortDeviceId + "_" + "service:" + shortServiceId
 	}
 	if element.GroupTime != nil && wrapper.pool != nil {
 		// check if CA View available
@@ -487,49 +444,22 @@ func (wrapper *Wrapper) tableName(ctx context.Context, element model.QueriesRequ
 
 }
 
-func shortenId(uuid string) (string, error) {
-	parts := strings.Split(uuid, ":")
-	noPrefix := parts[len(parts)-1]
-	noPrefix = strings.ReplaceAll(noPrefix, "-", "")
-	bytes, err := hex.DecodeString(noPrefix)
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(bytes), nil
-}
-
+// getCAQuery adapts an element's columns to tablenames.ContinuousAggregateColumn and delegates to
+// tablenames.ContinuousAggregateQuery. A column with a nil GroupType maps to the empty string,
+// which ContinuousAggregateQuery rejects the same way this function used to reject it directly.
 func getCAQuery(element model.QueriesRequestElement, table string, timezone string) (string, error) {
-	// timezone, table and column names are embedded in string literals, so single quotes have
-	// to be doubled
-	query := "SELECT view_name FROM (SELECT view_name, substring(view_definition, 'time_bucket\\((.*?)::interval, \"time\", ''" + escapeSQLString(timezone) + "''')::interval as bucket FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = " + quoteSQLString(table) + " "
-
-	for _, column := range element.Columns {
-		if column.GroupType == nil {
-			return table, errors.New("expected all columns to contain GroupType")
+	columns := make([]tablenames.ContinuousAggregateColumn, len(element.Columns))
+	for i, column := range element.Columns {
+		groupType := ""
+		if column.GroupType != nil {
+			groupType = *column.GroupType
 		}
-		if *column.GroupType == "mean" {
-			// not implemented
-			return table, errors.New("")
-		}
-		escapedName := escapeSQLString(column.Name)
-		query += "AND view_definition LIKE '%" + strings.ReplaceAll(translateFunctionName(*column.GroupType), "'", "''")
-		containsDot := strings.Contains(column.Name, ".")
-		if containsDot {
-			query += "\"" + escapedName + "\""
-		} else {
-			query += escapedName
-		}
-		query += ", \"time\") AS "
-		if containsDot {
-			query += "\"" + escapedName + "\""
-		} else {
-			query += escapedName
-		}
-		query += "%'"
+		columns[i] = tablenames.ContinuousAggregateColumn{Name: column.Name, GroupType: groupType}
 	}
-	query += ") sub WHERE bucket <= " + quoteSQLString(*element.GroupTime) + "::interval ORDER BY bucket DESC"
-	query += " LIMIT 1;"
-
+	query, err := tablenames.ContinuousAggregateQuery(table, *element.GroupTime, timezone, columns)
+	if err != nil {
+		return table, err
+	}
 	return query, nil
 }
 
