@@ -18,7 +18,6 @@ package model
 
 type QueriesV2ResponseElement struct {
 	RequestIndex int               `json:"requestIndex"`
-	SelIdx       int               `json:"-"`
 	Data         [][][]interface{} `json:"data"`
 	DeviceId     *string           `json:"deviceId,omitempty"`
 	ServiceId    *string           `json:"serviceId,omitempty"`

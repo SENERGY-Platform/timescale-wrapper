@@ -160,7 +160,6 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			i := i
 			dbRequestElement := dbRequestElement
 			columnMatch := map[int]struct {
-				selIdx int
 				colIdx int
 				elem   *model.QueriesRequestElement
 			}{}
@@ -207,11 +206,9 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 							OrderDirection:   dbRequestElement.OrderDirection,
 						}
 						columnMatch[len(dbRequestElements)] = struct {
-							selIdx int
 							colIdx int
 							elem   *model.QueriesRequestElement
 						}{
-							selIdx: 0,
 							colIdx: colIdx,
 							elem:   &elem,
 						}
@@ -262,7 +259,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 							raiseError(errors.Join(err, model.GetError(code)))
 							return
 						}
-						for selIdx, selectable := range selectables {
+						for _, selectable := range selectables {
 							if !slices.Contains(deviceIds, selectable.Device.Id) {
 								continue //ensures only correctly modified device ids included
 							}
@@ -292,11 +289,9 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 									OrderDirection:   dbRequestElement.OrderDirection,
 								}
 								columnMatch[len(dbRequestElements)] = struct {
-									selIdx int
 									colIdx int
 									elem   *model.QueriesRequestElement
 								}{
-									selIdx: selIdx,
 									colIdx: colIdx,
 									elem:   &elem,
 								}
@@ -359,38 +354,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 							Data:         [][][]interface{}{subResponseCasted[j]},
 						})
 					} else {
-						found := false
-						respIdx := 0
-						var respElem model.QueriesV2ResponseElement
-						for k, r := range response {
-							if r.RequestIndex == dbRequestIndices[i] && r.SelIdx == columnMatch[j].selIdx {
-								found = true
-								respElem = r
-								respIdx = k
-								break
-							}
-						}
-						if !found {
-							columnNames := []string{}
-							for _, col := range columnMatch[j].elem.Columns {
-								columnNames = append(columnNames, col.Name)
-							}
-							respElem = model.QueriesV2ResponseElement{
-								RequestIndex: dbRequestIndices[i],
-								DeviceId:     columnMatch[j].elem.DeviceId,
-								ServiceId:    columnMatch[j].elem.ServiceId,
-								ExportId:     columnMatch[j].elem.ExportId,
-								ColumnNames:  columnNames,
-								Data:         [][][]interface{}{},
-							}
-							respIdx = len(response)
-							response = append(response, respElem)
-						}
-						for len(respElem.Data) <= columnMatch[j].colIdx {
-							respElem.Data = append(respElem.Data, [][]interface{}{})
-						}
-						respElem.Data[columnMatch[j].colIdx] = subResponseCasted[j]
-						response[respIdx] = respElem
+						response = mergeQueriesV2Series(response, dbRequestIndices[i], columnMatch[j].elem, columnMatch[j].colIdx, subResponseCasted[j])
 					}
 				}
 			}()
@@ -414,4 +378,43 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		}
 	})
 
+}
+
+// mergeQueriesV2Series files the time series of one sub query under the
+// response element of its request element, device, service and export, at the
+// position of the requested column. Each device of a group thus gets one
+// element per matching service. The index of the device in the selectables is
+// no key: all services of a device share it, and it differs between columns
+// because each column selects with its own criteria.
+func mergeQueriesV2Series(response []model.QueriesV2ResponseElement, requestIndex int, elem *model.QueriesRequestElement, colIdx int, series [][]interface{}) []model.QueriesV2ResponseElement {
+	respIdx := slices.IndexFunc(response, func(r model.QueriesV2ResponseElement) bool {
+		return r.RequestIndex == requestIndex && equalPtr(r.DeviceId, elem.DeviceId) && equalPtr(r.ServiceId, elem.ServiceId) && equalPtr(r.ExportId, elem.ExportId)
+	})
+	if respIdx == -1 {
+		columnNames := []string{}
+		for _, col := range elem.Columns {
+			columnNames = append(columnNames, col.Name)
+		}
+		respIdx = len(response)
+		response = append(response, model.QueriesV2ResponseElement{
+			RequestIndex: requestIndex,
+			DeviceId:     elem.DeviceId,
+			ServiceId:    elem.ServiceId,
+			ExportId:     elem.ExportId,
+			ColumnNames:  columnNames,
+			Data:         [][][]interface{}{},
+		})
+	}
+	for len(response[respIdx].Data) <= colIdx {
+		response[respIdx].Data = append(response[respIdx].Data, [][]interface{}{})
+	}
+	response[respIdx].Data[colIdx] = series
+	return response
+}
+
+func equalPtr[T comparable](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
