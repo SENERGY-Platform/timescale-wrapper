@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/SENERGY-Platform/device-repository/lib/api"
@@ -44,7 +45,7 @@ import (
 )
 
 type RemoteCache struct {
-	mc              *memcache.Client
+	mc              atomic.Pointer[memcache.Client] // replaced by initMemcached while other requests use it
 	config          configuration.Config
 	deviceRepo      api.Controller
 	deviceSelection deviceSelection.Client
@@ -68,7 +69,7 @@ func (lv *RemoteCache) initMemcached(ctx context.Context) {
 	_, span := lv.tracer.Start(ctx, "RemoteCache.initMemcached")
 	defer span.End()
 	log.Logger.Info("(Re-)init memcached Client")
-	lv.mc = memcache.New(lv.config.MemcachedUrls...)
+	lv.mc.Store(memcache.New(lv.config.MemcachedUrls...))
 }
 
 func (lv *RemoteCache) GetLastValuesFromCache(ctx context.Context, request model.QueriesRequestElement, forceTZ *string) ([][]interface{}, error) {
@@ -181,7 +182,7 @@ func (this *RemoteCache) StoreSecretQuery(ctx context.Context, query model.Prepa
 		return "", err
 	}
 	uid := uuid.NewString()
-	err = this.mc.Set(&memcache.Item{ //not using mcSet to ensure error propagates
+	err = this.mc.Load().Set(&memcache.Item{ //not using mcSet to ensure error propagates
 		Key:        "secretquery_" + uid,
 		Value:      bytes,
 		Expiration: 30,
@@ -197,7 +198,7 @@ func (this *RemoteCache) GetSecretQuery(ctx context.Context, secret string) (que
 	if err != nil {
 		return query, err
 	}
-	err = this.mc.Delete("secretquery_" + secret)
+	err = this.mc.Load().Delete("secretquery_" + secret)
 	if err != nil {
 		return query, err
 	}
@@ -367,10 +368,10 @@ func (this *RemoteCache) GetSelectables(ctx context.Context, userid string, toke
 func (rc *RemoteCache) mcSet(ctx context.Context, item *memcache.Item) {
 	ctx, span := rc.tracer.Start(ctx, "RemoteCache.mcSet")
 	defer span.End()
-	err := rc.mc.Set(item)
+	err := rc.mc.Load().Set(item)
 	if err != nil {
 		rc.initMemcached(ctx)
-		err := rc.mc.Set(item)
+		err := rc.mc.Load().Set(item)
 		if err != nil {
 			log.Logger.Warn("mc set failed", attributes.ErrorKey, err)
 		}
@@ -380,10 +381,10 @@ func (rc *RemoteCache) mcSet(ctx context.Context, item *memcache.Item) {
 func (rc *RemoteCache) mcGet(ctx context.Context, key string) (item *memcache.Item, err error) {
 	ctx, span := rc.tracer.Start(ctx, "RemoteCache.mcGet")
 	defer span.End()
-	item, err = rc.mc.Get(key)
+	item, err = rc.mc.Load().Get(key)
 	if err != nil && err != memcache.ErrCacheMiss && err != memcache.ErrCASConflict && err != memcache.ErrNotStored && err != memcache.ErrServerError && err != memcache.ErrNoStats && err != memcache.ErrMalformedKey {
 		rc.initMemcached(ctx)
-		item, err = rc.mc.Get(key)
+		item, err = rc.mc.Load().Get(key)
 		if err != nil {
 			log.Logger.Warn("mc get failed", attributes.ErrorKey, err)
 		}

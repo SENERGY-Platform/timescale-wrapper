@@ -17,9 +17,14 @@
 package cache
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
+	"sync"
 	"testing"
+
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 )
 
 func TestDeepEntryInLists(t *testing.T) {
@@ -50,4 +55,20 @@ func TestDeepEntryInLists(t *testing.T) {
 		t.Errorf("unexpected value %v != %v", value, expected)
 		return
 	}
+}
+
+// A failed memcached call replaces the client while other requests use it.
+// Only meaningful with -race.
+func TestConcurrentMemcachedReinit(t *testing.T) {
+	log.InitForTest()
+	rc := NewRemote(&configuration.ConfigStruct{MemcachedUrls: []string{"127.0.0.1:1"}}, nil, nil) // nothing listens, every call fails
+	wg := sync.WaitGroup{}
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = rc.GetLastMessageFromCache(context.Background(), "device", "service")
+		}()
+	}
+	wg.Wait()
 }
