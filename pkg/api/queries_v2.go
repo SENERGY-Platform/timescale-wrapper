@@ -146,7 +146,6 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		elementCtx := tracing.SuppressChildren(queryGenCtx, config.DetailedTracing)
 		mux := sync.Mutex{}
 		wg := sync.WaitGroup{}
-		devices := []models.Device{}
 		var raisedErr error
 		raiseError := func(err error) {
 			mux.Lock()
@@ -154,7 +153,6 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			raisedErr = errors.Join(raisedErr, err)
 		}
 		token := getToken(request)
-		ownerUserIds := []string{}
 		for i, dbRequestElement := range dbRequestElementsBefore {
 			wg.Add(1)
 			i := i
@@ -166,6 +164,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			go func() {
 				defer wg.Done()
 				dbRequestElements := []model.QueriesRequestElement{}
+				devices := []models.Device{}
 				if dbRequestElement.DeviceGroupId == nil && dbRequestElement.LocationId == nil {
 					for colIdx, col := range dbRequestElement.Columns {
 						filters := []model.QueriesRequestElementFilter{}
@@ -188,9 +187,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 								raiseError(errors.Join(err, model.ErrInternalServerError))
 								return
 							}
-							mux.Lock()
 							devices = append(devices, device)
-							mux.Unlock()
 						}
 
 						elem := model.QueriesRequestElement{
@@ -212,10 +209,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 							colIdx: colIdx,
 							elem:   &elem,
 						}
-						mux.Lock()
 						dbRequestElements = append(dbRequestElements, elem)
-						ownerUserIds = append(ownerUserIds, ownerUserIdsBefore[dbRequestIndices[i]])
-						mux.Unlock()
 					}
 				} else {
 					deviceGroupIds := []string{}
@@ -295,15 +289,13 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 									colIdx: colIdx,
 									elem:   &elem,
 								}
-								mux.Lock()
 								dbRequestElements = append(dbRequestElements, elem)
-								ownerUserIds = append(ownerUserIds, ownerUserIdsBefore[dbRequestIndices[i]])
-								mux.Unlock()
 							}
 						}
 					}
 				}
 
+				ownerUserIds := slices.Repeat([]string{ownerUserIdsBefore[dbRequestIndices[i]]}, len(dbRequestElements))
 				queries, err := wrapper.GenerateQueries(elementCtx, dbRequestElements, userId, ownerUserIds, forceTz, devices)
 				if err != nil {
 					raiseError(errors.Join(err, model.ErrInternalServerError))
