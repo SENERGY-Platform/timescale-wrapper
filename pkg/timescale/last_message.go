@@ -42,7 +42,7 @@ func (wrapper *Wrapper) GetLastMessage(ctx context.Context, deviceId string, ser
 		return entry, err
 	}
 	var rawValues string
-	err = wrapper.pool.QueryRow(ctx, "select to_json(r) from (select * from \"device:"+shortDeviceId+"_service:"+shortServiceId+"\" order by time desc limit 1) r;").Scan(&rawValues)
+	err = wrapper.readPool.QueryRow(ctx, "select to_json(r) from (select * from \"device:"+shortDeviceId+"_service:"+shortServiceId+"\" order by time desc limit 1) r;").Scan(&rawValues)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return entry, model.ErrNoContent

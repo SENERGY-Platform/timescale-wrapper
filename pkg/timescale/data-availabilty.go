@@ -48,7 +48,7 @@ func (wrapper *Wrapper) GetDataAvailability(ctx context.Context, deviceId string
 		return nil, err
 	}
 	tablePrefix := "device:" + shortDeviceId + "_"
-	rows, err := wrapper.pool.Query(ctx, "SELECT view_name, view_definition FROM timescaledb_information.continuous_aggregates WHERE hypertable_name LIKE '"+tablePrefix+"%';")
+	rows, err := wrapper.readPool.Query(ctx, "SELECT view_name, view_definition FROM timescaledb_information.continuous_aggregates WHERE hypertable_name LIKE '"+tablePrefix+"%';")
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (wrapper *Wrapper) GetDataAvailability(ctx context.Context, deviceId string
 	}
 	rows.Close()
 
-	rows, err = wrapper.pool.Query(ctx, "SELECT table_name FROM information_schema.tables WHERE table_name ~ '"+tablePrefix+"service:.{22}$';")
+	rows, err = wrapper.readPool.Query(ctx, "SELECT table_name FROM information_schema.tables WHERE table_name ~ '"+tablePrefix+"service:.{22}$';")
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (wrapper *Wrapper) parseDataAvailability(ctx context.Context, viewTableName
 	}
 
 	quotedViewTableName := quoteIdentifier(viewTableName) // read from the database
-	subRows, err := wrapper.pool.Query(ctx, fmt.Sprintf("(SELECT time from %s ORDER BY time ASC LIMIT 1) UNION ALL (SELECT time from %s ORDER BY time DESC LIMIT 1);", quotedViewTableName, quotedViewTableName))
+	subRows, err := wrapper.readPool.Query(ctx, fmt.Sprintf("(SELECT time from %s ORDER BY time ASC LIMIT 1) UNION ALL (SELECT time from %s ORDER BY time DESC LIMIT 1);", quotedViewTableName, quotedViewTableName))
 	if err != nil {
 		return nil, err
 	}

@@ -78,7 +78,7 @@ func TestDifferenceQueriesAgainstDatabase(t *testing.T) {
 	dl := "difference-last"
 	last := "last"
 
-	wrapper := &Wrapper{config: &configuration.ConfigStruct{DefaultTimezone: dbTestTimezone}, pool: pool}
+	wrapper := &Wrapper{config: &configuration.ConfigStruct{DefaultTimezone: dbTestTimezone}, readPool: pool}
 
 	// reference values, read back bucket by bucket with plain aggregates instead of window functions
 	buckets := []time.Time{}
@@ -327,7 +327,7 @@ func TestDifferenceQueriesIgnoreJoinStrategy(t *testing.T) {
 		},
 	}}
 
-	wrapper := &Wrapper{config: &configuration.ConfigStruct{DefaultTimezone: dbTestTimezone}, pool: pool}
+	wrapper := &Wrapper{config: &configuration.ConfigStruct{DefaultTimezone: dbTestTimezone}, readPool: pool}
 	queries, err := wrapper.GenerateQueries(ctx, elements, "", []string{""}, dbTestTimezone, []models.Device{})
 	if err != nil {
 		t.Fatal(err)

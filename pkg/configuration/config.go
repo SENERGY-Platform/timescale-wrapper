@@ -63,6 +63,19 @@ type ConfigStruct struct {
 	// Zero or negative falls back to timescale.DefaultMaxConns rather than
 	// reaching pgxpool, which panics below one.
 	PostgresMaxConns int64 `json:"postgres_max_conns"`
+
+	// PostgresReadHost opens a second pool for everything that only reads,
+	// typically a service spreading over the replicas of the database. The
+	// connection above stays the one that writes: the materialized views and
+	// refresh jobs of the locate import, and the job cleanup at startup.
+	//
+	// Empty keeps reads on the write connection, which is what every
+	// deployment does until it names a host here. PostgresReadUser and
+	// PostgresReadPw fall back to PostgresUser and PostgresPw one by one; port,
+	// database and PostgresMaxConns are shared with the write connection.
+	PostgresReadHost string `json:"postgres_read_host"`
+	PostgresReadUser string `json:"postgres_read_user" config:"secret"`
+	PostgresReadPw   string `json:"postgres_read_pw" config:"secret"`
 }
 
 type Config = *ConfigStruct

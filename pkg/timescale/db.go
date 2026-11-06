@@ -24,6 +24,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tracing"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -62,8 +63,13 @@ func (wrapper *Wrapper) ExecuteQueries(ctx context.Context, queries []string) (r
 	return
 }
 
+// ExecuteQuery runs query on the read connection.
 func (wrapper *Wrapper) ExecuteQuery(ctx context.Context, query string) (res [][]interface{}, err error) {
-	rows, err := wrapper.pool.Query(ctx, query)
+	return executeQuery(ctx, wrapper.readPool, query)
+}
+
+func executeQuery(ctx context.Context, pool *pgxpool.Pool, query string) (res [][]interface{}, err error) {
+	rows, err := pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}

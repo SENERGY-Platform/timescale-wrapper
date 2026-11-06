@@ -17,6 +17,7 @@
 package timescale
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
@@ -65,18 +66,38 @@ func MaxConns(config configuration.Config) int32 {
 func NewWrapper(ctx context.Context, wg *sync.WaitGroup, config configuration.Config) (wrapper *Wrapper, err error) {
 	servingClient := serving.New(config.ServingUrl)
 	importRepoClient := importRepo.NewClient(config.ImportRepoUrl)
-	baseDsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
-		url.QueryEscape(config.PostgresUser),
-		url.QueryEscape(config.PostgresPw),
-		config.PostgresHost,
-		config.PostgresPort,
-		url.PathEscape(config.PostgresDb),
-	)
-	poolConfig, err := pgxpool.ParseConfig(baseDsn)
+	otelx.GinOpenTelemetry(ctx, "timescale-wrapper", "") // Initialize OpenTelemetry with default settings. Required for otelpgx
+
+	writePool, err := newPool(ctx, wg, config, config.PostgresHost, config.PostgresUser, config.PostgresPw)
 	if err != nil {
 		return nil, err
 	}
-	otelx.GinOpenTelemetry(ctx, "timescale-wrapper", "") // Initialize OpenTelemetry with default settings. Required for otelpgx
+	readPool := writePool
+	if config.PostgresReadHost != "" {
+		readPool, err = newPool(ctx, wg, config, config.PostgresReadHost,
+			cmp.Or(config.PostgresReadUser, config.PostgresUser),
+			cmp.Or(config.PostgresReadPw, config.PostgresPw))
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &Wrapper{config: config, writePool: writePool, readPool: readPool, servingClient: servingClient, importRepoClient: importRepoClient}, nil
+}
+
+// newPool opens a pool against host with the port, database and pool size of config, and closes
+// it when ctx ends.
+func newPool(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, host, user, pw string) (*pgxpool.Pool, error) {
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
+		url.QueryEscape(user),
+		url.QueryEscape(pw),
+		host,
+		config.PostgresPort,
+		url.PathEscape(config.PostgresDb),
+	)
+	poolConfig, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
 	poolConfig.ConnConfig.Tracer = otelpgx.NewTracer()
 	poolConfig.MaxConns = MaxConns(config)
 
@@ -90,7 +111,7 @@ func NewWrapper(ctx context.Context, wg *sync.WaitGroup, config configuration.Co
 		pool.Close()
 		wg.Done()
 	}()
-	return &Wrapper{config: config, pool: pool, servingClient: servingClient, importRepoClient: importRepoClient}, nil
+	return pool, nil
 }
 
 func (wrapper *Wrapper) Migrate(ctx context.Context) error {

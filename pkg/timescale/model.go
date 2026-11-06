@@ -29,8 +29,13 @@ import (
 const wrapperMaterializedViewProcedureName = "ts_wrapper_refresh_mat_view"
 
 type Wrapper struct {
-	config           configuration.Config
-	pool             *pgxpool.Pool
+	config configuration.Config
+	// writePool serves only the statements that change the database: the materialized views and
+	// refresh jobs of the locate import and the job cleanup at startup. Everything else goes
+	// through readPool, which may point at a replica. Without configuration.PostgresReadHost both
+	// are the same pool.
+	writePool        *pgxpool.Pool
+	readPool         *pgxpool.Pool
 	importRepoClient importRepo.Interface
 	servingClient    *serving.Client
 }

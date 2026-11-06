@@ -40,7 +40,7 @@ func (wrapper *Wrapper) GetDeviceUsage(ctx context.Context, deviceIds []string) 
 		shortDeviceIds = append(shortDeviceIds, "'"+shortId+"'")
 	}
 
-	rows, err := wrapper.pool.Query(ctx, fmt.Sprintf("SELECT substring(\"table\", 8, 22) as short_device_id, sum(bytes), min(updated_at), sum(bytes_per_day) FROM %v.usage WHERE substring(\"table\", 8, 22) IN (%v) GROUP BY short_device_id", wrapper.config.PostgresUsageSchema, strings.Join(shortDeviceIds, ", ")))
+	rows, err := wrapper.readPool.Query(ctx, fmt.Sprintf("SELECT substring(\"table\", 8, 22) as short_device_id, sum(bytes), min(updated_at), sum(bytes_per_day) FROM %v.usage WHERE substring(\"table\", 8, 22) IN (%v) GROUP BY short_device_id", wrapper.config.PostgresUsageSchema, strings.Join(shortDeviceIds, ", ")))
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (wrapper *Wrapper) GetExportUsage(ctx context.Context, exportIds []string) 
 		shortExportIds = append(shortExportIds, "'"+shortId+"'")
 	}
 
-	rows, err := wrapper.pool.Query(ctx, fmt.Sprintf("SELECT substring(\"table\", 38, 60) as short_export_id, bytes, updated_at, bytes_per_day FROM %v.usage WHERE substring(\"table\", 38, 60) IN (%v)", wrapper.config.PostgresUsageSchema, strings.Join(shortExportIds, ", ")))
+	rows, err := wrapper.readPool.Query(ctx, fmt.Sprintf("SELECT substring(\"table\", 38, 60) as short_export_id, bytes, updated_at, bytes_per_day FROM %v.usage WHERE substring(\"table\", 38, 60) IN (%v)", wrapper.config.PostgresUsageSchema, strings.Join(shortExportIds, ", ")))
 	if err != nil {
 		return nil, err
 	}

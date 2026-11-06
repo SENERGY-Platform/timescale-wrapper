@@ -421,7 +421,7 @@ func (wrapper *Wrapper) tableName(ctx context.Context, element model.QueriesRequ
 			return "", err
 		}
 	}
-	if element.GroupTime != nil && wrapper.pool != nil {
+	if element.GroupTime != nil && wrapper.readPool != nil {
 		// check if CA View available
 		query, err := getCAQuery(element, table, timezone)
 		if err != nil {
@@ -433,7 +433,7 @@ func (wrapper *Wrapper) tableName(ctx context.Context, element model.QueriesRequ
 		if wrapper.config.Debug {
 			log.Logger.DebugContext(ctx, "Checking for CA View with: "+query)
 		}
-		err = wrapper.pool.QueryRow(ctx, query).Scan(&caTable)
+		err = wrapper.readPool.QueryRow(ctx, query).Scan(&caTable)
 		if err == nil {
 			return caTable, nil
 		} else {

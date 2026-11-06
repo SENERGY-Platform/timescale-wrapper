@@ -117,22 +117,25 @@ func (wrapper *Wrapper) CreateFiltersForImport(ctx context.Context, exportId str
 		log.Logger.DebugContext(ctx, "Querying export of import locations with: "+query)
 	}
 	table, err := wrapper.ExecuteQuery(ctx, query)
+	if isUndefinedTable(err) {
+		// From here on only the write connection answers. A replica behind the read connection
+		// lags the primary: it may not have the view yet although another instance of this
+		// service has just created it, and creating it a second time fails with duplicate_table.
+		// Nor would it have the view this call is about to create.
+		table, err = executeQuery(ctx, wrapper.writePool, query)
+		if isUndefinedTable(err) {
+			if wrapper.config.Debug {
+				log.Logger.DebugContext(ctx, fmt.Sprintf("DEBUG: setting up materialized view for table %v", tableName))
+			}
+			err = wrapper.setupMaterializedRefreshJob(ctx, identifierPathTs, latPathTs, lonPathTs, tableName)
+			if err != nil {
+				return nil, err
+			}
+			table, err = executeQuery(ctx, wrapper.writePool, query)
+		}
+	}
 	if err != nil {
-		err2, ok := err.(*pgconn.PgError)
-		if !ok || err2.Code != pgerrcode.UndefinedTable {
-			return nil, err
-		}
-		if wrapper.config.Debug {
-			log.Logger.DebugContext(ctx, fmt.Sprintf("DEBUG: setting up materialized view for table %v", tableName))
-		}
-		err = wrapper.setupMaterializedRefreshJob(ctx, identifierPathTs, latPathTs, lonPathTs, tableName)
-		if err != nil {
-			return nil, err
-		}
-		table, err = wrapper.ExecuteQuery(ctx, query)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	if len(table) == 0 {
@@ -172,6 +175,11 @@ func (wrapper *Wrapper) CreateFiltersForImport(ctx context.Context, exportId str
 
 }
 
+func isUndefinedTable(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UndefinedTable
+}
+
 type findImportTypeContentVariableSearchOptions struct {
 	identifiesMeasurement bool   // can only use one at a time
 	characteristicId      string // can only use one at a time
@@ -199,7 +207,7 @@ func findImportTypeContentVariable(content importModel.ContentVariable, find fin
 }
 
 func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identifierPathTs, latPathTs, lonPathTs, tableName string) error {
-	_, err := wrapper.pool.Exec(ctx, "CREATE OR REPLACE PROCEDURE "+wrapperMaterializedViewProcedureName+`(job_id INT, view JSONB) LANGUAGE PLPGSQL
+	_, err := wrapper.writePool.Exec(ctx, "CREATE OR REPLACE PROCEDURE "+wrapperMaterializedViewProcedureName+`(job_id INT, view JSONB) LANGUAGE PLPGSQL
 		AS $$
 		BEGIN
 			EXECUTE format('REFRESH MATERIALIZED VIEW %s', view);
@@ -209,7 +217,7 @@ func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identif
 	if err != nil {
 		return err
 	}
-	_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW %v AS SELECT DISTINCT %v, %v, %v FROM %v",
+	_, err = wrapper.writePool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW %v AS SELECT DISTINCT %v, %v, %v FROM %v",
 		quoteIdentifier(locate.ViewName(tableName)), quoteIdentifier(identifierPathTs),
 		quoteIdentifier(latPathTs), quoteIdentifier(lonPathTs), quoteIdentifier(tableName)))
 	if err != nil {
@@ -219,7 +227,7 @@ func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identif
 	if err != nil {
 		return err
 	}
-	_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("SELECT add_job('ts_wrapper_refresh_mat_view', '1day', config => %v);",
+	_, err = wrapper.writePool.Exec(ctx, fmt.Sprintf("SELECT add_job('ts_wrapper_refresh_mat_view', '1day', config => %v);",
 		quoteSQLString(string(config))))
 	if err != nil {
 		return err
@@ -228,7 +236,7 @@ func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identif
 }
 
 func (wrapper *Wrapper) removeOutdatedMaterializedRefreshJobs(ctx context.Context) error {
-	rows, err := wrapper.pool.Query(ctx, fmt.Sprintf("SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = '%v' AND config::text NOT IN (SELECT '\"' || table_name || '\"' FROM information_schema.tables);", wrapperMaterializedViewProcedureName))
+	rows, err := wrapper.writePool.Query(ctx, fmt.Sprintf("SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = '%v' AND config::text NOT IN (SELECT '\"' || table_name || '\"' FROM information_schema.tables);", wrapperMaterializedViewProcedureName))
 	if err != nil {
 		return err
 	}
@@ -244,7 +252,7 @@ func (wrapper *Wrapper) removeOutdatedMaterializedRefreshJobs(ctx context.Contex
 			log.Logger.DebugContext(ctx, fmt.Sprintf("DEBUG: Deleting job for materialized view refresh %v (no longer needed)", jobId))
 		}
 
-		_, err = wrapper.pool.Exec(ctx, fmt.Sprintf("SELECT delete_job(%v);", jobId))
+		_, err = wrapper.writePool.Exec(ctx, fmt.Sprintf("SELECT delete_job(%v);", jobId))
 		if err != nil {
 			return err
 		}
