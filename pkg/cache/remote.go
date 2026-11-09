@@ -410,7 +410,13 @@ func getDeepEntry(m map[string]interface{}, path string) interface{} {
 				log.Logger.Warn(fmt.Sprintf("Could not extract index of list with index %#v", elem))
 				return nil
 			}
+			if n < 0 || n >= len(child) {
+				return nil
+			}
 			sub = child[n]
+		default:
+			// the path continues below a scalar
+			return nil
 		}
 	}
 	return sub

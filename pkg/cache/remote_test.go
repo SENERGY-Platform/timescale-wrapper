@@ -57,6 +57,35 @@ func TestDeepEntryInLists(t *testing.T) {
 	}
 }
 
+// Index paths come from the request. An index outside the list used to panic inside a
+// goroutine, and a path continuing below a scalar returned the scalar.
+func TestDeepEntryBounds(t *testing.T) {
+	log.InitForTest()
+	var entry Entry
+	err := json.Unmarshal([]byte(`{"time":"1970-01-01T00:00:13Z","value":{"root":{"level":42,"list":[{"a":1},{"a":2}],"empty":[]}}}`), &entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, expected := range map[string]interface{}{
+		"root.list.0.a":       float64(1),
+		"root.list.1.a":       float64(2),
+		"root.list.2.a":       nil,
+		"root.list.2":         nil,
+		"root.list.-1":        nil,
+		"root.list.-1.a":      nil,
+		"root.list.x":         nil,
+		"root.empty.0":        nil,
+		"root.level.a":        nil,
+		"root.level.0":        nil,
+		"root.list.0.a.b":     nil,
+		"root.list.0.missing": nil,
+	} {
+		if value := getDeepEntry(entry.Value, path); !reflect.DeepEqual(value, expected) {
+			t.Errorf("%s: unexpected value %#v != %#v", path, value, expected)
+		}
+	}
+}
+
 // A failed memcached call replaces the client while other requests use it.
 // Only meaningful with -race.
 func TestConcurrentMemcachedReinit(t *testing.T) {
