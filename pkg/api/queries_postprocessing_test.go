@@ -218,3 +218,59 @@ func TestPostProcessing(t *testing.T) {
 		})
 	})
 }
+
+// The join used to find the matching row of a later series by binary search and returned its
+// neighbour whenever the timestamp was not the first of the array, so a series with timestamps
+// the first series lacks got its values shifted onto the wrong rows.
+func TestFormatResponseAsTableJoin(t *testing.T) {
+	t.Parallel()
+	one, two := "1", "2"
+	request := []model.QueriesRequestElement{
+		{ExportId: &one, Columns: []model.QueriesRequestElementColumn{{Name: one}}},
+		{ExportId: &two, Columns: []model.QueriesRequestElementColumn{{Name: two}}},
+	}
+	base, _ := time.Parse(time.RFC3339, "2022-12-06T06:00:00Z")
+	at := func(minute int) time.Time { return base.Add(time.Duration(minute) * time.Minute) }
+
+	t.Run("timestamps missing in the first series", func(t *testing.T) {
+		t.Parallel()
+		data := [][][]interface{}{
+			{{at(4), 4}, {at(2), 2}, {at(0), 0}},
+			{{at(4), 104}, {at(3), 103}, {at(2), 102}, {at(1), 101}, {at(0), 100}},
+		}
+		response, err := formatResponse(context.Background(), nil, model.Table, request, data, 0, model.Asc, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := [][]interface{}{
+			{at(0), 0, 100},
+			{at(1), nil, 101},
+			{at(2), 2, 102},
+			{at(3), nil, 103},
+			{at(4), 4, 104},
+		}
+		if !reflect.DeepEqual(response, expected) {
+			t.Errorf("unexpected result %v", response)
+		}
+	})
+
+	t.Run("equal timestamps pair up in order", func(t *testing.T) {
+		t.Parallel()
+		data := [][][]interface{}{
+			{{at(0), 1}, {at(0), 2}},
+			{{at(0), 10}, {at(0), 20}, {at(0), 30}},
+		}
+		response, err := formatResponse(context.Background(), nil, model.Table, request, data, 1, model.Asc, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := [][]interface{}{
+			{at(0), nil, 30},
+			{at(0), 1, 10},
+			{at(0), 2, 20},
+		}
+		if !reflect.DeepEqual(response, expected) {
+			t.Errorf("unexpected result %v", response)
+		}
+	})
+}

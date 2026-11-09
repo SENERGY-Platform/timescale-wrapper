@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -153,6 +152,14 @@ func formatResponse(ctx context.Context, remoteCache *cache.RemoteCache, f model
 	}
 }
 
+// formatResponseAsTable joins the series into one table with a row per timestamp: column 0 is the
+// time, then the columns of every request element in order. A row of an earlier series takes the
+// first row of each later series with the same timestamp, rows with the same timestamp within a
+// series pair up in their order. Rows without any value are dropped.
+//
+// The rows of the later series are looked up in a map per series instead of by binary search
+// with a re-sort after every match, which made the join quadratic in the number of rows and let
+// requests over a few days run into the gateway timeout (SNRGY-1722).
 func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]interface{}, orderColumnIndex int, orderDirection model.Direction, conv *converter.Converter, sourceCharacteristicIds map[int]map[int]*string, extensions map[int]map[int][]models.ConverterExtension) (formatted [][]interface{}, err error) {
 	totalColumns := 1
 	baseIndex := map[int]int{}
@@ -161,8 +168,35 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 		totalColumns += len(element.Columns)
 	}
 
+	convert := func(seriesIndex int, seriesColumnIndex int, point interface{}) (interface{}, error) {
+		column := request[seriesIndex].Columns[seriesColumnIndex]
+		source := sourceCharacteristicIds[seriesIndex][seriesColumnIndex]
+		if column.TargetCharacteristicId == nil || source == nil || *source == *column.TargetCharacteristicId {
+			return point, nil
+		}
+		return conv.CastWithExtension(point, *source, *column.TargetCharacteristicId, extensions[seriesIndex][seriesColumnIndex])
+	}
+
+	// row indices per timestamp of every series, in row order; consumed tracks rows that were
+	// already joined into a row of an earlier series
+	rowsByTime := make([]map[int64][]int, len(data))
+	consumed := make([][]bool, len(data))
+	for seriesIndex := range data {
+		rowsByTime[seriesIndex] = map[int64][]int{}
+		consumed[seriesIndex] = make([]bool, len(data[seriesIndex]))
+		for rowIndex, row := range data[seriesIndex] {
+			if timestamp, ok := row[0].(time.Time); ok {
+				key := timestamp.UnixNano()
+				rowsByTime[seriesIndex][key] = append(rowsByTime[seriesIndex][key], rowIndex)
+			}
+		}
+	}
+
 	for seriesIndex := range data {
 		for rowIndex := range data[seriesIndex] {
+			if consumed[seriesIndex][rowIndex] {
+				continue
+			}
 			formattedRow := make([]interface{}, totalColumns)
 			formattedRow[0] = data[seriesIndex][rowIndex][0]
 			if formattedRow[0] == nil { // no data in series
@@ -170,53 +204,39 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 			}
 			anyData := false
 			for seriesColumnIndex := range request[seriesIndex].Columns {
-				point := data[seriesIndex][rowIndex][seriesColumnIndex+1]
-				if request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId != nil &&
-					sourceCharacteristicIds[seriesIndex][seriesColumnIndex] != nil &&
-					*sourceCharacteristicIds[seriesIndex][seriesColumnIndex] != *request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId {
-					point, err = conv.CastWithExtension(point, *sourceCharacteristicIds[seriesIndex][seriesColumnIndex],
-						*request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId, extensions[seriesIndex][seriesColumnIndex])
-					if err != nil {
-						return nil, err
-					}
+				point, err := convert(seriesIndex, seriesColumnIndex, data[seriesIndex][rowIndex][seriesColumnIndex+1])
+				if err != nil {
+					return nil, err
 				}
 				if point != nil {
 					formattedRow[baseIndex[seriesIndex]+seriesColumnIndex] = point
 					anyData = true
 				}
 			}
-			for subSeriesIndex := range data {
-				if subSeriesIndex <= seriesIndex {
-					continue
-				}
-				timestamp, ok := data[seriesIndex][rowIndex][0].(time.Time)
-				if !ok {
-					continue
-				}
-				subRowIndex, ok := findFirstElementIndex(data[subSeriesIndex], timestamp, 0, len(data[subSeriesIndex])-1)
-				if ok {
+			timestamp, ok := data[seriesIndex][rowIndex][0].(time.Time)
+			if ok {
+				key := timestamp.UnixNano()
+				for subSeriesIndex := seriesIndex + 1; subSeriesIndex < len(data); subSeriesIndex++ {
+					candidates := rowsByTime[subSeriesIndex][key]
+					for len(candidates) > 0 && consumed[subSeriesIndex][candidates[0]] {
+						candidates = candidates[1:]
+					}
+					rowsByTime[subSeriesIndex][key] = candidates
+					if len(candidates) == 0 {
+						continue
+					}
+					subRowIndex := candidates[0]
+					consumed[subSeriesIndex][subRowIndex] = true
 					for subSeriesColumnIndex := range request[subSeriesIndex].Columns {
-						point := data[subSeriesIndex][subRowIndex][subSeriesColumnIndex+1]
-						if request[subSeriesIndex].Columns[subSeriesColumnIndex].TargetCharacteristicId != nil &&
-							sourceCharacteristicIds[subSeriesIndex][subSeriesColumnIndex] != nil &&
-							*sourceCharacteristicIds[subSeriesIndex][subSeriesColumnIndex] != *request[subSeriesIndex].Columns[subSeriesColumnIndex].TargetCharacteristicId {
-							point, err = conv.CastWithExtension(point, *sourceCharacteristicIds[subSeriesIndex][subSeriesColumnIndex],
-								*request[subSeriesIndex].Columns[subSeriesColumnIndex].TargetCharacteristicId, extensions[subSeriesIndex][subSeriesColumnIndex])
-							if err != nil {
-								return nil, err
-							}
+						point, err := convert(subSeriesIndex, subSeriesColumnIndex, data[subSeriesIndex][subRowIndex][subSeriesColumnIndex+1])
+						if err != nil {
+							return nil, err
 						}
 						if point != nil {
 							formattedRow[baseIndex[subSeriesIndex]+subSeriesColumnIndex] = point
 							anyData = true
 						}
 					}
-					data[subSeriesIndex] = model.RemoveElementFrom2D(data[subSeriesIndex], subRowIndex)
-					// sorting required for binary search
-					sort.Slice(data[subSeriesIndex], func(i, j int) bool {
-						return data[subSeriesIndex][i][0].(time.Time).After(data[subSeriesIndex][j][0].(time.Time))
-					})
-					continue
 				}
 			}
 			if anyData {
@@ -229,24 +249,6 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 		return formatted, err
 	}
 	return
-}
-
-func findFirstElementIndex(array [][]interface{}, t time.Time, left int, right int) (int, bool) {
-	if left > right {
-		return 0, false
-	}
-	mid := left + (right-left)/2
-	if t.Equal(array[mid][0].(time.Time)) {
-		for t.Equal(array[mid][0].(time.Time)) && mid > 0 {
-			mid--
-		}
-		return mid, true
-	}
-
-	if array[mid][0].(time.Time).Before(t) {
-		return findFirstElementIndex(array, t, left, mid-1)
-	}
-	return findFirstElementIndex(array, t, mid+1, right)
 }
 
 func formatTime2D(data [][]interface{}, timeFormat string) {
