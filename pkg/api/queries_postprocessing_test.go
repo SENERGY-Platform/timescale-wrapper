@@ -100,6 +100,49 @@ func TestPostProcessing(t *testing.T) {
 		})
 	})
 
+	// A column path that does not exist in the service output used to dereference a nil content
+	// variable and kill the process.
+	t.Run("Test Unknown Column Path", func(t *testing.T) {
+		t.Parallel()
+		conf := configuration.ConfigStruct{}
+		deviceRepo, testDb, err := client.NewTestClient()
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = testDb.SetDeviceType(context.Background(), models.DeviceType{
+			Id: "dt",
+			Services: []models.Service{{
+				Id: "service",
+				Outputs: []models.Content{{
+					ContentVariable: models.ContentVariable{
+						Name: "root",
+						Type: models.Structure,
+						SubContentVariables: []models.ContentVariable{
+							{Name: "known", Type: models.Integer, CharacteristicId: "1"},
+						},
+					},
+				}},
+			}},
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		remoteCache := cache.NewRemote(&conf, deviceRepo, deviceSelection.NewTestClient())
+		serviceId := "service"
+		concept := "1"
+		request := []model.QueriesRequestElement{{
+			ServiceId: &serviceId,
+			Columns:   []model.QueriesRequestElementColumn{{Name: "root.unknown", TargetCharacteristicId: &two, ConceptId: &concept}},
+		}}
+		_, err = formatResponse(context.Background(), remoteCache, model.PerQuery, request, [][][]interface{}{{}}, 0, model.Asc, "", nil)
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+		if model.GetStatusCode(err) != 400 {
+			t.Errorf("expected status 400, got %d: %v", model.GetStatusCode(err), err)
+		}
+	})
+
 	t.Run("Test With Conversions", func(t *testing.T) {
 		t.Parallel()
 		log.InitForTest()

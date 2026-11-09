@@ -21,6 +21,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -60,6 +61,9 @@ func formatResponse(ctx context.Context, remoteCache *cache.RemoteCache, f model
 						pathParts = pathParts[1:] // skip root
 					}
 					contentVariable := meta.GetDeepContentVariable(service.Outputs[0].ContentVariable, pathParts)
+					if contentVariable == nil {
+						return nil, errors.Join(fmt.Errorf("column %q not found in service output", request[seriesIndex].Columns[seriesColumnIndex].Name), model.ErrBadRequest)
+					}
 					sourceCharId = &contentVariable.CharacteristicId
 				}
 				sourceCharacteristicIds[seriesIndex][seriesColumnIndex] = sourceCharId
