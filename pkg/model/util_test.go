@@ -186,3 +186,14 @@ func testBasicSort(small interface{}, medium interface{}, large interface{}) err
 
 	return nil
 }
+
+func TestLocalTime(t *testing.T) {
+	t.Parallel()
+	offset := time.Date(2022, 12, 6, 7, 0, 0, 0, time.FixedZone("", 3600))
+	if local := LocalTime(offset); !local.Equal(offset) || local.Location() != time.Local {
+		t.Errorf("expected %v in the local time zone, got %v", offset, local)
+	}
+	if zero := LocalTime(time.Time{}); !zero.IsZero() || zero.Location() != time.UTC {
+		t.Errorf("expected the zero time unchanged, got %v", zero)
+	}
+}

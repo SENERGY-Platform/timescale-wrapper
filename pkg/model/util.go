@@ -190,3 +190,14 @@ func floatValue(v interface{}) (float64, bool) {
 	}
 	return 0, false
 }
+
+// LocalTime returns t in the local time zone, the zone pgx returns timestamps in, so that the same
+// instant reads the same from the cache and from the database. The zero time, which a cache entry
+// without a time decodes to, stays as it is: in the local zone it would carry the local mean time
+// offset of year 1, such as +00:53:28 for Europe/Berlin.
+func LocalTime(t time.Time) time.Time {
+	if t.IsZero() {
+		return t
+	}
+	return t.Local()
+}

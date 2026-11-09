@@ -97,13 +97,20 @@ func (lv *RemoteCache) GetLastValuesFromCache(ctx context.Context, request model
 	if err != nil {
 		return nil, err
 	}
-	res := make([]interface{}, len(request.Columns)+1)
-	res[0] = entry.Time
-	for i := range request.Columns {
-		res[i+1] = getDeepEntry(entry.Value, request.Columns[i].Name)
-	}
+	return [][]interface{}{lastValuesRow(entry, request.Columns)}, nil
+}
 
-	return [][]interface{}{res}, nil
+// lastValuesRow builds the row a database query for the same columns returns. The time of an entry
+// keeps the offset its writer serialized it with, while pgx returns timestamps in the local time
+// zone. Without the conversion the same instant reads differently, as JSON or with time_format,
+// depending on where it came from, and clients that join series on the timestamp text miss it.
+func lastValuesRow(entry Entry, columns []model.QueriesRequestElementColumn) []interface{} {
+	res := make([]interface{}, len(columns)+1)
+	res[0] = model.LocalTime(entry.Time)
+	for i := range columns {
+		res[i+1] = getDeepEntry(entry.Value, columns[i].Name)
+	}
+	return res
 }
 
 func (lv *RemoteCache) GetLastMessageFromCache(ctx context.Context, deviceId string, serviceId string) (entry Entry, err error) {

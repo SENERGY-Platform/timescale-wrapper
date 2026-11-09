@@ -22,9 +22,11 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
 func TestDeepEntryInLists(t *testing.T) {
@@ -138,4 +140,26 @@ func TestConcurrentMemcachedReinit(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// The same instant must come out of the cache as the database returns it: in the local time zone,
+// whatever offset the writer of the entry used.
+func TestLastValuesRowTimeZone(t *testing.T) {
+	var entry Entry
+	err := json.Unmarshal([]byte(`{"time":"2022-12-06T07:00:00+01:00","value":{"root":{"level":42}}}`), &entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := lastValuesRow(entry, []model.QueriesRequestElementColumn{{Name: "root.level"}, {Name: "root.missing"}})
+	ts, ok := row[0].(time.Time)
+	if !ok {
+		t.Fatalf("expected a time, got %#v", row[0])
+	}
+	expected := time.Date(2022, 12, 6, 6, 0, 0, 0, time.UTC)
+	if !ts.Equal(expected) || ts.Location() != time.Local {
+		t.Errorf("expected %v in the local time zone, got %v", expected, ts)
+	}
+	if !reflect.DeepEqual(row[1:], []interface{}{42.0, nil}) {
+		t.Errorf("unexpected values %#v", row[1:])
+	}
 }
