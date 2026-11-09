@@ -224,7 +224,7 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 			zero := 0
 			asc := model.Asc
 			desc := model.Desc
-			query += "sub0.time AS \"time\", "
+			query += bucketTime(len(element.Columns)) + " AS \"time\", "
 			for idx, column := range element.Columns {
 				if column.GroupType == nil {
 					return nil, errors.New("mixing aggregate and non-aggregate queries is not supported\n")
@@ -291,7 +291,7 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				}
 				query += filterString + ") sub" + strconv.Itoa(idx)
 				if idx > 0 {
-					query += " on sub0.time = sub" + strconv.Itoa(idx) + ".time"
+					query += " on " + bucketTime(idx) + " = sub" + strconv.Itoa(idx) + ".time"
 				}
 				if idx < len(element.Columns)-1 {
 					query += " FULL OUTER JOIN "
@@ -337,6 +337,22 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 		queries[i] = query
 	}
 	return
+}
+
+// bucketTime is the bucket of a row of the FULL OUTER JOIN over the first n column subqueries.
+// The subqueries can hold different buckets: a "last" column reads its rows in descending order
+// and the others in ascending order, so with a limit they cover different ends of the window. A
+// bucket only a later column has would otherwise get no time, and the next column, joined on
+// sub0.time, would not join to it and land on a row of its own.
+func bucketTime(n int) string {
+	if n <= 1 {
+		return "sub0.time"
+	}
+	subs := make([]string, n)
+	for i := range subs {
+		subs[i] = "sub" + strconv.Itoa(i) + ".time"
+	}
+	return "COALESCE(" + strings.Join(subs, ", ") + ")"
 }
 
 // widenTimeWindowForDifference extends the time window of an element that has difference-* columns

@@ -174,7 +174,7 @@ func TestQueries(t *testing.T) {
 			if len(actual) != 1 {
 				t.Error("Unexpected number of queries", len(actual))
 			}
-			expected := fmt.Sprintf("SELECT sub0.time AS \"time\", "+
+			expected := fmt.Sprintf("SELECT COALESCE(sub0.time, sub1.time) AS \"time\", "+
 				"(sub0.value) AS \"sensor.ENERGY.Total\", "+
 				"(sub1.value) AS \"sensor.ENERGY.Total\" "+
 				"FROM (SELECT time_bucket('%s', \"time\", 'Europe/Berlin') AS \"time\", "+
@@ -231,7 +231,7 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
-		expected := "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\"," +
+		expected := "SELECT COALESCE(sub0.time, sub1.time, sub2.time, sub3.time, sub4.time) AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\"," +
 			" (sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) +5 AS \"sensor.ENERGY.Total\", (sub2.value) AS \"sensor.ENERGY.Total\"," +
 			" (sub3.value) AS \"sensor.ENERGY.Total\", (sub4.value - lag(sub4.value) OVER (ORDER BY sub4.time)) AS \"sensor.ENERGY.Total\" " +
 			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
@@ -241,12 +241,12 @@ func TestQueries(t *testing.T) {
 			"WHERE \"time\" > now() - interval '8d' GROUP BY 1 ORDER BY 1 ASC LIMIT 9) sub1 on sub0.time = sub1.time FULL OUTER JOIN " +
 			"(SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", first(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
 			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY " +
-			"1 ORDER BY 1 ASC LIMIT 9) sub2 on sub0.time = sub2.time FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS" +
+			"1 ORDER BY 1 ASC LIMIT 9) sub2 on COALESCE(sub0.time, sub1.time) = sub2.time FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS" +
 			" \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\"" +
-			" WHERE \"time\" > now() - interval '8d' GROUP BY 1 ORDER BY 1 ASC LIMIT 9) sub3 on sub0.time = sub3.time FULL OUTER JOIN" +
+			" WHERE \"time\" > now() - interval '8d' GROUP BY 1 ORDER BY 1 ASC LIMIT 9) sub3 on COALESCE(sub0.time, sub1.time, sub2.time) = sub3.time FULL OUTER JOIN" +
 			" (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", avg(\"sensor.ENERGY.Total\") AS value FROM " +
 			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY 1" +
-			" ORDER BY 1 ASC LIMIT 9) sub4 on sub0.time = sub4.time ORDER BY 1 DESC LIMIT 7"
+			" ORDER BY 1 ASC LIMIT 9) sub4 on COALESCE(sub0.time, sub1.time, sub2.time, sub3.time) = sub4.time ORDER BY 1 DESC LIMIT 7"
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
@@ -271,7 +271,7 @@ func TestQueries(t *testing.T) {
 					{Name: "sensor.ENERGY.Total", GroupType: &dl},
 					{Name: water, GroupType: &dl},
 				},
-				expected: "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\", " +
+				expected: "SELECT COALESCE(sub0.time, sub1.time) AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\", " +
 					"(sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) AS \"sensor.WATER.Total\" FROM " +
 					"(SELECT time_bucket('1h', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
 					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > '2021-06-19T23:00:00Z' AND " +
@@ -287,7 +287,7 @@ func TestQueries(t *testing.T) {
 					{Name: "sensor.ENERGY.Total", GroupType: &l},
 					{Name: water, GroupType: &dl},
 				},
-				expected: "SELECT sub0.time AS \"time\", (sub0.value) AS \"sensor.ENERGY.Total\", " +
+				expected: "SELECT COALESCE(sub0.time, sub1.time) AS \"time\", (sub0.value) AS \"sensor.ENERGY.Total\", " +
 					"(sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) AS \"sensor.WATER.Total\" FROM " +
 					"(SELECT time_bucket('1h', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
 					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > '2021-06-19T23:00:00Z' AND " +
@@ -352,7 +352,7 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
-		expected := "SELECT sub0.time AS \"time\", " +
+		expected := "SELECT COALESCE(sub0.time, sub1.time) AS \"time\", " +
 			"(sub0.value) AS \"sensor.ENERGY.Total\", " +
 			"(sub1.value) +5 AS \"sensor.ENERGY.Total\" " +
 			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +
@@ -714,7 +714,7 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
-		expected := "SELECT sub0.time AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\"," +
+		expected := "SELECT COALESCE(sub0.time, sub1.time) AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\"," +
 			" (sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) +5 AS \"thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed\" " +
 			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
 			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > now() - interval '8d' GROUP BY " +

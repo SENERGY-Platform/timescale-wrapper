@@ -108,7 +108,7 @@ func TestGenerateQueriesJSONPaths(t *testing.T) {
 				GroupTime: &h1,
 				Columns:   []model.QueriesRequestElementColumn{{Name: jsonErrorcode, GroupType: &mean}, {Name: jsonErrorcode, GroupType: &last}},
 			},
-			expected: `SELECT sub0.time AS "time", (sub0.value) AS "` + jsonErrorcode + `", (sub1.value) AS "` + jsonErrorcode + `" FROM ` +
+			expected: `SELECT COALESCE(sub0.time, sub1.time) AS "time", (sub0.value) AS "` + jsonErrorcode + `", (sub1.value) AS "` + jsonErrorcode + `" FROM ` +
 				`(SELECT time_bucket('1h', "time", 'Europe/Berlin') AS "time", avg((jsonb_path_query_first(` + col + `, '$[0]."errorcode"'::jsonpath) #>> '{}')::bigint) AS value FROM ` + table +
 				` WHERE "time" > now() - interval '1d' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN ` +
 				`(SELECT time_bucket('1h', "time", 'Europe/Berlin') AS "time", last((jsonb_path_query_first(` + col + `, '$[0]."errorcode"'::jsonpath) #>> '{}')::bigint, "time") AS value FROM ` + table +
@@ -121,7 +121,7 @@ func TestGenerateQueriesJSONPaths(t *testing.T) {
 				GroupTime: &h1,
 				Columns:   []model.QueriesRequestElementColumn{{Name: jsonResults, GroupType: &sum}, {Name: jsonResults, GroupType: &count}},
 			},
-			expected: `SELECT sub0.time AS "time", (sub0.value) AS "` + jsonResults + `", (sub1.value) AS "` + jsonResults + `" FROM ` +
+			expected: `SELECT COALESCE(sub0.time, sub1.time) AS "time", (sub0.value) AS "` + jsonResults + `", (sub1.value) AS "` + jsonResults + `" FROM ` +
 				`(SELECT time_bucket('1h', "time", 'Europe/Berlin') AS "time", sum(("__e"."__v" #>> '{}')::bigint) AS value FROM ` + table +
 				` LEFT JOIN LATERAL jsonb_path_query(` + col + `, '$[*]."result"'::jsonpath) WITH ORDINALITY AS "__e"("__v", "__n") ON TRUE` +
 				` WHERE "time" > now() - interval '1d' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN ` +
@@ -136,7 +136,7 @@ func TestGenerateQueriesJSONPaths(t *testing.T) {
 				GroupTime: &h1,
 				Columns:   []model.QueriesRequestElementColumn{{Name: jsonResults, GroupType: &first}, {Name: jsonStations, GroupType: &last}},
 			},
-			expected: `SELECT sub0.time AS "time", (sub0.value) AS "` + jsonResults + `", (sub1.value) AS "` + jsonStations + `" FROM ` +
+			expected: `SELECT COALESCE(sub0.time, sub1.time) AS "time", (sub0.value) AS "` + jsonResults + `", (sub1.value) AS "` + jsonStations + `" FROM ` +
 				`(SELECT time_bucket('1h', "time", 'Europe/Berlin') AS "time", (array_agg(("__e"."__v" #>> '{}')::bigint ORDER BY "time" ASC, "__e"."__n" ASC) FILTER (WHERE ("__e"."__v" #>> '{}')::bigint IS NOT NULL))[1] AS value FROM ` + table +
 				` LEFT JOIN LATERAL jsonb_path_query(` + col + `, '$[*]."result"'::jsonpath) WITH ORDINALITY AS "__e"("__v", "__n") ON TRUE` +
 				` WHERE "time" > now() - interval '1d' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN ` +
