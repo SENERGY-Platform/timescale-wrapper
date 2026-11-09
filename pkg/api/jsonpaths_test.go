@@ -177,16 +177,32 @@ func TestResolveJSONPaths(t *testing.T) {
 		}
 	})
 
+	// An index may as well address a list of fixed length, whose columns are plain. Without the
+	// service such a name is used as a column, as before list paths existed, so a device
+	// repository outage does not break those requests. "*" has no such reading.
 	t.Run("unknown service", func(t *testing.T) {
 		unknown := "urn:infai:ses:service:00000000-0000-0000-0000-000000000000"
 		elements := []model.QueriesRequestElement{{
 			DeviceId:  &device,
 			ServiceId: &unknown,
-			Columns:   []model.QueriesRequestElementColumn{{Name: "root.list.0.errorcode"}},
+			Columns:   []model.QueriesRequestElementColumn{{Name: "root.fixed.0"}, {Name: "root.list.0.errorcode"}},
+		}}
+		if err := resolveJSONPaths(context.Background(), remoteCache, elements); err != nil {
+			t.Errorf("index paths without service: %v", err)
+		}
+		if elements[0].JSONPaths != nil {
+			t.Errorf("expected plain columns, got paths %#v", elements[0].JSONPaths)
+		}
+
+		elements = []model.QueriesRequestElement{{
+			DeviceId:  &device,
+			ServiceId: &unknown,
+			GroupTime: &group,
+			Columns:   []model.QueriesRequestElementColumn{{Name: "root.fixed.0", GroupType: &sum}, {Name: "root.list.*.result", GroupType: &sum}},
 		}}
 		err := resolveJSONPaths(context.Background(), remoteCache, elements)
 		if err == nil || model.GetStatusCode(err) != 500 {
-			t.Errorf("expected an internal server error, got %v", err)
+			t.Errorf("wildcard without service: expected an internal server error, got %v", err)
 		}
 	})
 

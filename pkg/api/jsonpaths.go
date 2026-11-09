@@ -20,9 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
+	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/meta"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
@@ -34,7 +37,8 @@ import (
 // Only names with a list index or "*" can do that, so only elements with such a name need the
 // service. It comes from the device repository through memcached. Errors wrap model.ErrBadRequest
 // for names that do not fit the service, and model.ErrInternalServerError if the service cannot
-// be read. It returns errors and does not panic: it runs on goroutines without recover.
+// be read for a name with "*". Names with an index only are then used as plain columns. It
+// returns errors and does not panic: it runs on goroutines without recover.
 func resolveJSONPaths(ctx context.Context, remoteCache *cache.RemoteCache, elements []model.QueriesRequestElement) error {
 	for i := range elements {
 		names := listPathNames(elements[i])
@@ -52,7 +56,14 @@ func resolveJSONPaths(ctx context.Context, remoteCache *cache.RemoteCache, eleme
 		}
 		service, err := remoteCache.GetService(ctx, *elements[i].ServiceId)
 		if err != nil {
-			return errors.Join(err, model.ErrInternalServerError)
+			if slices.ContainsFunc(names, model.HasWildcardSegment) {
+				return errors.Join(err, model.ErrInternalServerError)
+			}
+			// an index may as well address a list of fixed length, whose columns are plain. Use
+			// the names as columns, as before list paths existed, so that an outage of the device
+			// repository does not break those requests.
+			log.Logger.WarnContext(ctx, "could not read service, using list paths as columns", attributes.ErrorKey, err)
+			continue
 		}
 		// columns of a device group or location are built from criteria after the request was
 		// validated, so the rules for "*" apply here as well
