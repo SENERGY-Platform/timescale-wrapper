@@ -187,6 +187,9 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		}
 
 		responseData, ok := responseRawData.([][][]interface{})
+		if !ok {
+			return nil, http.StatusInternalServerError, errors.New("could not cast response")
+		}
 
 		responseElements := make([]model.LastValuesResponseElement, len(requestElements))
 		inserted := 0
@@ -201,7 +204,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 					if responseData[i][0][0] != nil {
 						t, ok = responseData[i][0][0].(string)
 						if !ok {
-							return nil, http.StatusInternalServerError, err
+							return nil, http.StatusInternalServerError, fmt.Errorf("unexpected time %v", responseData[i][0][0])
 						}
 					}
 				} else {
