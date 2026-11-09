@@ -94,72 +94,9 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 			return nil, http.StatusBadRequest, err
 		}
 
-		one := 1
-		exportQueriesRequestElementColumnMap := map[string][]queriesRequestElementColumn{}
-		deviceQueriesRequestElementColumnMap := map[string][]queriesRequestElementColumn{}
-		filters := []model.QueriesRequestElementFilter{}
-
-		for i := range requestElements {
-			if requestElements[i].ExportId != nil {
-				fillColumnMap(exportQueriesRequestElementColumnMap, *requestElements[i].ExportId, i,
-					requestElements[i].ColumnName, requestElements[i].Math, requestElements[i].SourceCharacteristicId,
-					requestElements[i].TargetCharacteristicId, requestElements[i].ConceptId)
-			} else if requestElements[i].DeviceId != nil && requestElements[i].ServiceId != nil {
-				fillColumnMap(deviceQueriesRequestElementColumnMap, *requestElements[i].DeviceId+","+*requestElements[i].ServiceId,
-					i, requestElements[i].ColumnName, requestElements[i].Math, requestElements[i].SourceCharacteristicId,
-					requestElements[i].TargetCharacteristicId, requestElements[i].ConceptId)
-			} else {
-				return nil, http.StatusBadRequest, errors.New("invalid request body")
-			}
-			if requestElements[i].NotNull {
-				filters = append(filters, model.QueriesRequestElementFilter{
-					Column: requestElements[i].ColumnName,
-					Type:   "!=",
-					Value:  nil,
-				})
-			}
-		}
-		fullRequestElements := make([]model.QueriesRequestElement, len(exportQueriesRequestElementColumnMap)+len(deviceQueriesRequestElementColumnMap))
-		outputIndexToInputIndex := map[int]int{} // Remember order of requested columns
-		zero := 0
-		desc := model.Desc
-		fullRequestElementsIndex := 0
-		inserted := 0 // Count the number of requested columns
-		for k, v := range exportQueriesRequestElementColumnMap {
-			var cols []model.QueriesRequestElementColumn
-			cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
-			fullRequestElements[fullRequestElementsIndex] = model.QueriesRequestElement{
-				ExportId:         &k,
-				Time:             nil,
-				Limit:            &one,
-				Columns:          cols,
-				OrderColumnIndex: &zero,
-				OrderDirection:   &desc,
-				Filters:          &filters,
-			}
-			if !fullRequestElements[fullRequestElementsIndex].Valid() {
-				return nil, http.StatusBadRequest, errors.New("invalid request body")
-			}
-			fullRequestElementsIndex++
-		}
-		for k, v := range deviceQueriesRequestElementColumnMap {
-			s := strings.Split(k, ",")
-			var cols []model.QueriesRequestElementColumn
-			cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
-			fullRequestElements[fullRequestElementsIndex] = model.QueriesRequestElement{
-				DeviceId:         &s[0],
-				ServiceId:        &s[1],
-				Time:             nil,
-				Limit:            &one,
-				Columns:          cols,
-				OrderColumnIndex: &zero,
-				OrderDirection:   &desc,
-				Filters:          &filters,
-			}
-			if !fullRequestElements[fullRequestElementsIndex].Valid() {
-				return nil, http.StatusBadRequest, errors.New("invalid request body")
-			}
-			fullRequestElementsIndex++
+		fullRequestElements, outputIndexToInputIndex, err := buildLastValuesElements(requestElements)
+		if err != nil {
+			return nil, http.StatusBadRequest, err
 		}
 		userId, err := getUserId(request)
 		if err != nil {
@@ -215,7 +152,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		}
 
 		queriesCtx, queriesSpan := tracer.Start(ctx, "generate queries")
-		queries, err := wrapper.GenerateQueries(queriesCtx, dbRequestElements, userId, ownerUserIds, "", []models.Device{})
+		queries, err := wrapper.GenerateQueries(queriesCtx, dbRequestElements, userId, ownersOfIndices(ownerUserIds, dbRequestIndices), "", []models.Device{})
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}
@@ -246,7 +183,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		responseData, ok := responseRawData.([][][]interface{})
 
 		responseElements := make([]model.LastValuesResponseElement, len(requestElements))
-		inserted = 0
+		inserted := 0
 		for i := range responseData {
 			if len(responseData[i]) == 0 {
 				inserted += len(fullRequestElements[i].Columns)
@@ -280,6 +217,103 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 
 		return responseElements, http.StatusOK, nil
 	}
+}
+
+// buildLastValuesElements groups the requested values by export or device and service into one
+// query element each. outputIndexToInputIndex maps the position of a result column in the
+// concatenated elements back to its position in the request.
+// Only the not_null flags of an element's own columns become filters of that element. An element
+// without any keeps Filters nil, which is what makes it eligible for the last value cache.
+func buildLastValuesElements(requestElements []model.LastValuesRequestElement) (elements []model.QueriesRequestElement, outputIndexToInputIndex map[int]int, err error) {
+	one := 1
+	exportQueriesRequestElementColumnMap := map[string][]queriesRequestElementColumn{}
+	deviceQueriesRequestElementColumnMap := map[string][]queriesRequestElementColumn{}
+
+	for i := range requestElements {
+		if requestElements[i].ExportId != nil {
+			fillColumnMap(exportQueriesRequestElementColumnMap, *requestElements[i].ExportId, i,
+				requestElements[i].ColumnName, requestElements[i].Math, requestElements[i].SourceCharacteristicId,
+				requestElements[i].TargetCharacteristicId, requestElements[i].ConceptId)
+		} else if requestElements[i].DeviceId != nil && requestElements[i].ServiceId != nil {
+			fillColumnMap(deviceQueriesRequestElementColumnMap, *requestElements[i].DeviceId+","+*requestElements[i].ServiceId,
+				i, requestElements[i].ColumnName, requestElements[i].Math, requestElements[i].SourceCharacteristicId,
+				requestElements[i].TargetCharacteristicId, requestElements[i].ConceptId)
+		} else {
+			return nil, nil, errors.New("invalid request body")
+		}
+	}
+	elements = make([]model.QueriesRequestElement, len(exportQueriesRequestElementColumnMap)+len(deviceQueriesRequestElementColumnMap))
+	outputIndexToInputIndex = map[int]int{} // Remember order of requested columns
+	zero := 0
+	desc := model.Desc
+	elementsIndex := 0
+	inserted := 0 // Count the number of requested columns
+	for k, v := range exportQueriesRequestElementColumnMap {
+		var cols []model.QueriesRequestElementColumn
+		cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
+		elements[elementsIndex] = model.QueriesRequestElement{
+			ExportId:         &k,
+			Time:             nil,
+			Limit:            &one,
+			Columns:          cols,
+			OrderColumnIndex: &zero,
+			OrderDirection:   &desc,
+			Filters:          notNullFilters(requestElements, v),
+		}
+		if !elements[elementsIndex].Valid() {
+			return nil, nil, errors.New("invalid request body")
+		}
+		elementsIndex++
+	}
+	for k, v := range deviceQueriesRequestElementColumnMap {
+		s := strings.Split(k, ",")
+		var cols []model.QueriesRequestElementColumn
+		cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
+		elements[elementsIndex] = model.QueriesRequestElement{
+			DeviceId:         &s[0],
+			ServiceId:        &s[1],
+			Time:             nil,
+			Limit:            &one,
+			Columns:          cols,
+			OrderColumnIndex: &zero,
+			OrderDirection:   &desc,
+			Filters:          notNullFilters(requestElements, v),
+		}
+		if !elements[elementsIndex].Valid() {
+			return nil, nil, errors.New("invalid request body")
+		}
+		elementsIndex++
+	}
+	return elements, outputIndexToInputIndex, nil
+}
+
+// ownersOfIndices selects the owners of the elements that are left after the cache, given their
+// indices in the full list of elements that the owners are indexed by.
+func ownersOfIndices(owners []string, indices []int) []string {
+	selected := make([]string, len(indices))
+	for i, index := range indices {
+		selected[i] = owners[index]
+	}
+	return selected
+}
+
+// notNullFilters returns the not_null filters of the given columns, or nil if there are none.
+func notNullFilters(requestElements []model.LastValuesRequestElement, cols []queriesRequestElementColumn) *[]model.QueriesRequestElementFilter {
+	var filters []model.QueriesRequestElementFilter
+	for _, col := range cols {
+		if !requestElements[col.requestIndex].NotNull {
+			continue
+		}
+		filters = append(filters, model.QueriesRequestElementFilter{
+			Column: col.Name,
+			Type:   "!=",
+			Value:  nil,
+		})
+	}
+	if filters == nil {
+		return nil
+	}
+	return &filters
 }
 
 func fillColumnMap(m map[string][]queriesRequestElementColumn, id string, i int, columnName string, columnMath *string, sourceCharacteristicId *string, targetCharacteristicId *string, conceptId *string) {
