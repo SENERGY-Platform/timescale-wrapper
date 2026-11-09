@@ -17,8 +17,10 @@
 package model
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -41,12 +43,18 @@ func RemoveElementFrom2D(array [][]interface{}, index int) [][]interface{} {
 	return array[:len(array)-1]
 }
 
-// Sorts a 2D array by the specified column index in the specified direction. Panics if index is out of bounds.
-// Allowed direction values are Desc and Asc. Supported types are nil, time.Time, string, float64 and bool.
-// Errors are given if direction or type are unknown.
+// Sorts a 2D array by the specified column index in the specified direction.
+// Allowed direction values are Desc and Asc. Supported types are nil, time.Time, string, bool and the numbers
+// compareNumbers accepts; numbers of different types compare by value.
+// Errors are given if direction or type are unknown, or if index is outside a row.
 func Sort2D(array [][]interface{}, index int, direction Direction) error {
 	if direction != Desc && direction != Asc {
 		return errors.New("unknown direction")
+	}
+	for _, row := range array {
+		if index < 0 || index >= len(row) {
+			return errors.New("sort index out of range")
+		}
 	}
 	errFlag := false
 	sort.Slice(array, func(i, j int) bool {
@@ -54,79 +62,49 @@ func Sort2D(array [][]interface{}, index int, direction Direction) error {
 			return false
 		}
 
-		if array[i][index] == nil && array[j][index] == nil {
-			return true
+		a, b := array[i][index], array[j][index]
+		if a == nil && b == nil {
+			return false
 		}
-
-		if array[i][index] == nil {
+		if a == nil {
 			return direction == Asc
 		}
-
-		if array[j][index] == nil {
+		if b == nil {
 			return direction == Desc
 		}
-
-		_, ok := array[i][index].(time.Time)
-		if ok {
-			if direction == Desc {
-				return array[i][index].(time.Time).After(array[j][index].(time.Time))
-			} else {
-				return array[i][index].(time.Time).Before(array[j][index].(time.Time))
+		// every assertion on b is checked: a column of mixed types, as a JSONB value can be,
+		// must end in an error and not in a panic, the sort runs on goroutines without recover
+		switch valA := a.(type) {
+		case time.Time:
+			if valB, ok := b.(time.Time); ok {
+				if direction == Desc {
+					return valA.After(valB)
+				}
+				return valA.Before(valB)
 			}
-		}
-		_, ok = array[i][index].(string)
-		if ok {
-			if direction == Desc {
-				return strings.Compare(array[i][index].(string), array[j][index].(string)) > 0
-			} else {
-				return strings.Compare(array[i][index].(string), array[j][index].(string)) < 0
+		case string:
+			if valB, ok := b.(string); ok {
+				if direction == Desc {
+					return strings.Compare(valA, valB) > 0
+				}
+				return strings.Compare(valA, valB) < 0
 			}
-		}
-		_, ok = array[i][index].(float64)
-		if ok {
-			valI, ok := array[i][index].(float64)
-			if !ok {
-				errFlag = true
-				return false
+		case bool:
+			if valB, ok := b.(bool); ok {
+				if valA == valB {
+					return false
+				}
+				if direction == Desc {
+					return valA
+				}
+				return !valA
 			}
-			valJ, ok := array[j][index].(float64)
-			if !ok {
-				errFlag = true
-				return false
-			}
-			if direction == Desc {
-				return valI > valJ
-			} else {
-				return valI < valJ
-			}
-		}
-		_, ok = array[i][index].(bool)
-		if ok {
-			if array[i][index].(bool) == array[j][index].(bool) {
-				return true
-			}
-			if direction == Desc {
-				return array[i][index].(bool)
-			} else {
-				return !array[i][index].(bool)
-			}
-		}
-		_, ok = array[i][index].(json.Number)
-		if ok {
-			valI, ok := array[i][index].(json.Number)
-			if !ok {
-				errFlag = true
-				return false
-			}
-			valJ, ok := array[j][index].(json.Number)
-			if !ok {
-				errFlag = true
-				return false
-			}
-			if direction == Desc {
-				return valI > valJ
-			} else {
-				return valI < valJ
+		default:
+			if c, ok := compareNumbers(a, b); ok {
+				if direction == Desc {
+					return c > 0
+				}
+				return c < 0
 			}
 		}
 		errFlag = true
@@ -136,4 +114,79 @@ func Sort2D(array [][]interface{}, index int, direction Direction) error {
 		return errors.New("slice could not be sorted")
 	}
 	return nil
+}
+
+// compareNumbers compares a and b by value. Database rows carry int64 for bigint columns and for
+// integral numeric results next to float64, and request bodies decoded with UseNumber carry
+// json.Number, which must not compare as text ("10" before "9"). Two integers compare exactly, so
+// bigint values beyond 2^53 keep their order; any other pair compares as float64 with cmp.Compare,
+// which orders NaN before every other number.
+func compareNumbers(a, b interface{}) (int, bool) {
+	if intA, ok := integerValue(a); ok {
+		if intB, ok := integerValue(b); ok {
+			return cmp.Compare(intA, intB), true
+		}
+	}
+	floatA, ok := floatValue(a)
+	if !ok {
+		return 0, false
+	}
+	floatB, ok := floatValue(b)
+	if !ok {
+		return 0, false
+	}
+	return cmp.Compare(floatA, floatB), true
+}
+
+func integerValue(v interface{}) (int64, bool) {
+	switch n := v.(type) {
+	case int:
+		return int64(n), true
+	case int8:
+		return int64(n), true
+	case int16:
+		return int64(n), true
+	case int32:
+		return int64(n), true
+	case int64:
+		return n, true
+	case uint8:
+		return int64(n), true
+	case uint16:
+		return int64(n), true
+	case uint32:
+		return int64(n), true
+	case uint:
+		if uint64(n) <= math.MaxInt64 {
+			return int64(n), true
+		}
+	case uint64:
+		if n <= math.MaxInt64 {
+			return int64(n), true
+		}
+	case json.Number:
+		i, err := n.Int64()
+		return i, err == nil
+	}
+	return 0, false
+}
+
+func floatValue(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case uint:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	}
+	if i, ok := integerValue(v); ok {
+		return float64(i), true
+	}
+	return 0, false
 }

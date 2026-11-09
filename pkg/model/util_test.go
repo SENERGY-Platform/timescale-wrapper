@@ -19,6 +19,7 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -62,6 +63,73 @@ func TestSort2D(t *testing.T) {
 		err := testBasicSort(small, medium, large)
 		if err != nil {
 			t.Error(err)
+		}
+	})
+
+	t.Run("sort int64", func(t *testing.T) {
+		if err := testBasicSort(int64(-1), int64(0), int64(1)); err != nil {
+			t.Error(err)
+		}
+	})
+
+	// bigint columns and integral numeric results arrive as int64, fractional ones as float64
+	t.Run("sort mixed int64 and float64", func(t *testing.T) {
+		if err := testBasicSort(int64(2), 2.5, int64(3)); err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("sort json.Number by value", func(t *testing.T) {
+		if err := testBasicSort(json.Number("9"), json.Number("10"), json.Number("11.5")); err != nil {
+			t.Error(err)
+		}
+	})
+
+	// two values beyond 2^53 are equal as float64
+	t.Run("sort large int64 exactly", func(t *testing.T) {
+		if err := testBasicSort(int64(1700000000000000000), int64(1700000000000000001), int64(1700000000000000002)); err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("sort int16", func(t *testing.T) {
+		if err := testBasicSort(int16(-1), int16(0), int16(1)); err != nil {
+			t.Error(err)
+		}
+	})
+
+	// reflect.DeepEqual never matches NaN, so the positions are checked one by one
+	t.Run("sort NaN before numbers", func(t *testing.T) {
+		array := [][]interface{}{{2.0}, {math.NaN()}, {-1.0}, {math.NaN()}, {0.5}}
+		if err := Sort2D(array, 0, Asc); err != nil {
+			t.Fatal(err)
+		}
+		if !math.IsNaN(array[0][0].(float64)) || !math.IsNaN(array[1][0].(float64)) ||
+			array[2][0] != -1.0 || array[3][0] != 0.5 || array[4][0] != 2.0 {
+			t.Errorf("unexpected order %v", array)
+		}
+	})
+
+	t.Run("index outside a row is an error", func(t *testing.T) {
+		array := [][]interface{}{{1.0, 2.0}, {3.0}}
+		if err := Sort2D(array, 1, Asc); err == nil {
+			t.Error("expected an error")
+		}
+	})
+
+	// a JSONB value can hold different types in one column; that must not panic
+	t.Run("mixed types are an error", func(t *testing.T) {
+		for _, values := range [][]interface{}{
+			{"a", 1.0, "b"},
+			{1.0, "a", 2.0},
+			{true, "a", false},
+			{time.Now(), "a", time.Now()},
+			{map[string]interface{}{}, 1.0, 2.0},
+		} {
+			array := [][]interface{}{{values[0]}, {values[1]}, {values[2]}}
+			if err := Sort2D(array, 0, Asc); err == nil {
+				t.Errorf("expected an error for %#v", values)
+			}
 		}
 	})
 
