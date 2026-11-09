@@ -95,6 +95,9 @@ func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrappe
 				return
 			}
 		}
+		// the cached time keeps the offset of its writer, the database one that of the session;
+		// both go out in the local time zone, like the timestamps of every other endpoint
+		entry.Time = model.LocalTime(entry.Time)
 
 		writer.Header().Set("Content-Type", "application/json")
 		err = json.NewEncoder(writer).Encode(entry)
