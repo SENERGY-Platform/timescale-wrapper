@@ -18,7 +18,6 @@ package timescale
 
 import (
 	"context"
-	"math"
 	"sync"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
@@ -83,14 +82,10 @@ func executeQuery(ctx context.Context, pool *pgxpool.Pool, query string) (res []
 		for i, v := range values {
 			switch numeric := v.(type) {
 			case pgtype.Numeric:
-				if numeric.Valid {
-					values[i] = int64(float64(numeric.Int.Int64()) * math.Pow10(int(numeric.Exp)))
-				} else {
-					values[i] = nil
-				}
+				values[i] = numericValue(numeric)
 			case *pgtype.Numeric:
-				if numeric != nil && numeric.Valid {
-					values[i] = int64(float64(numeric.Int.Int64()) * math.Pow10(int(numeric.Exp)))
+				if numeric != nil {
+					values[i] = numericValue(*numeric)
 				} else {
 					values[i] = nil
 				}
@@ -105,4 +100,26 @@ func executeQuery(ctx context.Context, pool *pgxpool.Pool, query string) (res []
 		res = append(res, make([]interface{}, len(rows.FieldDescriptions())))
 	}
 	return res, nil
+}
+
+// numericValue turns a numeric result into a value encoding/json can write. Postgres returns
+// numeric for sum and avg over bigint columns and for math on them, so an integral result stays
+// an int64 and any other becomes a float64 rather than being cut to an integer. NaN, the
+// infinities and values beyond the range of a float64 have no JSON representation and become
+// nil.
+func numericValue(n pgtype.Numeric) interface{} {
+	if !n.Valid || n.NaN || n.InfinityModifier != pgtype.Finite {
+		return nil
+	}
+	if n.Int == nil {
+		return int64(0)
+	}
+	if i, err := n.Int64Value(); err == nil {
+		return i.Int64
+	}
+	f, err := n.Float64Value()
+	if err != nil {
+		return nil
+	}
+	return f.Float64
 }
