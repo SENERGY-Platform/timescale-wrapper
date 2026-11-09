@@ -17,9 +17,13 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
+	"github.com/SENERGY-Platform/converter/lib/converter"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
@@ -137,4 +141,45 @@ func TestMergeQueriesV2Series(t *testing.T) {
 			t.Errorf("unexpected response %#v", response)
 		}
 	})
+}
+
+// Cache hits used to be returned as read from the cache: one series holding all columns, no
+// characteristic conversion, no time_format and none of the identifying fields a database result
+// carries.
+func TestFormatCachedV2Responses(t *testing.T) {
+	remoteCache := listTestCache(t)
+	conv, err := converter.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	device, service, target, concept := "device-1", listTestServiceId, "2", "1"
+	ts, _ := time.Parse(time.RFC3339, "2022-12-06T06:00:00Z")
+	requestElements := []model.QueriesRequestElement{
+		{DeviceId: &device, ServiceId: &service, Columns: []model.QueriesRequestElementColumn{{Name: "root.level"}}},
+		{DeviceId: &device, ServiceId: &service, Columns: []model.QueriesRequestElementColumn{
+			{Name: "root.level", TargetCharacteristicId: &target, ConceptId: &concept},
+			{Name: "root.list.0.errorcode"},
+		}},
+	}
+	raw := [][][]interface{}{
+		{},               // element 0 was not in the cache
+		{{ts, 1.5, 7.0}}, // element 1 was
+	}
+	response, err := formatCachedV2Responses(context.Background(), remoteCache, requestElements, raw, "2006-01-02", conv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the form of a database result for the same element: column i at data[i], each series with
+	// time and one value. columnNames is what mergeQueriesV2Series sets for a device element.
+	expected := []model.QueriesV2ResponseElement{{
+		DeviceId:     &device,
+		ServiceId:    &service,
+		ColumnNames:  []string{"root.level"},
+		RequestIndex: 1,
+		Data:         [][][]interface{}{{{"2022-12-06", 15.0}}, {{"2022-12-06", 7.0}}},
+	}}
+	if !reflect.DeepEqual(response, expected) {
+		actual, _ := json.Marshal(response)
+		t.Errorf("unexpected response %s", actual)
+	}
 }

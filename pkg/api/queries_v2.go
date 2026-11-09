@@ -17,6 +17,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -109,16 +110,12 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 
 		queryCacheCtx, queryCacheSpan := tracer.Start(c.Request.Context(), "fetch from cache")
 		raw, dbRequestElementsBefore, dbRequestIndices := queriesGetFromCache(queryCacheCtx, requestElements, remoteCache, config, forceTzp)
-		response := []model.QueriesV2ResponseElement{}
-		for i, r := range raw {
-			if len(r) != 0 {
-				response = append(response, model.QueriesV2ResponseElement{
-					RequestIndex: i,
-					Data:         [][][]interface{}{r},
-				})
-			}
-		}
+		response, err := formatCachedV2Responses(queryCacheCtx, remoteCache, requestElements, raw, timeFormat, converter)
 		queryCacheSpan.End()
+		if err != nil {
+			c.Error(errors.Join(err, model.ErrInternalServerError))
+			return
+		}
 
 		locateLat := request.URL.Query().Get("locate_lat")
 		var locateLatFloat float64
@@ -314,15 +311,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 					return
 				}
 
-				orderColumnIndex := 0
-				if dbRequestElement.OrderColumnIndex != nil {
-					orderColumnIndex = *dbRequestElement.OrderColumnIndex
-				}
-				orderDirection := model.Asc
-				if dbRequestElement.OrderDirection != nil {
-					orderDirection = *dbRequestElement.OrderDirection
-				}
-
+				orderColumnIndex, orderDirection := v2Order(dbRequestElement)
 				subResponse, err := formatResponse(elementCtx, remoteCache, model.PerQuery, dbRequestElements, data, orderColumnIndex, orderDirection, timeFormat, converter)
 				if err != nil {
 					raiseError(errors.Join(err, model.ErrInternalServerError))
@@ -376,6 +365,55 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		}
 	})
 
+}
+
+// formatCachedV2Responses builds the response elements of the request elements answered from the
+// cache in the form database results take. The database path queries each column of a device on
+// its own and files the series of column i at data[i] through mergeQueriesV2Series, so a cached
+// row is split the same way, and every series gets the same post-processing, characteristic
+// conversion and time_format included.
+func formatCachedV2Responses(ctx context.Context, remoteCache *cache.RemoteCache, requestElements []model.QueriesRequestElement, raw [][][]interface{}, timeFormat string, conv *converter.Converter) ([]model.QueriesV2ResponseElement, error) {
+	response := []model.QueriesV2ResponseElement{}
+	for i, r := range raw {
+		if len(r) == 0 {
+			continue // not answered from the cache
+		}
+		orderColumnIndex, orderDirection := v2Order(requestElements[i])
+		for colIdx, col := range requestElements[i].Columns {
+			single := requestElements[i]
+			single.Columns = []model.QueriesRequestElementColumn{col}
+			rows := make([][]interface{}, 0, len(r))
+			for _, row := range r {
+				if len(row) != len(requestElements[i].Columns)+1 {
+					return nil, errors.New("cached row does not match the requested columns")
+				}
+				rows = append(rows, []interface{}{row[0], row[colIdx+1]})
+			}
+			formatted, err := formatResponse(ctx, remoteCache, model.PerQuery, []model.QueriesRequestElement{single}, [][][]interface{}{rows}, orderColumnIndex, orderDirection, timeFormat, conv)
+			if err != nil {
+				return nil, err
+			}
+			series, ok := formatted.([][][]interface{})
+			if !ok || len(series) != 1 {
+				return nil, errors.New("could not cast cached response")
+			}
+			response = mergeQueriesV2Series(response, i, &single, colIdx, series[0])
+		}
+	}
+	return response, nil
+}
+
+// v2Order returns the order of a request element, defaulting to the time column ascending.
+func v2Order(element model.QueriesRequestElement) (int, model.Direction) {
+	orderColumnIndex := 0
+	if element.OrderColumnIndex != nil {
+		orderColumnIndex = *element.OrderColumnIndex
+	}
+	orderDirection := model.Asc
+	if element.OrderDirection != nil {
+		orderDirection = *element.OrderDirection
+	}
+	return orderColumnIndex, orderDirection
 }
 
 // mergeQueriesV2Series files the time series of one sub query under the
