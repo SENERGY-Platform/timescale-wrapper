@@ -86,6 +86,44 @@ func TestDeepEntryBounds(t *testing.T) {
 	}
 }
 
+// "*" collects the values of all list elements flat and leaves out elements without one, like
+// jsonb_path_query_array does for the database.
+func TestDeepEntryWildcard(t *testing.T) {
+	log.InitForTest()
+	var entry Entry
+	err := json.Unmarshal([]byte(`{"time":"1970-01-01T00:00:13Z","value":{"root":{
+		"list":[{"a":1,"tags":["x","y"]},{"b":2},{"a":3,"tags":[]},{"a":null}],
+		"matrix":[[1,2],[3],[]],
+		"empty":[],
+		"level":42,"nulls":[1,null,3]}}}`), &entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, expected := range map[string]interface{}{
+		"root.list.*.a":       []interface{}{float64(1), float64(3), nil},
+		"root.list.*.b":       []interface{}{float64(2)},
+		"root.list.*.missing": []interface{}{},
+		"root.list.*.tags":    []interface{}{[]interface{}{"x", "y"}, []interface{}{}},
+		"root.list.*.tags.*":  []interface{}{"x", "y"},
+		"root.list.*.tags.1":  []interface{}{"y"},
+		"root.matrix.*.*":     []interface{}{float64(1), float64(2), float64(3)},
+		"root.matrix.*.0":     []interface{}{float64(1), float64(3)},
+		"root.matrix.1.*":     []interface{}{float64(3)},
+		"root.nulls.*":        []interface{}{float64(1), nil, float64(3)},
+		"root.empty.*":        []interface{}{},
+		"root.level.*":        []interface{}{},
+		"root.unknown.*":      []interface{}{},
+		"root.list.5.*":       []interface{}{},
+		"root.list.-1.*":      []interface{}{},
+		"root.list.*.a.*":     []interface{}{},
+		"root.list.*":         []interface{}{map[string]interface{}{"a": float64(1), "tags": []interface{}{"x", "y"}}, map[string]interface{}{"b": float64(2)}, map[string]interface{}{"a": float64(3), "tags": []interface{}{}}, map[string]interface{}{"a": nil}},
+	} {
+		if value := getDeepEntry(entry.Value, path); !reflect.DeepEqual(value, expected) {
+			t.Errorf("%s: unexpected value %#v != %#v", path, value, expected)
+		}
+	}
+}
+
 // A failed memcached call replaces the client while other requests use it.
 // Only meaningful with -race.
 func TestConcurrentMemcachedReinit(t *testing.T) {

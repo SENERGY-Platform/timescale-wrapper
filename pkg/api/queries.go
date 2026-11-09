@@ -100,6 +100,13 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 		}
 		verifySpan.End()
 
+		// before the cache, so that cache and database reject the same requests
+		err = resolveJSONPaths(c.Request.Context(), remoteCache, requestElements)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+
 		cacheCtx, cacheSpan := tracer.Start(c.Request.Context(), "fetch from cache")
 		raw, dbRequestElements, dbRequestIndices := queriesGetFromCache(cacheCtx, requestElements, remoteCache, config, nil)
 		cacheSpan.End()

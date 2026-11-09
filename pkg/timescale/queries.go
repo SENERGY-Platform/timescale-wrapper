@@ -70,6 +70,133 @@ func translateFunctionName(name string) string {
 	return tablenames.TranslateFunctionName(name)
 }
 
+// Aliases of the lateral join that unnests a list, see columnValue. They are quoted and start with
+// underscores so that they cannot clash with a column of the table.
+const (
+	jsonElementAlias   = `"__e"`
+	jsonValueColumn    = `"__v"`
+	jsonOrdinalColumn  = `"__n"`
+	jsonElementValue   = jsonElementAlias + "." + jsonValueColumn
+	jsonElementOrdinal = jsonElementAlias + "." + jsonOrdinalColumn
+)
+
+// maxJSONIndexLength bounds list indexes taken from a request.
+const maxJSONIndexLength = 9
+
+// jsonPathLiteral renders the segments of a model.JSONPath as a jsonpath string literal. Indexes
+// consist of numerals only, fields are quoted keys, anything else is rejected, so no segment can
+// leave the literal or add path syntax.
+func jsonPathLiteral(segments []string) (string, error) {
+	path := strings.Builder{}
+	path.WriteString("$")
+	for _, segment := range segments {
+		switch {
+		case segment == "*":
+			path.WriteString("[*]")
+		case isJSONIndex(segment):
+			index, err := strconv.Atoi(segment) // drops leading zeros
+			if err != nil {
+				return "", err
+			}
+			path.WriteString("[" + strconv.Itoa(index) + "]")
+		case len(segment) == 0:
+			return "", errors.New("empty json path segment")
+		default:
+			key := strings.Builder{}
+			for _, r := range segment {
+				switch {
+				case r < 0x20 || r == 0x7f:
+					return "", errors.New("invalid character in json path segment")
+				case r == '\\' || r == '"':
+					key.WriteRune('\\')
+					key.WriteRune(r)
+				default:
+					key.WriteRune(r)
+				}
+			}
+			path.WriteString(".\"" + key.String() + "\"")
+		}
+	}
+	return quoteSQLString(path.String()) + "::jsonpath", nil
+}
+
+func isJSONIndex(segment string) bool {
+	if len(segment) == 0 || len(segment) > maxJSONIndexLength {
+		return false
+	}
+	for _, r := range segment {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// jsonSQLTypes are the casts a model.JSONPath may carry. The type is part of the query text.
+var jsonSQLTypes = map[string]bool{"": true, "text": true, "boolean": true, "double precision": true, "bigint": true}
+
+// castJSONText converts a jsonb value to the SQL type of the path. A path without a type stays jsonb.
+func castJSONText(value string, sqlType string) (string, error) {
+	if !jsonSQLTypes[sqlType] {
+		return "", errors.New("unsupported json path type")
+	}
+	if sqlType == "" {
+		return value, nil
+	}
+	return "(" + value + " #>> '{}')::" + sqlType, nil
+}
+
+// columnValue returns the SQL expression for a requested column or filter name, and the join it
+// needs in the FROM clause, which is empty for most columns.
+//
+// A regular column is its quoted, possibly hashed name. A value inside a JSONB column is read with
+// jsonb_path_query_first and cast to the type of the variable; a missing element or field is NULL.
+// A path with "*" yields all matches as a jsonb array, or, if aggregated is set, one row per match
+// of a lateral join, which the aggregate then reduces. The join is a left join: a message without
+// elements, or with a NULL list, keeps its row with a NULL value. Dropping it would remove buckets
+// from this column only, and the FULL OUTER JOIN of the columns would then emit rows without a
+// time. The ordinality of the join is what orders the elements of one message in first and last.
+func columnValue(element model.QueriesRequestElement, name string, aggregated bool) (value string, join string, err error) {
+	path, ok := element.JSONPaths[name]
+	if !ok {
+		return quoteColumnName(name), "", nil
+	}
+	literal, err := jsonPathLiteral(path.Segments)
+	if err != nil {
+		return "", "", err
+	}
+	column := quoteColumnName(path.Column)
+	if !path.Wildcard() {
+		value, err = castJSONText("jsonb_path_query_first("+column+", "+literal+")", path.SQLType)
+		return value, "", err
+	}
+	if !aggregated {
+		return "jsonb_path_query_array(" + column + ", " + literal + ")", "", nil
+	}
+	value, err = castJSONText(jsonElementValue, path.SQLType)
+	if err != nil {
+		return "", "", err
+	}
+	join = " LEFT JOIN LATERAL jsonb_path_query(" + column + ", " + literal + ") WITH ORDINALITY AS " +
+		jsonElementAlias + "(" + jsonValueColumn + ", " + jsonOrdinalColumn + ") ON TRUE"
+	return value, join, nil
+}
+
+// firstLast renders first(value, time) or last(value, time). If the value comes from a lateral
+// join over the elements of a list, several rows share one time, and the position in the list
+// decides. Rows without an element are skipped, so that a later message with an empty list does
+// not hide the last element of an earlier one.
+func firstLast(function string, value string, unnested bool) string {
+	if !unnested {
+		return function + "(" + value + ", \"time\")"
+	}
+	direction := "ASC"
+	if function == "last" {
+		direction = "DESC"
+	}
+	return "(array_agg(" + value + " ORDER BY \"time\" " + direction + ", " + jsonElementOrdinal + " " + direction + ") FILTER (WHERE " + value + " IS NOT NULL))[1]"
+}
+
 func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.QueriesRequestElement, userId string, ownerUserIds []string, forceTz string, devices []models.Device) (queries []string, err error) {
 	queries = make([]string, len(elements))
 	for i, element := range elements {
@@ -125,24 +252,28 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 			}
 			elements[i] = element
 			for idx, column := range element.Columns {
-				hashedColumnName := quoteColumnName(column.Name)
+				columnValueSQL, join, err := columnValue(element, column.Name, true)
+				if err != nil {
+					return nil, err
+				}
+				unnested := join != ""
 				query += "(SELECT time_bucket(" + quoteSQLString(*element.GroupTime) + ", \"time\", " + quoteSQLString(timezone) + ") AS \"time\", "
 				if strings.HasPrefix(*column.GroupType, "difference") {
 					groupParts := strings.Split(*column.GroupType, "-")
 					if groupParts[1] == "first" || groupParts[1] == "last" {
-						query += groupParts[1] + "(" + hashedColumnName + ", \"time\")"
+						query += firstLast(groupParts[1], columnValueSQL, unnested)
 					} else {
-						query += translateFunctionName(groupParts[1]) + hashedColumnName + ")"
+						query += translateFunctionName(groupParts[1]) + columnValueSQL + ")"
 					}
 				} else if *column.GroupType == "first" || *column.GroupType == "last" {
-					query += *column.GroupType + "(" + hashedColumnName + ", \"time\")"
+					query += firstLast(*column.GroupType, columnValueSQL, unnested)
 				} else if strings.HasPrefix(*column.GroupType, "time-weighted-") {
-					query += translateFunctionName(*column.GroupType) + hashedColumnName + "))"
+					query += translateFunctionName(*column.GroupType) + columnValueSQL + "))"
 				} else {
-					query += translateFunctionName(*column.GroupType) + hashedColumnName + ")"
+					query += translateFunctionName(*column.GroupType) + columnValueSQL + ")"
 				}
 				query += " AS value"
-				query += " FROM " + quoteIdentifier(table)
+				query += " FROM " + quoteIdentifier(table) + join
 				filterString := ""
 				if l != nil {
 					n := *l
@@ -186,7 +317,11 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				if idx > 0 {
 					query += ", "
 				}
-				query += quoteColumnName(column.Name)
+				columnValueSQL, _, err := columnValue(element, column.Name, false)
+				if err != nil {
+					return nil, err
+				}
+				query += columnValueSQL
 				if column.Math != nil {
 					query += *column.Math
 				}
@@ -336,8 +471,16 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 			if idx != 0 {
 				query += " AND "
 			}
+			// filters are evaluated per row, so "*" is not valid here (see QueriesRequestElementFilter.Valid)
+			filterColumn, _, err := columnValue(element, filter.Column, false)
+			if err != nil {
+				return "", err
+			}
+			if path, ok := element.JSONPaths[filter.Column]; ok && path.Wildcard() {
+				return "", errors.Join(errors.New("filtering on all elements of a list is not supported"), model.ErrBadRequest)
+			}
 			if filter.Value == nil {
-				query += quoteColumnName(filter.Column) + " IS "
+				query += filterColumn + " IS "
 				if filter.Type == "!=" {
 					query += "NOT "
 				}
@@ -347,7 +490,7 @@ func getFilterString(element model.QueriesRequestElement, group bool, overrideSo
 				if err != nil {
 					return "", err
 				}
-				query += quoteColumnName(filter.Column)
+				query += filterColumn
 				if filter.Math != nil {
 					query += *filter.Math + " "
 				}
@@ -421,8 +564,9 @@ func (wrapper *Wrapper) tableName(ctx context.Context, element model.QueriesRequ
 			return "", err
 		}
 	}
-	if element.GroupTime != nil && wrapper.readPool != nil {
-		// check if CA View available
+	if element.GroupTime != nil && wrapper.readPool != nil && len(element.JSONPaths) == 0 {
+		// check if CA View available. Continuous aggregates are built over plain columns and do not
+		// cover values read from inside a JSONB column.
 		query, err := getCAQuery(element, table, timezone)
 		if err != nil {
 			log.Logger.WarnContext(ctx, "getCAQuery failed", "error", err)

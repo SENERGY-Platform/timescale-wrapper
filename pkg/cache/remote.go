@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -392,8 +393,16 @@ func (rc *RemoteCache) mcGet(ctx context.Context, key string) (item *memcache.It
 	return
 }
 
+// getDeepEntry returns the value at the dot separated path, or nil if there is none. A "*" segment
+// addresses all elements of a list, and the result is then the list of all matches, flat and
+// without missing values, like jsonb_path_query_array in lax mode returns for the database. Lax
+// mode drops only what is missing, a key that is absent or an index outside of the list. A JSON
+// null is present and stays in the result.
 func getDeepEntry(m map[string]interface{}, path string) interface{} {
 	pathElems := strings.Split(path, ".")
+	if slices.Contains(pathElems, "*") {
+		return deepEntryMatches(m, pathElems)
+	}
 	var sub interface{}
 	sub = m
 	ok := false
@@ -420,4 +429,33 @@ func getDeepEntry(m map[string]interface{}, path string) interface{} {
 		}
 	}
 	return sub
+}
+
+// deepEntryMatches collects the values at path below sub. Matches of a "*" segment are flattened
+// into one list, but the values themselves are not, even if they are lists. Missing keys and
+// indexes yield no match, a JSON null yields a nil match.
+func deepEntryMatches(sub interface{}, path []string) []interface{} {
+	matches := []interface{}{}
+	if len(path) == 0 {
+		// reaching the end of the path means the value is present, even if it is a JSON null
+		return append(matches, sub)
+	}
+	switch child := sub.(type) {
+	case map[string]interface{}:
+		if next, ok := child[path[0]]; ok {
+			matches = append(matches, deepEntryMatches(next, path[1:])...)
+		}
+	case []interface{}:
+		if path[0] == "*" {
+			for _, element := range child {
+				matches = append(matches, deepEntryMatches(element, path[1:])...)
+			}
+			return matches
+		}
+		n, err := strconv.Atoi(path[0])
+		if err == nil && n >= 0 && n < len(child) {
+			matches = append(matches, deepEntryMatches(child[n], path[1:])...)
+		}
+	}
+	return matches
 }

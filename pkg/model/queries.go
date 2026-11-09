@@ -19,6 +19,7 @@ package model
 import (
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,6 +39,29 @@ type QueriesRequestElement struct {
 	OrderDirection   *Direction                     `json:"orderDirection,omitempty"`
 	DeviceGroupId    *string                        `json:"deviceGroupId,omitempty"`
 	LocationId       *string                        `json:"locationId,omitempty"`
+
+	// JSONPaths holds, per requested column or filter name, the address of a value inside a JSONB
+	// column. It is filled server side from the service description (see api.resolveJSONPaths)
+	// and never read from or written to a request.
+	JSONPaths map[string]JSONPath `json:"-"`
+}
+
+// JSONPath addresses a value inside the JSONB column of a variable length list. Column names are
+// dot separated paths. If a variable list lies on the path, everything up to and including the
+// list is the column and the remainder is a path into its JSON value.
+type JSONPath struct {
+	// Column is the name of the JSONB column, as the table worker names it before hashing.
+	Column string
+	// Segments is the path inside the JSON value. Each segment is a non-negative list index, "*"
+	// for all elements of a list, or the name of a structure field.
+	Segments []string
+	// SQLType is the SQL type of the addressed value. Empty means jsonb, without a cast.
+	SQLType string
+}
+
+// Wildcard reports whether the path addresses all elements of a list.
+func (path JSONPath) Wildcard() bool {
+	return slices.Contains(path.Segments, "*")
 }
 
 func (element *QueriesRequestElement) Valid() bool {
@@ -193,6 +217,9 @@ func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
 	if elementColumn.GroupType != nil && !hasTime {
 		return false
 	}
+	if !elementColumn.WildcardValid() {
+		return false
+	}
 	if elementColumn.GroupType != nil {
 		allowedTypes := []interface{}{}
 		allowedTypes = append(allowedTypes, "mean", "sum", "count", "median", "min", "max", "first", "last",
@@ -206,6 +233,24 @@ func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
 		return false
 	}
 	if elementColumn.TargetCharacteristicId != nil && elementColumn.ConceptId == nil && elementColumn.Criteria.FunctionId == "" {
+		return false
+	}
+	return true
+}
+
+// WildcardValid checks the rules for a column name with "*", which addresses all elements of a
+// list. The elements can only be reduced to one value by an aggregation. Without one the column is
+// a list, which math and conversions cannot work on. Time weighted means need one value per
+// message. Columns without "*" are always valid here. Columns built after Valid ran, such as those
+// of criteria, have to be checked with this as well.
+func (elementColumn *QueriesRequestElementColumn) WildcardValid() bool {
+	if !HasWildcardSegment(elementColumn.Name) {
+		return true
+	}
+	if elementColumn.GroupType == nil && (elementColumn.Math != nil || elementColumn.TargetCharacteristicId != nil) {
+		return false
+	}
+	if elementColumn.GroupType != nil && strings.HasPrefix(*elementColumn.GroupType, "time-weighted-") {
 		return false
 	}
 	return true
@@ -241,7 +286,7 @@ func (filter *QueriesRequestElementFilter) Valid() bool {
 			return false
 		}
 	}
-	return ElementInArray(filter.Type, allowedTypes) && columnNameValid(filter.Column)
+	return ElementInArray(filter.Type, allowedTypes) && columnNameValid(filter.Column) && !HasWildcardSegment(filter.Column)
 }
 
 // the comma used to be allowed as a decimal separator, but postgres reads it as a list
@@ -258,10 +303,25 @@ func timeIntervalValid(timeInterval string) bool {
 	return timeMatcher.MatchString(timeInterval)
 }
 
-var columnMatcher = regexp.MustCompile("^([a-zA-Z0-9\\.\\-_])+$")
+var columnMatcher = regexp.MustCompile("^([a-zA-Z0-9\\.\\-_\\*])+$")
 
+// columnNameValid allows the same characters as before plus "*", which addresses all elements of a
+// variable list. It has to be a segment of its own.
 func columnNameValid(column string) bool {
-	return columnMatcher.MatchString(column)
+	if !columnMatcher.MatchString(column) {
+		return false
+	}
+	for _, segment := range strings.Split(column, ".") {
+		if strings.Contains(segment, "*") && segment != "*" {
+			return false
+		}
+	}
+	return true
+}
+
+// HasWildcardSegment reports whether a segment of the dot separated column name is "*".
+func HasWildcardSegment(column string) bool {
+	return slices.Contains(strings.Split(column, "."), "*")
 }
 
 // TimezoneValid checks a timezone name before it is placed into a query. It intentionally does

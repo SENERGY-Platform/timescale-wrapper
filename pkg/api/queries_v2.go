@@ -296,6 +296,12 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 				}
 
 				ownerUserIds := slices.Repeat([]string{ownerUserIdsBefore[dbRequestIndices[i]]}, len(dbRequestElements))
+				err := resolveJSONPaths(elementCtx, remoteCache, dbRequestElements)
+				if err != nil {
+					raiseError(err)
+					return
+				}
+
 				queries, err := wrapper.GenerateQueries(elementCtx, dbRequestElements, userId, ownerUserIds, forceTz, devices)
 				if err != nil {
 					raiseError(errors.Join(err, model.ErrInternalServerError))

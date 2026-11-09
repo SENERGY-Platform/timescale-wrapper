@@ -118,6 +118,66 @@ func TestRequestElementValidation(t *testing.T) {
 			Expected: false,
 		},
 		{
+			Name:     "list index in a column name",
+			Body:     `{"columns":[{"name":"root.list.0.field"}]}`,
+			Expected: true,
+		},
+		{
+			Name:     "wildcard column without a group type",
+			Body:     `{"columns":[{"name":"root.list.*.field"}]}`,
+			Expected: true,
+		},
+		{
+			Name:     "wildcard column with a group type",
+			Body:     `{"columns":[{"name":"root.list.*.field","groupType":"sum"}],"groupTime":"1h"}`,
+			Expected: true,
+		},
+		{
+			Name:     "wildcard column with first",
+			Body:     `{"columns":[{"name":"root.list.*.field","groupType":"difference-last"}],"groupTime":"1h"}`,
+			Expected: true,
+		},
+		{
+			Name:     "wildcard as part of a segment",
+			Body:     `{"columns":[{"name":"root.list.a*.field"}]}`,
+			Expected: false,
+		},
+		{
+			Name:     "wildcard only",
+			Body:     `{"columns":[{"name":"*"}]}`,
+			Expected: true,
+		},
+		{
+			Name:     "wildcard column with math and no group type",
+			Body:     `{"columns":[{"name":"root.list.*.field","math":"+5"}]}`,
+			Expected: false,
+		},
+		{
+			Name:     "wildcard column with a target characteristic and no group type",
+			Body:     `{"columns":[{"name":"root.list.*.field","targetCharacteristicId":"t","conceptId":"c"}]}`,
+			Expected: false,
+		},
+		{
+			Name:     "wildcard column with a target characteristic and a group type",
+			Body:     `{"columns":[{"name":"root.list.*.field","groupType":"max","targetCharacteristicId":"t","conceptId":"c"}],"groupTime":"1h"}`,
+			Expected: true,
+		},
+		{
+			Name:     "wildcard column with time weighted mean",
+			Body:     `{"columns":[{"name":"root.list.*.field","groupType":"time-weighted-mean-linear"}],"groupTime":"1h"}`,
+			Expected: false,
+		},
+		{
+			Name:     "wildcard in a filter",
+			Body:     `{"columns":[{"name":"value"}],"filters":[{"column":"root.list.*.field","type":"=","value":1}]}`,
+			Expected: false,
+		},
+		{
+			Name:     "list index in a filter",
+			Body:     `{"columns":[{"name":"value"}],"filters":[{"column":"root.list.0.field","type":"=","value":1}]}`,
+			Expected: true,
+		},
+		{
 			Name:     "group time",
 			Body:     `{"columns":[{"name":"value","groupType":"mean"}],"groupTime":"1h"}`,
 			Expected: true,

@@ -112,6 +112,12 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 			return nil, http.StatusNotFound, errors.New("not found")
 		}
 
+		// before the cache, so that cache and database reject the same requests
+		err = resolveJSONPaths(ctx, remoteCache, fullRequestElements)
+		if err != nil {
+			return nil, model.GetStatusCode(err), err
+		}
+
 		dbRequestElements := []model.QueriesRequestElement{}
 		dbRequestIndices := []int{}
 
