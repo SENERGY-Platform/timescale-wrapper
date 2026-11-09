@@ -252,6 +252,11 @@ paths:
         in: query
         name: time_format
         type: string
+      - description: Number of decimal places floating point values are rounded to,
+          0 to 15. Integers and other types are returned as they are.
+        in: query
+        name: precision
+        type: integer
       produces:
       - text/plain
       responses:
@@ -353,6 +358,11 @@ paths:
         in: query
         name: time_format
         type: string
+      - description: Number of decimal places floating point values are rounded to,
+          0 to 15. Integers and other types are returned as they are.
+        in: query
+        name: precision
+        type: integer
       produces:
       - application/json
       responses:
@@ -393,6 +403,11 @@ paths:
         in: query
         name: time_format
         type: string
+      - description: Number of decimal places floating point values are rounded to,
+          0 to 15. Integers and other types are returned as they are.
+        in: query
+        name: precision
+        type: integer
       produces:
       - text/plain
       responses:
@@ -431,6 +446,11 @@ paths:
         in: query
         name: time_format
         type: string
+      - description: Number of decimal places floating point values are rounded to,
+          0 to 15. Integers and other types are returned as they are.
+        in: query
+        name: precision
+        type: integer
       produces:
       - text/plain
       responses:
@@ -486,6 +506,11 @@ paths:
         in: query
         name: time_format
         type: string
+      - description: Number of decimal places floating point values are rounded to,
+          0 to 15. Integers and other types are returned as they are.
+        in: query
+        name: precision
+        type: integer
       produces:
       - application/json
       responses:
@@ -541,6 +566,11 @@ paths:
         in: query
         name: time_format
         type: string
+      - description: Number of decimal places floating point values are rounded to,
+          0 to 15. Integers and other types are returned as they are.
+        in: query
+        name: precision
+        type: integer
       - description: Used to automatically select the clostest location on a multivalued
           import export. Only works with exportId set to an export of an import. User
           needs read access to the import type.

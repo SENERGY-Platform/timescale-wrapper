@@ -359,6 +359,7 @@ type PreparedQueriesRequestElement struct {
 	QueriesRequestElement
 	Token      string `json:"token,omitempty"`
 	TimeFormat string `json:"timeFormat,omitempty"`
+	Precision  *int   `json:"precision,omitempty"`
 }
 
 func DeviceGroupFilterCriteriaValid(criteria models.DeviceGroupFilterCriteria) bool {

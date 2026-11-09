@@ -55,6 +55,7 @@ func init() {
 // @Param		 order_column_index query string false "Column to order values by (includes time column). Only works in format table."
 // @Param		 order_direction query string false "Direction to order values by. Allowed are 'asc' and 'desc'. Only works in format table."
 // @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Param        precision query int false "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are."
 // @Param		 locate_lat query string false "Used to automatically select the clostest location on a multivalued import export. Only works with exportId set to an export of an import. User needs read access to the import type."
 // @Param		 locate_lon query string false "Used to automatically select the clostest location on a multivalued import export. Only works with exportId set to an export of an import. User needs read access to the import type."
 // @Param		 force_tz query string false "Calculate aggregations with the specified timezone instead of the default device timezone. Might increase calculation complexity and response time."
@@ -76,6 +77,11 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			return
 		}
 		timeFormat := request.URL.Query().Get("time_format")
+		precision, err := parsePrecision(request)
+		if err != nil {
+			c.Error(errors.Join(err, model.ErrBadRequest))
+			return
+		}
 
 		var requestElements []model.QueriesRequestElement
 		err = json.NewDecoder(request.Body).Decode(&requestElements)
@@ -358,6 +364,9 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			return
 		}
 
+		for i := range response {
+			roundResponse(response[i].Data, precision)
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		err = json.NewEncoder(writer).Encode(response)
 		if err != nil {

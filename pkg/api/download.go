@@ -24,6 +24,8 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
@@ -52,6 +54,7 @@ func init() {
 // @Security Bearer
 // @Param        query query string true "JSON encoded QueriesRequestElement"
 // @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Param        precision query int false "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are."
 // @Success      200 {file}  CSV file
 // @Failure      400
 // @Failure      401
@@ -69,6 +72,7 @@ func GetDownload() {} // for doc generation
 // @Security Bearer
 // @Param        query query string true "JSON encoded QueriesRequestElement"
 // @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Param        precision query int false "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are."
 // @Success      200 {string} Secret
 // @Failure      400
 // @Failure      401
@@ -86,6 +90,7 @@ func GetPrepareDownload() {} // for doc generation
 // @Security Bearer
 // @Param        query body string true "JSON encoded QueriesRequestElement"
 // @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Param        precision query int false "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are."
 // @Success      200 {string} Secret
 // @Failure      400
 // @Failure      401
@@ -104,7 +109,7 @@ func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, _
 		if !ok {
 			return
 		}
-		handleCSVDownload(c, prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Token, writer, config)
+		handleCSVDownload(c, prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Precision, prepared.Token, writer, config)
 	})
 
 	handleSecretGeneration := func(c *gin.Context, prepared model.PreparedQueriesRequestElement) {
@@ -176,16 +181,21 @@ func DownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper 
 			return
 		}
 
-		handleCSVDownload(c, prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Token, writer, config)
+		handleCSVDownload(c, prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Precision, prepared.Token, writer, config)
 	})
 }
 
 func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifier *verification.Verifier, marshalledQuery string) (elem model.PreparedQueriesRequestElement, ok bool) {
 	elem = model.PreparedQueriesRequestElement{}
 	timeFormat := request.URL.Query().Get("time_format")
+	precision, err := parsePrecision(request)
+	if err != nil {
+		c.Error(errors.Join(err, model.ErrBadRequest))
+		return elem, false
+	}
 
 	var requestElement model.QueriesRequestElement
-	err := json.Unmarshal([]byte(marshalledQuery), &requestElement)
+	err = json.Unmarshal([]byte(marshalledQuery), &requestElement)
 	if !requestElement.Valid() {
 		c.Error(errors.Join(errors.New("invalid query"), model.ErrBadRequest))
 		return elem, false
@@ -242,14 +252,29 @@ func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifie
 		QueriesRequestElement: requestElement,
 		Token:                 getToken(request),
 		TimeFormat:            timeFormat,
+		Precision:             precision,
 	}, true
+}
+
+// downloadQueryParams builds the query string of the /queries requests a download is made of.
+// time_format is user input and needs escaping: a "+" or a space in it broke the request.
+func downloadQueryParams(timeFormat string, precision *int) string {
+	params := url.Values{}
+	params.Set("format", "table")
+	params.Set("order_column_index", "0")
+	params.Set("order_direction", "asc")
+	params.Set("time_format", timeFormat)
+	if precision != nil {
+		params.Set("precision", strconv.Itoa(*precision))
+	}
+	return params.Encode()
 }
 
 var httpClient = http.Client{
 	Timeout: 2 * time.Minute,
 }
 
-func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElement, timeFormat string, token string, writer http.ResponseWriter, config configuration.Config) {
+func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElement, timeFormat string, precision *int, token string, writer http.ResponseWriter, config configuration.Config) {
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
 		log.Logger.ErrorContext(c, "not a flusher")
@@ -315,7 +340,7 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 			log.Logger.ErrorContext(c, "failed to marshal query request", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)
 		}
-		req, err := http.NewRequest(http.MethodPost, "http://localhost:"+config.ApiPort+"/queries?format=table&order_column_index=0&order_direction=asc&time_format="+timeFormat, bytes.NewBuffer(b))
+		req, err := http.NewRequest(http.MethodPost, "http://localhost:"+config.ApiPort+"/queries?"+downloadQueryParams(timeFormat, precision), bytes.NewBuffer(b))
 		if err != nil {
 			log.Logger.ErrorContext(c, "failed to create query request", attributes.ErrorKey, err)
 			panic(http.ErrAbortHandler)

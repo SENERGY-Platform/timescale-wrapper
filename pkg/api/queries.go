@@ -57,6 +57,7 @@ func init() {
 // @Param		 order_column_index query string false "Column to order values by (includes time column). Only works in format table."
 // @Param		 order_direction query string false "Direction to order values by. Allowed are 'asc' and 'desc'. Only works in format table."
 // @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Param        precision query int false "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are."
 // @Success      200 {array} interface{} "2D or 3D array"
 // @Failure      400
 // @Failure      401
@@ -70,6 +71,11 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 		writer := c.Writer
 		request := c.Request
 		requestedFormat, orderColumnIndex, orderDirection, err := queriesParseQueryparams(request)
+		if err != nil {
+			c.Error(errors.Join(err, model.ErrBadRequest))
+			return
+		}
+		precision, err := parsePrecision(request)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
@@ -142,6 +148,7 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
+		roundResponse(response, precision)
 		if request.Header.Get("Accept") == "application/csv" || request.Header.Get("Accept") == "text/csv" {
 			writer.Header().Set("Content-Type", request.Header.Get("Accept"))
 			csvWriter := csv.NewWriter(writer)

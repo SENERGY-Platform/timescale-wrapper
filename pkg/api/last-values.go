@@ -59,6 +59,7 @@ type queriesRequestElementColumn struct {
 // @Security Bearer
 // @Param        payload body []model.LastValuesRequestElement true "requested values"
 // @Param        time_format query string false "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format"
+// @Param        precision query int false "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are."
 // @Success      200 {array} model.LastValuesResponseElement
 // @Failure      400
 // @Failure      401
@@ -88,8 +89,12 @@ func LastValuesEndpoint(router gin.IRouter, config configuration.Config, wrapper
 func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) func(ctx context.Context, request *http.Request) ([]model.LastValuesResponseElement, int, error) {
 	return func(ctx context.Context, request *http.Request) ([]model.LastValuesResponseElement, int, error) {
 		tracer := otel.Tracer("api/last-values.go:LastValuesEndpoint")
+		precision, err := parsePrecision(request)
+		if err != nil {
+			return nil, http.StatusBadRequest, err
+		}
 		var requestElements []model.LastValuesRequestElement
-		err := json.NewDecoder(request.Body).Decode(&requestElements)
+		err = json.NewDecoder(request.Body).Decode(&requestElements)
 		if err != nil {
 			return nil, http.StatusBadRequest, err
 		}
@@ -215,7 +220,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 					}
 					responseElements[outputIndexToInputIndex[inserted]] = model.LastValuesResponseElement{
 						Time:  tP,
-						Value: responseData[i][0][j],
+						Value: roundOptional(responseData[i][0][j], precision),
 					}
 					inserted++
 				}

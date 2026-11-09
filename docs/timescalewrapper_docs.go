@@ -94,6 +94,12 @@ const docTemplatetimescalewrapper = `{
                         "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
                         "name": "time_format",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are.",
+                        "name": "precision",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -249,6 +255,12 @@ const docTemplatetimescalewrapper = `{
                         "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
                         "name": "time_format",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are.",
+                        "name": "precision",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -307,6 +319,12 @@ const docTemplatetimescalewrapper = `{
                         "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
                         "name": "time_format",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are.",
+                        "name": "precision",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -361,6 +379,12 @@ const docTemplatetimescalewrapper = `{
                         "type": "string",
                         "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
                         "name": "time_format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are.",
+                        "name": "precision",
                         "in": "query"
                     }
                 ],
@@ -440,6 +464,12 @@ const docTemplatetimescalewrapper = `{
                         "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
                         "name": "time_format",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are.",
+                        "name": "precision",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -517,6 +547,12 @@ const docTemplatetimescalewrapper = `{
                         "type": "string",
                         "description": "Textual representation of the date 'Mon Jan 2 15:04:05 -0700 MST 2006'. Example: 2006-01-02T15:04:05.000Z07:00 would format timestamps as rfc3339 with ms precision. Find details here: https://golang.org/pkg/time/#Time.Format",
                         "name": "time_format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of decimal places floating point values are rounded to, 0 to 15. Integers and other types are returned as they are.",
+                        "name": "precision",
                         "in": "query"
                     },
                     {
