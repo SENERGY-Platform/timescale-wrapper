@@ -24,8 +24,9 @@ type LastValuesRequestElement struct {
 	SourceCharacteristicId *string `json:"sourceCharacteristicId,omitempty"`
 	TargetCharacteristicId *string `json:"targetCharacteristicId,omitempty"`
 	ConceptId              *string `json:"conceptId,omitempty"`
-	ColumnName             string  `json:"columnName,omitempty"`
-	NotNull                bool    `json:"notNull,omitempty"`
+	// Dot separated path of the value. Below a variable length list it may continue with a list index and field names, for example root.list.0.field. * is allowed and returns an array of all matching values.
+	ColumnName string `json:"columnName,omitempty"`
+	NotNull    bool   `json:"notNull,omitempty"`
 }
 
 type LastValuesResponseElement struct {

@@ -195,6 +195,7 @@ func (elementTime *QueriesRequestElementTime) Copy() QueriesRequestElementTime {
 }
 
 type QueriesRequestElementColumn struct {
+	// Dot separated path of the value, starting with the name of the output variable. Below a variable length list the path continues with a list index (0, 1, ...), with * for all elements of the list, and with field names of structures, for example root.list.0.field or root.list.*.field. The value has the type of the variable, a missing element or field is null. Without groupType, * returns the matching values of each message as a flat array. With groupType, the aggregation runs over all matching elements of all messages in a time bucket; first and last order by time, then by position in the list. Without a groupType, * can not be combined with math or targetCharacteristicId. * can not be combined with time-weighted-* group types or used in filters.
 	Name                   string                           `json:"name,omitempty"`
 	GroupType              *string                          `json:"groupType,omitempty"`
 	Math                   *string                          `json:"math,omitempty"`
