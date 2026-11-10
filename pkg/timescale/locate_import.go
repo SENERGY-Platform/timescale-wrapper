@@ -29,6 +29,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 )
@@ -206,60 +207,82 @@ func findImportTypeContentVariable(content importModel.ContentVariable, find fin
 
 }
 
+// setupMaterializedRefreshJob creates the materialized view of tableName and the job that refreshes
+// it daily. The job's procedure is created by Migrate, which runs before the API serves requests.
 func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identifierPathTs, latPathTs, lonPathTs, tableName string) error {
-	_, err := wrapper.writePool.Exec(ctx, "CREATE OR REPLACE PROCEDURE "+wrapperMaterializedViewProcedureName+`(job_id INT, view JSONB) LANGUAGE PLPGSQL
-		AS $$
-		BEGIN
-			EXECUTE format('REFRESH MATERIALIZED VIEW %s', view);
-		END
-		$$;
-	`)
-	if err != nil {
-		return err
-	}
-	_, err = wrapper.writePool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW %v AS SELECT DISTINCT %v, %v, %v FROM %v",
+	_, err := wrapper.writePool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW %v AS SELECT DISTINCT %v, %v, %v FROM %v",
 		quoteIdentifier(locate.ViewName(tableName)), quoteIdentifier(identifierPathTs),
 		quoteIdentifier(latPathTs), quoteIdentifier(lonPathTs), quoteIdentifier(tableName)))
 	if err != nil {
 		return err
 	}
-	config, err := json.Marshal(tableName) // the job config is a jsonb string
+	config, err := json.Marshal(locate.ViewName(tableName)) // the job config is a jsonb string
 	if err != nil {
 		return err
 	}
-	_, err = wrapper.writePool.Exec(ctx, fmt.Sprintf("SELECT add_job('ts_wrapper_refresh_mat_view', '1day', config => %v);",
-		quoteSQLString(string(config))))
+	_, err = wrapper.writePool.Exec(ctx, fmt.Sprintf("SELECT add_job('%v', '1day', config => %v);",
+		wrapperMaterializedViewProcedureName, quoteSQLString(string(config))))
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (wrapper *Wrapper) removeOutdatedMaterializedRefreshJobs(ctx context.Context) error {
-	rows, err := wrapper.writePool.Query(ctx, fmt.Sprintf("SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = '%v' AND config::text NOT IN (SELECT '\"' || table_name || '\"' FROM information_schema.tables);", wrapperMaterializedViewProcedureName))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
+// refreshViewProcedure creates the procedure of the refresh jobs. A job's config is the name of
+// its materialized view as a jsonb string. %I quotes the name as an identifier, and the parser
+// truncates a name longer than 63 bytes the same way it did for CREATE MATERIALIZED VIEW.
+const refreshViewProcedure = "CREATE OR REPLACE PROCEDURE " + wrapperMaterializedViewProcedureName + `(job_id INT, view JSONB) LANGUAGE PLPGSQL
+	AS $$
+	BEGIN
+		EXECUTE format('REFRESH MATERIALIZED VIEW %I', view #>> '{}');
+	END
+	$$;`
 
-	var jobId int64
-	for rows.Next() {
-		err = rows.Scan(&jobId)
+// isMaterializedView renders an SQL condition that holds when the text expression name names a
+// materialized view. The name is resolved by the parser instead of compared as text: export table
+// names are 59 bytes long, so a view name is 64 bytes and stored truncated to 63, and the config of
+// its job never equals the name in the catalog.
+func isMaterializedView(name string) string {
+	return "EXISTS (SELECT FROM pg_class WHERE oid = to_regclass(quote_ident(" + name + ")) AND relkind = 'm')"
+}
+
+// migrateMaterializedRefreshJobs creates the refresh jobs' procedure, points jobs that name an
+// export table at its view, and deletes jobs whose view is gone.
+//
+// Until SNRGY-5103 a job's config was the name of the export table instead of its view, so every
+// run failed and the views kept the locations they were created with. next_start => now() runs the
+// repaired jobs right away instead of after their next retry.
+//
+// All of it runs in one transaction under an advisory lock: replicas start at the same time, and
+// two concurrent CREATE OR REPLACE of the procedure fail with "tuple concurrently updated", which
+// would abort the start.
+func (wrapper *Wrapper) migrateMaterializedRefreshJobs(ctx context.Context) error {
+	return pgx.BeginFunc(ctx, wrapper.writePool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", wrapperMaterializedViewProcedureName)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, refreshViewProcedure)
+		if err != nil {
+			return err
+		}
+		repaired, err := tx.Exec(ctx, `SELECT alter_job(job_id, config => to_jsonb($2::text || (config #>> '{}')), next_start => now())
+			FROM timescaledb_information.jobs
+			WHERE proc_name = $1 AND NOT `+isMaterializedView("config #>> '{}'")+` AND `+isMaterializedView("$2::text || (config #>> '{}')"),
+			wrapperMaterializedViewProcedureName, locate.MaterializedViewPrefix)
+		if err != nil {
+			return err
+		}
+		deleted, err := tx.Exec(ctx, `SELECT delete_job(job_id) FROM timescaledb_information.jobs
+			WHERE proc_name = $1 AND NOT `+isMaterializedView("config #>> '{}'"),
+			wrapperMaterializedViewProcedureName)
 		if err != nil {
 			return err
 		}
 		if wrapper.config.Debug {
-			log.Logger.DebugContext(ctx, fmt.Sprintf("DEBUG: Deleting job for materialized view refresh %v (no longer needed)", jobId))
+			log.Logger.DebugContext(ctx, fmt.Sprintf("DEBUG: pointed %v materialized view refresh jobs at their view, deleted %v without a view",
+				repaired.RowsAffected(), deleted.RowsAffected()))
 		}
-
-		_, err = wrapper.writePool.Exec(ctx, fmt.Sprintf("SELECT delete_job(%v);", jobId))
-		if err != nil {
-			return err
-		}
-	}
-	if err = rows.Err(); err != nil {
-		return err
-	}
-
-	return nil
+		return nil
+	})
 }

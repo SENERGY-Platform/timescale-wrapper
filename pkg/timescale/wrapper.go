@@ -118,5 +118,5 @@ func (wrapper *Wrapper) Migrate(ctx context.Context) error {
 	tracer := otel.Tracer("timescale/db.go:Migrate")
 	c, span := tracer.Start(ctx, "Migrate")
 	defer span.End()
-	return wrapper.removeOutdatedMaterializedRefreshJobs(c)
+	return wrapper.migrateMaterializedRefreshJobs(c)
 }

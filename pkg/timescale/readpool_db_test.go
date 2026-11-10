@@ -141,8 +141,10 @@ func (f *readTestFixture) exec(t *testing.T, statements ...string) {
 
 func (f *readTestFixture) dropAll(t *testing.T, ctx context.Context) {
 	for _, statement := range []string{
+		// The table name is the config of a job created before SNRGY-5103.
 		"SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = '" + wrapperMaterializedViewProcedureName +
-			"' AND config::text IN ('\"" + readTestStaleJob + "\"', '\"" + f.table + "\"')",
+			"' AND config #>> '{}' IN (" + quoteSQLString(readTestStaleJob) + ", " + quoteSQLString(f.table) + ", " +
+			quoteSQLString(locate.ViewName(f.table)) + ")",
 		"DROP MATERIALIZED VIEW IF EXISTS " + quoteIdentifier(locate.ViewName(f.table)),
 		"DROP TABLE IF EXISTS " + quoteIdentifier(f.table),
 		"DROP SCHEMA IF EXISTS " + readTestLagSchema,
@@ -218,16 +220,45 @@ func (f *readTestFixture) locate(t *testing.T, wrapper *Wrapper, call string) {
 	}
 }
 
+// requireRefreshJobs expects want refresh jobs whose config names the view.
 func (f *readTestFixture) requireRefreshJobs(t *testing.T, want int) {
 	t.Helper()
 	var jobs int
-	err := f.admin.QueryRow(t.Context(), "SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name = $1 AND config::text = $2",
-		wrapperMaterializedViewProcedureName, `"`+f.table+`"`).Scan(&jobs)
+	err := f.admin.QueryRow(t.Context(), "SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name = $1 AND config #>> '{}' = $2",
+		wrapperMaterializedViewProcedureName, locate.ViewName(f.table)).Scan(&jobs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if jobs != want {
 		t.Errorf("got %v refresh jobs for the view, want %v", jobs, want)
+	}
+}
+
+// runRefreshJob runs the export's refresh job once in this session, whichever of the table or the
+// view its config names, so a job that cannot refresh fails here with the database's error.
+func (f *readTestFixture) runRefreshJob(t *testing.T) {
+	t.Helper()
+	var job int64
+	err := f.admin.QueryRow(t.Context(), "SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = $1 AND config #>> '{}' IN ($2, $3)",
+		wrapperMaterializedViewProcedureName, f.table, locate.ViewName(f.table)).Scan(&job)
+	if err != nil {
+		t.Fatalf("refresh job of the export: %v", err)
+	}
+	if _, err := f.admin.Exec(t.Context(), "CALL run_job($1)", job); err != nil {
+		t.Fatalf("refresh job %v: %v", job, err)
+	}
+}
+
+// requireStationInView expects station among the locations of the view.
+func (f *readTestFixture) requireStationInView(t *testing.T, station string) {
+	t.Helper()
+	var rows int
+	err := f.admin.QueryRow(t.Context(), "SELECT count(*) FROM "+quoteIdentifier(locate.ViewName(f.table))+" WHERE station = $1", station).Scan(&rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Errorf("view has %v rows of station %v, want 1", rows, station)
 	}
 }
 
@@ -268,6 +299,9 @@ func TestReadConnectionOnlyReads(t *testing.T) {
 func TestLocateImportBehindALaggingReplica(t *testing.T) {
 	f := newReadTestFixture(t)
 	wrapper := f.wrapper(t, readTestLaggingRole)
+	if err := wrapper.Migrate(t.Context()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
 
 	// Nothing exists yet: created on the primary, read back from the primary.
 	f.locate(t, wrapper, "creating the view")
@@ -276,4 +310,72 @@ func TestLocateImportBehindALaggingReplica(t *testing.T) {
 	// The view exists on the primary only. Creating it again would fail with duplicate_table.
 	f.locate(t, wrapper, "with the view on the primary only")
 	f.requireRefreshJobs(t, 1)
+}
+
+// TestRefreshJobRefreshesTheView runs the refresh job the locate import creates and expects a
+// station added to the export afterwards in the view. Until SNRGY-5103 the job's config named the
+// export table, so every run failed with "is not a materialized view" and the view kept the
+// stations it was created with. Skipped when TEST_POSTGRES_DSN is unset.
+func TestRefreshJobRefreshesTheView(t *testing.T) {
+	f := newReadTestFixture(t)
+	wrapper := f.wrapper(t, readTestRole)
+	if err := wrapper.Migrate(t.Context()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	f.locate(t, wrapper, "creating the view")
+	f.requireRefreshJobs(t, 1)
+
+	f.exec(t, "INSERT INTO "+quoteIdentifier(f.table)+" VALUES (now(), 'new', 52.0, 10.0)")
+	f.runRefreshJob(t)
+	f.requireStationInView(t, "new")
+}
+
+// TestMigrateRepairsRefreshJobs starts from a view and refresh job as created before SNRGY-5103:
+// the job's config names the export table and the procedure renders it with %s. Migrate has to
+// point the job at the view, and must not take it for orphaned on the next start although the
+// view's name exceeds 63 bytes and is stored truncated: the fixture's table name is 59 bytes long,
+// the view adds 5. Skipped when TEST_POSTGRES_DSN is unset.
+func TestMigrateRepairsRefreshJobs(t *testing.T) {
+	f := newReadTestFixture(t)
+	f.exec(t,
+		"CREATE OR REPLACE PROCEDURE "+wrapperMaterializedViewProcedureName+"(job_id INT, view JSONB) LANGUAGE PLPGSQL "+
+			"AS $$ BEGIN EXECUTE format('REFRESH MATERIALIZED VIEW %s', view); END $$",
+		"CREATE MATERIALIZED VIEW "+quoteIdentifier(locate.ViewName(f.table))+" AS SELECT DISTINCT station, lat, lon FROM "+quoteIdentifier(f.table),
+		"SELECT add_job('"+wrapperMaterializedViewProcedureName+"', '1day', config => "+quoteSQLString(`"`+f.table+`"`)+", scheduled => false)",
+	)
+	wrapper := f.wrapper(t, readTestRole)
+
+	for _, start := range []string{"first", "second"} {
+		if err := wrapper.Migrate(t.Context()); err != nil {
+			t.Fatalf("Migrate on the %v start: %v", start, err)
+		}
+		f.requireRefreshJobs(t, 1)
+	}
+
+	f.exec(t, "INSERT INTO "+quoteIdentifier(f.table)+" VALUES (now(), 'new', 52.0, 10.0)")
+	f.runRefreshJob(t)
+	f.requireStationInView(t, "new")
+}
+
+// TestMigrateConcurrently starts several replicas at once on a database without the procedure.
+// Without the advisory lock in Migrate, concurrent CREATE OR REPLACE of the procedure fails with
+// "tuple concurrently updated" or a duplicate key in pg_proc. Skipped when TEST_POSTGRES_DSN is
+// unset.
+func TestMigrateConcurrently(t *testing.T) {
+	f := newReadTestFixture(t)
+	f.exec(t, "DROP PROCEDURE IF EXISTS "+wrapperMaterializedViewProcedureName)
+	wrapper := f.wrapper(t, readTestRole)
+
+	errs := make(chan error, 8)
+	wg := sync.WaitGroup{}
+	for range cap(errs) {
+		wg.Go(func() { errs <- wrapper.Migrate(t.Context()) })
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("Migrate: %v", err)
+		}
+	}
 }
