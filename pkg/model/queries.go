@@ -18,8 +18,11 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -298,10 +301,79 @@ func mathValid(math string) bool {
 	return mathMatcher.MatchString(math)
 }
 
-var timeMatcher = regexp.MustCompile("^(\\d)+\\s*(ms|s|months|mon|m|h|day|d|w|y|:\\d\\d:\\d\\d)$")
+var timeMatcher = regexp.MustCompile("^(\\d+)\\s*(ms|s|months|mon|m|h|day|d|w|y|:\\d\\d:\\d\\d)$")
 
 func timeIntervalValid(timeInterval string) bool {
 	return timeMatcher.MatchString(timeInterval)
+}
+
+// AddTimeInterval moves t by sign (1 or -1) times an interval of last or ahead, as postgres adds the interval to a
+// time: ms, s, m and h as durations, "H:MM:SS" as hours, minutes and seconds, day, w, mon and y as calendar units
+// in the location of t, a day of the month that the target month lacks becoming its last day.
+func AddTimeInterval(t time.Time, interval string, sign int) (time.Time, error) {
+	match := timeMatcher.FindStringSubmatch(interval)
+	if match == nil {
+		return t, fmt.Errorf("invalid time interval %q", interval)
+	}
+	n, err := strconv.Atoi(match[1])
+	if err != nil {
+		return t, err
+	}
+	// a duration ends at about 292 years, a date that RFC3339 can write at the year 9999
+	tooLong := fmt.Errorf("time interval %q is too long", interval)
+	add := func(unit time.Duration) (time.Time, error) {
+		if n > int(math.MaxInt64/unit) {
+			return t, tooLong
+		}
+		return t.Add(time.Duration(sign*n) * unit), nil
+	}
+	unit := match[2]
+	switch unit {
+	case "d", "day", "w", "mon", "months", "y":
+		if n > 10000*366 {
+			return t, tooLong
+		}
+	}
+	var result time.Time
+	switch unit {
+	case "ms":
+		result, err = add(time.Millisecond)
+	case "s":
+		result, err = add(time.Second)
+	case "m":
+		result, err = add(time.Minute)
+	case "h":
+		result, err = add(time.Hour)
+	case "d", "day":
+		result = t.AddDate(0, 0, sign*n)
+	case "w":
+		result = t.AddDate(0, 0, sign*7*n)
+	case "mon", "months":
+		result = addMonths(t, sign*n)
+	case "y":
+		result = addMonths(t, sign*12*n)
+	default: // ":MM:SS" after the hours
+		minutes, _ := strconv.Atoi(unit[1:3]) // two digits, see timeMatcher
+		seconds, _ := strconv.Atoi(unit[4:6])
+		result, err = add(time.Hour)
+		result = result.Add(time.Duration(sign) * (time.Duration(minutes)*time.Minute + time.Duration(seconds)*time.Second))
+	}
+	if err != nil {
+		return t, err
+	}
+	if year := result.Year(); year < 1 || year > 9999 {
+		return t, fmt.Errorf("time interval %q leads to the year %d", interval, year)
+	}
+	return result, nil
+}
+
+// addMonths moves t by n months and keeps the day of the month, or takes the last day of the target month when it
+// is shorter (postgres: 2026-03-31 - 1 mon = 2026-02-28; time.AddDate would give 2026-03-03).
+func addMonths(t time.Time, n int) time.Time {
+	year, month, day := t.Date()
+	first := time.Date(year, month+time.Month(n), 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+	last := first.AddDate(0, 1, -1).Day()
+	return first.AddDate(0, 0, min(day, last)-1)
 }
 
 var columnMatcher = regexp.MustCompile("^([a-zA-Z0-9\\.\\-_\\*])+$")

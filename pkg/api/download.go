@@ -209,28 +209,11 @@ func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifie
 		return elem, false
 	}
 
-	if requestElement.Time.Start == nil {
-		if requestElement.Time.Last != nil {
-			end := time.Now().Format(time.RFC3339)
-			requestElement.Time.End = &end
-			d, err := time.ParseDuration(*requestElement.Time.Last)
-			if err != nil {
-				c.Error(errors.Join(err, model.ErrInternalServerError))
-				return elem, false
-			}
-			start := time.Now().Add(-1 * d).Format(time.RFC3339)
-			requestElement.Time.Start = &start
-		} else if requestElement.Time.Ahead != nil {
-			start := time.Now().Format(time.RFC3339)
-			requestElement.Time.Start = &start
-			d, err := time.ParseDuration(*requestElement.Time.Ahead)
-			if err != nil {
-				c.Error(errors.Join(err, model.ErrInternalServerError))
-				return elem, false
-			}
-			end := time.Now().Add(d).Format(time.RFC3339)
-			requestElement.Time.End = &end
-		}
+	// the download splits its window by start and end
+	err = resolveRelativeDownloadTime(requestElement.Time, time.Now())
+	if err != nil {
+		c.Error(errors.Join(err, model.ErrBadRequest))
+		return elem, false
 	}
 
 	userId, err := getUserId(request)
@@ -254,6 +237,31 @@ func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifie
 		TimeFormat:            timeFormat,
 		Precision:             precision,
 	}, true
+}
+
+// resolveRelativeDownloadTime replaces last or ahead by the start and end they mean at now: /queries refuses an
+// element with last or ahead and a start.
+func resolveRelativeDownloadTime(t *model.QueriesRequestElementTime, now time.Time) error {
+	if t.Start != nil {
+		return nil
+	}
+	from, to := now, now
+	var err error
+	switch {
+	case t.Last != nil:
+		from, err = model.AddTimeInterval(now, *t.Last, -1)
+	case t.Ahead != nil:
+		to, err = model.AddTimeInterval(now, *t.Ahead, 1)
+	default:
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	start := from.UTC().Format(time.RFC3339)
+	end := to.UTC().Format(time.RFC3339)
+	t.Start, t.End, t.Last, t.Ahead = &start, &end, nil, nil
+	return nil
 }
 
 // downloadQueryParams builds the query string of the /queries requests a download is made of.

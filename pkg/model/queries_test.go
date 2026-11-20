@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 )
 
 const testDeviceId = "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
@@ -324,4 +325,53 @@ func TestTimeIntervalValidators(t *testing.T) {
 		})
 	}
 
+}
+
+// AddTimeInterval reads every unit timeIntervalValid accepts, as postgres adds it to now().
+func TestAddTimeInterval(t *testing.T) {
+	now := time.Date(2026, 3, 31, 12, 0, 0, 0, time.UTC)
+	tt := []struct {
+		interval string
+		sign     int
+		want     time.Time
+	}{
+		{"500ms", -1, now.Add(-500 * time.Millisecond)},
+		{"90s", -1, now.Add(-90 * time.Second)},
+		{"15m", -1, now.Add(-15 * time.Minute)},
+		{"17520h", -1, now.Add(-17520 * time.Hour)},
+		{"730d", -1, now.AddDate(0, 0, -730)},
+		{"2 day", -1, time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC)},
+		{"1w", 1, time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)},
+		{"1mon", -1, time.Date(2026, 2, 28, 12, 0, 0, 0, time.UTC)},
+		{"1 months", 1, time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)},
+		{"13months", -1, time.Date(2025, 2, 28, 12, 0, 0, 0, time.UTC)},
+		{"2y", -1, time.Date(2024, 3, 31, 12, 0, 0, 0, time.UTC)},
+		{"1:30:15", -1, now.Add(-(time.Hour + 30*time.Minute + 15*time.Second))},
+		{"1:30:15", 1, now.Add(time.Hour + 30*time.Minute + 15*time.Second)},
+	}
+	for _, tc := range tt {
+		got, err := AddTimeInterval(now, tc.interval, tc.sign)
+		if err != nil {
+			t.Errorf("%s: %v", tc.interval, err)
+			continue
+		}
+		if !got.Equal(tc.want) {
+			t.Errorf("%s (%d): got %s, want %s", tc.interval, tc.sign, got, tc.want)
+		}
+	}
+	leap := time.Date(2024, 2, 29, 0, 0, 0, 0, time.UTC)
+	if got, _ := AddTimeInterval(leap, "1y", 1); !got.Equal(time.Date(2025, 2, 28, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("1y after %s: got %s", leap, got)
+	}
+	if got, err := AddTimeInterval(now, "100000000ms", -1); err != nil || !got.Equal(now.Add(-100000*time.Second)) {
+		t.Errorf("100000000ms: got %s, %v", got, err)
+	}
+	for _, interval := range []string{"9999999999h", "3000000000m", "10000000000s", "9999999999999ms", "9999999999:00:00", "300000y", "20000y", "4000000months", "99999999999999999999d", "9223372036854775807y"} {
+		if got, err := AddTimeInterval(now, interval, -1); err == nil {
+			t.Errorf("%s: expected an error, got %s", interval, got)
+		}
+	}
+	if _, err := AddTimeInterval(now, "1 fortnight", -1); err == nil {
+		t.Error("expected an error for an unknown unit")
+	}
 }
