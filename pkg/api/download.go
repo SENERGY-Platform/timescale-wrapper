@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -209,11 +208,13 @@ func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifie
 		return elem, false
 	}
 
-	// the download splits its window by start and end
-	err = resolveRelativeDownloadTime(requestElement.Time, time.Now())
-	if err != nil {
-		c.Error(errors.Join(err, model.ErrBadRequest))
-		return elem, false
+	if requestElement.GroupTime == nil {
+		// raw values are read window by window, which takes a start and an end
+		err = resolveRelativeDownloadTime(requestElement.Time, time.Now())
+		if err != nil {
+			c.Error(errors.Join(err, model.ErrBadRequest))
+			return elem, false
+		}
 	}
 
 	userId, err := getUserId(request)
@@ -278,6 +279,28 @@ func downloadQueryParams(timeFormat string, precision *int) string {
 	return params.Encode()
 }
 
+// The windows of the /queries requests of a download of raw values follow the density of the data. The first window
+// is an hour long; a window that returned fewer than half of downloadWindowRows rows is followed by one twice as
+// long, one that returned more by one half as long, within downloadWindowMin and downloadWindowMax. Sparse data
+// takes few requests (with windows of an hour, two years took 17520 requests, longer than the gateway waits for a
+// byte), dense data keeps a request small.
+const (
+	downloadWindowRows = 10000
+	downloadWindowMin  = time.Minute
+	downloadWindowMax  = 24 * time.Hour
+)
+
+// nextDownloadWindow is the length of the window after one of length size that returned rows rows.
+func nextDownloadWindow(size time.Duration, rows int) time.Duration {
+	switch {
+	case rows > downloadWindowRows:
+		return max(size/2, downloadWindowMin)
+	case rows < downloadWindowRows/2:
+		return min(size*2, downloadWindowMax)
+	}
+	return size
+}
+
 var httpClient = http.Client{
 	Timeout: 2 * time.Minute,
 }
@@ -303,22 +326,6 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 	}
 	flusher.Flush() // no http.Error from now on! Use panic(http.ErrAbortHandler)
 
-	endTime, err := time.Parse(time.RFC3339, *requestElement.Time.End)
-	if err != nil {
-		log.Logger.ErrorContext(c, "failed to parse end time", attributes.ErrorKey, err)
-		panic(http.ErrAbortHandler)
-	}
-	initialEndValue := endTime.Unix()
-	startTime, err := time.Parse(time.RFC3339, *requestElement.Time.Start)
-	if err != nil {
-		log.Logger.ErrorContext(c, "failed to parse start time", attributes.ErrorKey, err)
-		panic(http.ErrAbortHandler)
-	}
-
-	startValue := startTime.Unix()
-	var chunkSize int64 = int64((time.Hour * 1).Seconds())
-	endValue := int64(math.Min(float64(startValue+chunkSize), float64(initialEndValue)))
-
 	/* channel setup:
 
 	chunks: for sending query results to the csv writer goroutine. the main routine will query the db and writes result to the channel, the csv writer goroutine will read from the channel and write to the response. this allows to query the next chunk while the previous one is still being written to the response, which can improve performance for large downloads.
@@ -337,11 +344,8 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 		writeErr <- nil
 	}()
 
-	for startValue < initialEndValue { // loop over time chunks
-		start := time.Unix(startValue, 0).Format(time.RFC3339)
-		requestElement.Time.Start = &start
-		end := time.Unix(endValue, 0).Format(time.RFC3339)
-		requestElement.Time.End = &end
+	// query runs one /queries request for requestElement as it is at the call and returns its rows.
+	query := func() [][]interface{} {
 		// post /queries
 		b, err := json.Marshal([]model.QueriesRequestElement{requestElement})
 		if err != nil {
@@ -385,19 +389,71 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 			panic(http.ErrAbortHandler)
 		}
 
+		return respData
+	}
+	send := func(rows [][]interface{}) {
 		select {
-		case err = <-writeErr:
+		case err := <-writeErr:
 			if err != nil {
 				log.Logger.ErrorContext(c, "failed to write csv", attributes.ErrorKey, err)
 			} else {
 				log.Logger.ErrorContext(c, "csv writer stopped unexpectedly")
 			}
 			panic(http.ErrAbortHandler)
-		case chunks <- respData:
+		case chunks <- rows:
 		}
+	}
 
-		startValue = endValue
-		endValue = int64(math.Min(float64(endValue+chunkSize), float64(initialEndValue)))
+	if requestElement.GroupTime != nil {
+		// One request over the whole window: a bucket split between two requests came out once per request, and
+		// the limit of a grouped query counts the buckets of the whole window.
+		send(query())
+	} else {
+		endTime, err := time.Parse(time.RFC3339, *requestElement.Time.End)
+		if err != nil {
+			log.Logger.ErrorContext(c, "failed to parse end time", attributes.ErrorKey, err)
+			panic(http.ErrAbortHandler)
+		}
+		startTime, err := time.Parse(time.RFC3339, *requestElement.Time.Start)
+		if err != nil {
+			log.Logger.ErrorContext(c, "failed to parse start time", attributes.ErrorKey, err)
+			panic(http.ErrAbortHandler)
+		}
+		// rows the limit still allows, -1 without a limit. /queries drops rows whose columns are all null after its
+		// LIMIT, so the download may hold rows from beyond the first limit rows of the table.
+		remaining := -1
+		if requestElement.Limit != nil && *requestElement.Limit >= 0 {
+			remaining = *requestElement.Limit
+		}
+		size := time.Hour
+		for from := startTime; from.Before(endTime) && remaining != 0; {
+			to := from.Add(size)
+			if to.After(endTime) {
+				to = endTime
+			}
+			// /queries leaves out both ends of its window, so every window after the first starts one microsecond,
+			// the precision of timestamptz, before the end of the previous one: a point on the boundary of two
+			// windows falls into the later one only.
+			queryStart := from
+			if !from.Equal(startTime) {
+				queryStart = from.Add(-time.Microsecond)
+			}
+			start := queryStart.UTC().Format(time.RFC3339Nano)
+			requestElement.Time.Start = &start
+			end := to.UTC().Format(time.RFC3339Nano)
+			requestElement.Time.End = &end
+			if remaining > 0 {
+				limit := remaining
+				requestElement.Limit = &limit
+			}
+			rows := query()
+			send(rows)
+			if remaining > 0 {
+				remaining = max(remaining-len(rows), 0)
+			}
+			from = to
+			size = nextDownloadWindow(size, len(rows))
+		}
 	}
 
 	close(chunks)
