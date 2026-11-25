@@ -204,6 +204,18 @@ func TestRequestElementValidation(t *testing.T) {
 			Expected: true,
 		},
 		{
+			// GenerateQueries cannot mix aggregated and plain columns; rejecting the element here
+			// answers 400 instead of the 500 of a failed query generation
+			Name:     "group time with a column without group type",
+			Body:     `{"columns":[{"name":"value","groupType":"mean"},{"name":"other"}],"groupTime":"1h","time":{"last":"1d"}}`,
+			Expected: false,
+		},
+		{
+			Name:     "group time with every column aggregated",
+			Body:     `{"columns":[{"name":"value","groupType":"mean"},{"name":"other","groupType":"last"}],"groupTime":"1h","time":{"last":"1d"}}`,
+			Expected: true,
+		},
+		{
 			// a negative limit is rejected by postgres and would be an invalid slice bound
 			// in the post-processing, so it must not get past the validator
 			Name:     "negative limit",

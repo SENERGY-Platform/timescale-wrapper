@@ -100,6 +100,10 @@ func (element *QueriesRequestElement) Valid() bool {
 		if !column.Valid(element.GroupTime != nil) {
 			return false
 		}
+		// a grouped element aggregates every column; GenerateQueries cannot mix them
+		if element.GroupTime != nil && column.GroupType == nil {
+			return false
+		}
 		if column.TargetCharacteristicId != nil && column.SourceCharacteristicId == nil && element.ExportId != nil {
 			return false
 		}
