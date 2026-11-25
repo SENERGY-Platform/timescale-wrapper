@@ -163,6 +163,10 @@ func getUserId(request *http.Request) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// ParseUnverified checks no claims, so a token without a subject would pass as the empty user
+	if err = t.Valid(); err != nil {
+		return "", err
+	}
 	return t.Sub, nil
 }
 

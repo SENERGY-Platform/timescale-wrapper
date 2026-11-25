@@ -33,6 +33,7 @@ func TestGetUserId(t *testing.T) {
 		return tok
 	}
 	withSub := mkToken(t, jwt.MapClaims{"sub": "user-1"})
+	withoutSub := mkToken(t, jwt.MapClaims{"name": "ohne-sub"})
 
 	tests := []struct {
 		name    string
@@ -46,6 +47,7 @@ func TestGetUserId(t *testing.T) {
 		{name: "Token ohne Praefix", header: withSub, want: "user-1"},
 		{name: "kein Header", header: "", wantErr: true},
 		{name: "kaputtes Token", header: "Bearer kaputt", wantErr: true},
+		{name: "Token ohne sub", header: "Bearer " + withoutSub, wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
