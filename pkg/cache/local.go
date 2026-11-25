@@ -55,22 +55,28 @@ func (this *LocalCache) Set(key string, value []byte) {
 	return
 }
 
-func (this *LocalCache) Use(key string, getter func() (interface{}, error), result interface{}) (err error) {
-	value, err := this.Get(key)
+// UseLocal returns the value cached under key. On a miss it calls getter, stores the
+// JSON encoding of its result and returns the getter's value as is. Errors from getter
+// are returned and not cached.
+func UseLocal[T any](c *LocalCache, key string, getter func() (T, error)) (T, error) {
+	var result T
+	value, err := c.Get(key)
 	if err == nil {
-		err = json.Unmarshal(value, result)
-		return
+		err = json.Unmarshal(value, &result)
+		return result, err
 	} else if err != ErrNotFound {
 		log.Logger.Warn("err in LocalCache::l1.Get()", attributes.ErrorKey, err)
 	}
-	temp, err := getter()
+	result, err = getter()
 	if err != nil {
-		return err
+		var zero T
+		return zero, err
 	}
-	value, err = json.Marshal(temp)
+	value, err = json.Marshal(result)
 	if err != nil {
-		return err
+		var zero T
+		return zero, err
 	}
-	this.Set(key, value)
-	return json.Unmarshal(value, &result)
+	c.Set(key, value)
+	return result, nil
 }

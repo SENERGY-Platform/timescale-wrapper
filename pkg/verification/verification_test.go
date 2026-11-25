@@ -275,3 +275,92 @@ func TestVerifyAccessRace(t *testing.T) {
 		t.Errorf("ok = true, want false (half of the elements are denied)")
 	}
 }
+
+func TestVerifyAccessDeduplicates(t *testing.T) {
+	str := func(s string) *string { return &s }
+	fake := &fakePermClient{access: map[string]bool{"dev-1": true}}
+	v := &Verifier{c: cache.NewLocal(), permClient: fake}
+	elements := []model.QueriesRequestElement{
+		{DeviceId: str("dev-1")}, {DeviceId: str("dev-1")}, {DeviceId: str("dev-1")},
+	}
+	ok, userIds, err := v.VerifyAccess(context.Background(), elements, "token", "user")
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if len(fake.ids) != 1 {
+		t.Errorf("%d permission calls, want 1", len(fake.ids))
+	}
+	if len(userIds) != 3 {
+		t.Errorf("len(userIds) = %d, want 3", len(userIds))
+	}
+}
+
+func TestVerifyAccessMixedAllowedDenied(t *testing.T) {
+	str := func(s string) *string { return &s }
+	fake := &fakePermClient{access: map[string]bool{"dev-1": true, "dev-2": false}}
+	v := &Verifier{c: cache.NewLocal(), permClient: fake}
+	elements := []model.QueriesRequestElement{
+		{DeviceId: str("dev-1")}, {DeviceId: str("dev-2")}, {DeviceId: str("dev-1")},
+	}
+	ok, _, err := v.VerifyAccess(context.Background(), elements, "token", "user")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Errorf("ok = true, want false")
+	}
+}
+
+func TestVerifyAccessElementWithoutId(t *testing.T) {
+	fake := &fakePermClient{}
+	v := &Verifier{c: cache.NewLocal(), permClient: fake}
+	ok, userIds, err := v.VerifyAccess(context.Background(), []model.QueriesRequestElement{{}}, "token", "user")
+	if err != nil || ok || len(userIds) != 1 || len(fake.ids) != 0 {
+		t.Errorf("ok=%v err=%v userIds=%v calls=%d", ok, err, userIds, len(fake.ids))
+	}
+}
+
+func TestVerifyAccessMapsOwnerPerElement(t *testing.T) {
+	str := func(s string) *string { return &s }
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/instance/exp-1":
+			_, _ = w.Write([]byte(`{"UserId":"owner-1"}`))
+		case "/instance/exp-2":
+			_, _ = w.Write([]byte(`{"UserId":"owner-2"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	fake := &fakePermClient{access: map[string]bool{"exp-1": true, "exp-2": true, "dev-1": true}}
+	v := &Verifier{c: cache.NewLocal(), permClient: fake, servingClient: serving.New(server.URL)}
+	elements := []model.QueriesRequestElement{
+		{ExportId: str("exp-2")}, {DeviceId: str("dev-1")}, {ExportId: str("exp-1")}, {ExportId: str("exp-2")},
+	}
+	ok, userIds, err := v.VerifyAccess(context.Background(), elements, "token", "user")
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	want := []string{"owner-2", "", "owner-1", "owner-2"}
+	if !reflect.DeepEqual(userIds, want) {
+		t.Errorf("userIds = %v, want %v", userIds, want)
+	}
+}
+
+// The same id under two kinds must not share a cache entry.
+func TestVerifyAccessKindsDoNotShareCache(t *testing.T) {
+	str := func(s string) *string { return &s }
+	fake := &fakePermClient{access: map[string]bool{"same": true}}
+	v := &Verifier{c: cache.NewLocal(), permClient: fake}
+	elements := []model.QueriesRequestElement{
+		{DeviceId: str("same")}, {DeviceGroupId: str("same")}, {LocationId: str("same")},
+	}
+	ok, _, err := v.VerifyAccess(context.Background(), elements, "token", "user")
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if len(fake.topics) != 3 {
+		t.Errorf("%d permission calls (%v), want 3", len(fake.topics), fake.topics)
+	}
+}

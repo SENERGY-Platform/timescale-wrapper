@@ -18,21 +18,21 @@ package verification
 
 import (
 	"context"
-	"errors"
 
 	serving "github.com/SENERGY-Platform/analytics-serving/client"
 	permClient "github.com/SENERGY-Platform/permissions-v2/pkg/client"
-
-	"sync"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
+// verifyConcurrency limits the upstream permission checks of one VerifyAccess call.
+const verifyConcurrency = 10
+
 type Verifier struct {
 	c             *cache.LocalCache
-	config        configuration.Config
 	permClient    permClient.Client
 	servingClient *serving.Client
 }
@@ -43,66 +43,140 @@ type VerifierCacheEntry struct {
 }
 
 func New(config configuration.Config) *Verifier {
-	permClient := permClient.New(config.PermissionsUrl)
-	servingClient := serving.New(config.ServingUrl)
 	return &Verifier{
 		c:             cache.NewLocal(),
-		config:        config,
-		permClient:    permClient,
-		servingClient: servingClient,
+		permClient:    permClient.New(config.PermissionsUrl),
+		servingClient: serving.New(config.ServingUrl),
 	}
 }
 
-var errUnexpectedUpstreamStatuscode = errors.New("unexpected upstream statuscode")
+// resourceKind describes one kind of verifiable resource: the namespace in the cache key,
+// the id the request element carries for it and the upstream check.
+type resourceKind struct {
+	name  string
+	id    func(model.QueriesRequestElement) *string
+	check func(v *Verifier, ctx context.Context, id string, token string, userId string) (VerifierCacheEntry, error)
+}
 
+// resourceKinds is ordered by precedence: if an element carries several ids, the first kind wins.
+var resourceKinds = []resourceKind{
+	{
+		name: "export",
+		id:   func(e model.QueriesRequestElement) *string { return e.ExportId },
+		check: func(v *Verifier, ctx context.Context, id string, token string, userId string) (VerifierCacheEntry, error) {
+			return v.VerifyExport(ctx, id, token, userId)
+		},
+	},
+	{
+		name: "device",
+		id:   func(e model.QueriesRequestElement) *string { return e.DeviceId },
+		check: func(v *Verifier, ctx context.Context, id string, token string, _ string) (VerifierCacheEntry, error) {
+			return v.VerifyDevice(ctx, id, token)
+		},
+	},
+	{
+		name: "device-group",
+		id:   func(e model.QueriesRequestElement) *string { return e.DeviceGroupId },
+		check: func(v *Verifier, ctx context.Context, id string, token string, _ string) (VerifierCacheEntry, error) {
+			return v.VerifyDeviceGroup(ctx, id, token)
+		},
+	},
+	{
+		name: "location",
+		id:   func(e model.QueriesRequestElement) *string { return e.LocationId },
+		check: func(v *Verifier, ctx context.Context, id string, token string, _ string) (VerifierCacheEntry, error) {
+			return v.VerifyLocation(ctx, id, token)
+		},
+	},
+}
+
+// resourceOf returns the kind and id an element is verified by. found is false for an element without any id.
+func resourceOf(element model.QueriesRequestElement) (kind *resourceKind, id string, found bool) {
+	for i := range resourceKinds {
+		if p := resourceKinds[i].id(element); p != nil {
+			return &resourceKinds[i], *p, true
+		}
+	}
+	return nil, "", false
+}
+
+func (verifier *Verifier) verifyResource(ctx context.Context, kind *resourceKind, id string, token string, userId string) (VerifierCacheEntry, error) {
+	return cache.UseLocal(verifier.c, kind.name+":"+userId+":"+id, func() (VerifierCacheEntry, error) {
+		return kind.check(verifier, ctx, id, token, userId)
+	})
+}
+
+type resourceKey struct {
+	kind string
+	id   string
+}
+
+type resourceResult struct {
+	entry VerifierCacheEntry
+	err   error
+}
+
+// VerifyAccess checks every distinct resource of the elements once, concurrently and with a limit.
+// ok is false if any element is denied, has no id or fails; userIds then holds the owner only
+// for elements that were allowed. err is the error of a failed check.
 func (verifier *Verifier) VerifyAccess(ctx context.Context, elements []model.QueriesRequestElement, token string, userId string) (ok bool, userIds []string, err error) {
 	ok = true
 	userIds = make([]string, len(elements))
-	wg := &sync.WaitGroup{}
-	mux := sync.Mutex{}
-	for i := range elements {
-		i := i // thread safe
-		wg.Add(1)
-		go func() {
-			result, errS := verifier.VerifyAccessOnce(ctx, elements[i], token, userId)
-			mux.Lock()
-			defer mux.Unlock()
-			if errS != nil {
-				err = errS
-				ok = false
-			} else if !result.Ok {
-				ok = false
-			} else {
-				userIds[i] = result.OwnerUserId
-			}
-			wg.Done()
-		}()
+
+	keys := make([]*resourceKey, len(elements)) // nil: element without id
+	kinds := map[resourceKey]*resourceKind{}
+	var distinct []resourceKey
+	for i, element := range elements {
+		kind, id, found := resourceOf(element)
+		if !found {
+			ok = false
+			continue
+		}
+		key := resourceKey{kind: kind.name, id: id}
+		keys[i] = &key
+		if _, seen := kinds[key]; !seen {
+			kinds[key] = kind
+			distinct = append(distinct, key)
+		}
 	}
-	wg.Wait()
+
+	results := make([]resourceResult, len(distinct))
+	var g errgroup.Group
+	g.SetLimit(verifyConcurrency)
+	for i, key := range distinct {
+		g.Go(func() error {
+			results[i].entry, results[i].err = verifier.verifyResource(ctx, kinds[key], key.id, token, userId)
+			return nil
+		})
+	}
+	_ = g.Wait() // the tasks never return an error, failures are collected in results
+
+	byKey := make(map[resourceKey]resourceResult, len(distinct))
+	for i, key := range distinct {
+		byKey[key] = results[i]
+		if results[i].err != nil && err == nil {
+			err = results[i].err
+		}
+	}
+	for i, key := range keys {
+		if key == nil {
+			continue
+		}
+		result := byKey[*key]
+		if result.err != nil || !result.entry.Ok {
+			ok = false
+			continue
+		}
+		userIds[i] = result.entry.OwnerUserId
+	}
 	return ok, userIds, err
 }
 
+// VerifyAccessOnce checks a single element. An element without any id yields a denied result and no error.
 func (verifier *Verifier) VerifyAccessOnce(ctx context.Context, element model.QueriesRequestElement, token string, userId string) (result VerifierCacheEntry, err error) {
-	if element.ExportId != nil {
-		err = verifier.c.Use(userId+*element.ExportId, func() (interface{}, error) {
-			return verifier.VerifyExport(ctx, *element.ExportId, token, userId)
-		}, &result)
-		return
-	} else if element.DeviceId != nil {
-		err = verifier.c.Use(userId+*element.DeviceId, func() (interface{}, error) {
-			return verifier.VerifyDevice(ctx, *element.DeviceId, token)
-		}, &result)
-		return
-	} else if element.DeviceGroupId != nil {
-		err = verifier.c.Use(userId+*element.DeviceGroupId, func() (interface{}, error) {
-			return verifier.VerifyDeviceGroup(ctx, *element.DeviceGroupId, token)
-		}, &result)
-		return
-	} else if element.LocationId != nil {
-		err = verifier.c.Use(userId+*element.LocationId, func() (interface{}, error) {
-			return verifier.VerifyLocation(ctx, *element.LocationId, token)
-		}, &result)
-		return
+	kind, id, found := resourceOf(element)
+	if !found {
+		return result, nil
 	}
-	return result, nil
+	return verifier.verifyResource(ctx, kind, id, token, userId)
 }
