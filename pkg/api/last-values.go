@@ -71,18 +71,12 @@ func LastValuesEndpoint(router gin.IRouter, config configuration.Config, wrapper
 	handler := lastValueHandler(config, wrapper, verifier, remoteCache, converter)
 
 	router.POST("/last-values", func(c *gin.Context) {
-		writer := c.Writer
-		request := c.Request
-		resp, code, err := handler(c.Request.Context(), request)
+		resp, code, err := handler(c.Request.Context(), c.Request)
 		if err != nil {
-			c.Error(errors.Join(err, model.GetError(code)))
+			c.Error(classify(err, model.GetError(code)))
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(writer).Encode(resp)
-		if err != nil {
-			fmt.Println("ERROR: " + err.Error())
-		}
+		writeJSON(c, resp)
 	})
 }
 
@@ -103,23 +97,17 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 		if err != nil {
 			return nil, http.StatusBadRequest, err
 		}
-		userId, err := getUserId(request)
-		if err != nil {
-			return nil, http.StatusBadRequest, err
-		}
 		verifyCtx, verifySpan := tracer.Start(ctx, "verify access")
-		ok, ownerUserIds, err := verifier.VerifyAccess(verifyCtx, fullRequestElements, getToken(request), userId)
-		if err != nil {
-			return nil, http.StatusInternalServerError, err
-		}
+		userId, ownerUserIds, err := verifyRequest(verifyCtx, request, verifier, fullRequestElements)
 		verifySpan.End()
-		if !ok {
-			return nil, http.StatusNotFound, errors.New("not found")
+		if err != nil {
+			return nil, model.GetStatusCode(err), err
 		}
 
 		// before the cache, so that cache and database reject the same requests
 		err = resolveJSONPaths(ctx, remoteCache, fullRequestElements)
 		if err != nil {
+			err = classify(err, model.ErrInternalServerError)
 			return nil, model.GetStatusCode(err), err
 		}
 
@@ -144,7 +132,7 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 					defer m.Unlock()
 					dbRequestElements = append(dbRequestElements, fullRequestElements[i])
 					dbRequestIndices = append(dbRequestIndices, i)
-					if err != cache.NotCachableError {
+					if !errors.Is(err, cache.NotCachableError) {
 						log.Logger.WarnContext(ctx, "Could not get data from cache", attributes.ErrorKey, err)
 					}
 				}
@@ -164,23 +152,26 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 
 		queriesCtx, queriesSpan := tracer.Start(ctx, "generate queries")
 		queries, err := wrapper.GenerateQueries(queriesCtx, dbRequestElements, userId, ownersOfIndices(ownerUserIds, dbRequestIndices), "", []models.Device{})
-		if err != nil {
-			return nil, http.StatusInternalServerError, err
-		}
 		queriesSpan.End()
+		if err != nil {
+			err = classify(err, model.ErrInternalServerError)
+			return nil, model.GetStatusCode(err), err
+		}
 
 		querySpanCtx, querySpan := tracer.Start(ctx, "fetch from db")
 		data, err := wrapper.ExecuteQueries(querySpanCtx, queries)
-		if err != nil {
-			return nil, timescale.GetHTTPErrorCode(err), err
-		}
 		querySpan.End()
+		if err != nil {
+			err = classifyDB(err)
+			return nil, model.GetStatusCode(err), err
+		}
 		// merge DB results with cache results
 		for i := range data {
 			raw[dbRequestIndices[i]] = data[i]
 		}
 
 		ppCtx, ppSpan := tracer.Start(ctx, "postprocess")
+		defer ppSpan.End()
 		timeFormat := request.URL.Query().Get("time_format")
 		if timeFormat == "" {
 			timeFormat = time.RFC3339Nano
@@ -188,7 +179,8 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 
 		responseRawData, err := formatResponse(tracing.SuppressChildren(ppCtx, config.DetailedTracing), remoteCache, model.PerQuery, fullRequestElements, raw, 0, model.Desc, timeFormat, converter)
 		if err != nil {
-			return nil, http.StatusInternalServerError, err
+			err = classify(err, model.ErrInternalServerError)
+			return nil, model.GetStatusCode(err), err
 		}
 
 		responseData, ok := responseRawData.([][][]interface{})
@@ -226,8 +218,6 @@ func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, v
 				}
 			}
 		}
-
-		ppSpan.End()
 
 		return responseElements, http.StatusOK, nil
 	}

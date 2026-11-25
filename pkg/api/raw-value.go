@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
@@ -88,7 +87,7 @@ func RawValueEndpoint(router gin.IRouter, config configuration.Config, wrapper *
 		request.Body = io.NopCloser(bytes.NewBuffer(b))
 		resp, code, err := handler(c.Request.Context(), request)
 		if err != nil {
-			c.Error(errors.Join(err, model.GetError(code)))
+			c.Error(classify(err, model.GetError(code)))
 			return
 		}
 		v := resp[0].Value
@@ -104,7 +103,7 @@ func RawValueEndpoint(router gin.IRouter, config configuration.Config, wrapper *
 		}
 		_, err = writer.Write(b)
 		if err != nil {
-			fmt.Println("ERROR: " + err.Error())
+			logResponseError(c, err)
 		}
 	})
 }

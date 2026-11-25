@@ -19,7 +19,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
@@ -67,7 +66,6 @@ func UsageExports() {} // for doc
 
 func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
 	router.POST("/usage/devices", func(c *gin.Context) {
-		writer := c.Writer
 		request := c.Request
 		deviceIds := []string{}
 		err := json.NewDecoder(request.Body).Decode(&deviceIds)
@@ -81,34 +79,20 @@ func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescal
 				DeviceId: &deviceId,
 			})
 		}
-		userId, err := getUserId(request)
+		_, _, err = verifyRequest(c.Request.Context(), request, verifier, elems)
 		if err != nil {
-			c.Error(errors.Join(err, model.ErrBadRequest))
-			return
-		}
-		ok, _, err := verifier.VerifyAccess(c.Request.Context(), elems, getToken(request), userId)
-		if err != nil {
-			c.Error(errors.Join(err, model.ErrInternalServerError))
-			return
-		}
-		if !ok {
-			c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
+			c.Error(err)
 			return
 		}
 		response, err := wrapper.GetDeviceUsage(c.Request.Context(), deviceIds)
 		if err != nil {
-			c.Error(errors.Join(err, model.ErrInternalServerError))
+			c.Error(classify(err, model.ErrInternalServerError))
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(writer).Encode(response)
-		if err != nil {
-			fmt.Println("ERROR: " + err.Error())
-		}
+		writeJSON(c, response)
 	})
 
 	router.POST("/usage/exports", func(c *gin.Context) {
-		writer := c.Writer
 		request := c.Request
 		exportIds := []string{}
 		err := json.NewDecoder(request.Body).Decode(&exportIds)
@@ -122,29 +106,16 @@ func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescal
 				ExportId: &exportId,
 			})
 		}
-		userId, err := getUserId(request)
+		_, _, err = verifyRequest(c.Request.Context(), request, verifier, elems)
 		if err != nil {
-			c.Error(errors.Join(err, model.ErrBadRequest))
-			return
-		}
-		ok, _, err := verifier.VerifyAccess(c.Request.Context(), elems, getToken(request), userId)
-		if err != nil {
-			c.Error(errors.Join(err, model.ErrInternalServerError))
-			return
-		}
-		if !ok {
-			c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
+			c.Error(err)
 			return
 		}
 		response, err := wrapper.GetExportUsage(c.Request.Context(), exportIds)
 		if err != nil {
-			c.Error(errors.Join(err, model.ErrInternalServerError))
+			c.Error(classify(err, model.ErrInternalServerError))
 			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(writer).Encode(response)
-		if err != nil {
-			fmt.Println("ERROR: " + err.Error())
-		}
+		writeJSON(c, response)
 	})
 }

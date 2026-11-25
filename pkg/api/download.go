@@ -171,10 +171,10 @@ func DownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper 
 		writer := c.Writer
 		prepared, err := remoteCache.GetSecretQuery(c.Request.Context(), c.Param("secret"))
 		if err != nil {
-			if err == memcache.ErrCacheMiss {
+			if errors.Is(err, memcache.ErrCacheMiss) {
 				c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
 			} else {
-				c.Error(errors.Join(err, model.ErrInternalServerError))
+				c.Error(classify(err, model.ErrInternalServerError))
 			}
 			return
 		}
@@ -216,18 +216,9 @@ func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifie
 		}
 	}
 
-	userId, err := getUserId(request)
+	_, _, err = verifyRequest(c.Request.Context(), request, verifier, []model.QueriesRequestElement{requestElement})
 	if err != nil {
-		c.Error(errors.Join(err, model.ErrBadRequest))
-		return elem, false
-	}
-	ok, _, err = verifier.VerifyAccess(c.Request.Context(), []model.QueriesRequestElement{requestElement}, getToken(request), userId)
-	if err != nil {
-		c.Error(errors.Join(err, model.ErrInternalServerError))
-		return elem, false
-	}
-	if !ok {
-		c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
+		c.Error(err)
 		return elem, false
 	}
 

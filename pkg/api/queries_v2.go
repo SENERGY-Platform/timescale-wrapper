@@ -69,7 +69,6 @@ func init() {
 func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, deviceSelectionClient deviceSelection.Client) {
 	router.POST("/queries/v2", func(c *gin.Context) {
 		tracer := otel.Tracer("api/queries_v2.go:QueriesV2Endpoint")
-		writer := c.Writer
 		request := c.Request
 		_, _, _, err := queriesParseQueryparams(request)
 		if err != nil {
@@ -98,12 +97,12 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		}
 
 		verifyCtx, verifySpan := tracer.Start(c.Request.Context(), "verification")
-		userId, ownerUserIdsBefore, err, code := queriesVerify(verifyCtx, requestElements, request, verifier, config)
+		userId, ownerUserIdsBefore, err := verifyRequest(verifyCtx, request, verifier, requestElements)
+		verifySpan.End()
 		if err != nil {
-			c.Error(errors.Join(err, model.GetError(code)))
+			c.Error(err)
 			return
 		}
-		verifySpan.End()
 		forceTz := request.URL.Query().Get("force_tz")
 		var forceTzp *string
 		if len(forceTz) > 0 {
@@ -119,7 +118,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		response, err := formatCachedV2Responses(queryCacheCtx, remoteCache, requestElements, raw, timeFormat, converter)
 		queryCacheSpan.End()
 		if err != nil {
-			c.Error(errors.Join(err, model.ErrInternalServerError))
+			c.Error(classify(err, model.ErrInternalServerError))
 			return
 		}
 
@@ -187,7 +186,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 						if dbRequestElement.DeviceId != nil {
 							device, err := remoteCache.GetDevice(elementCtx, *dbRequestElement.DeviceId, token)
 							if err != nil {
-								raiseError(errors.Join(err, model.ErrInternalServerError))
+								raiseError(classify(err, model.ErrInternalServerError))
 								return
 							}
 							devices = append(devices, device)
@@ -223,7 +222,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 					if dbRequestElement.LocationId != nil {
 						location, err := remoteCache.GetLocation(elementCtx, *dbRequestElement.LocationId, token)
 						if err != nil {
-							raiseError(errors.Join(err, model.ErrInternalServerError))
+							raiseError(classify(err, model.ErrInternalServerError))
 							return
 						}
 						deviceIds = append(deviceIds, location.DeviceIds...)
@@ -241,7 +240,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 					for _, deviceGroupid := range deviceGroupIds {
 						deviceGroup, err := remoteCache.GetDeviceGroup(elementCtx, deviceGroupid, token)
 						if err != nil {
-							raiseError(errors.Join(err, model.ErrInternalServerError))
+							raiseError(classify(err, model.ErrInternalServerError))
 							return
 						}
 						deviceIds = append(deviceIds, deviceGroup.DeviceIds...)
@@ -249,7 +248,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 					for colIdx, col := range dbRequestElement.Columns {
 						f, err := remoteCache.GetFunction(elementCtx, col.Criteria.FunctionId)
 						if err != nil {
-							raiseError(errors.Join(err, model.ErrInternalServerError))
+							raiseError(classify(err, model.ErrInternalServerError))
 							return
 						}
 
@@ -261,7 +260,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 							IncludeIdModified: true,
 						})
 						if err != nil {
-							raiseError(errors.Join(err, model.GetError(code)))
+							raiseError(classify(err, model.GetError(code)))
 							return
 						}
 						for _, selectable := range selectables {
@@ -309,26 +308,26 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 				ownerUserIds := slices.Repeat([]string{ownerUserIdsBefore[dbRequestIndices[i]]}, len(dbRequestElements))
 				err := resolveJSONPaths(elementCtx, remoteCache, dbRequestElements)
 				if err != nil {
-					raiseError(err)
+					raiseError(classify(err, model.ErrInternalServerError))
 					return
 				}
 
 				queries, err := wrapper.GenerateQueries(elementCtx, dbRequestElements, userId, ownerUserIds, forceTz, devices)
 				if err != nil {
-					raiseError(errors.Join(err, model.ErrInternalServerError))
+					raiseError(classify(err, model.ErrInternalServerError))
 					return
 				}
 
 				data, err := wrapper.ExecuteQueries(elementCtx, queries)
 				if err != nil {
-					raiseError(errors.Join(err, model.GetError(timescale.GetHTTPErrorCode(err))))
+					raiseError(classifyDB(err))
 					return
 				}
 
 				orderColumnIndex, orderDirection := v2Order(dbRequestElement)
 				subResponse, err := formatResponse(elementCtx, remoteCache, model.PerQuery, dbRequestElements, data, orderColumnIndex, orderDirection, timeFormat, converter)
 				if err != nil {
-					raiseError(errors.Join(err, model.ErrInternalServerError))
+					raiseError(classify(err, model.ErrInternalServerError))
 					return
 				}
 				subResponseCasted, ok := subResponse.([][][]interface{})
@@ -375,11 +374,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		for i := range response {
 			roundResponse(response[i].Data, precision)
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(writer).Encode(response)
-		if err != nil {
-			fmt.Println("ERROR: " + err.Error())
-		}
+		writeJSON(c, response)
 	})
 
 }

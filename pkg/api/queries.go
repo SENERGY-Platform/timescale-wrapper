@@ -21,7 +21,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
@@ -99,17 +98,17 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 			}
 		}
 		verifyCtx, verifySpan := tracer.Start(c.Request.Context(), "verify access")
-		userId, ownerUserIdsBefore, err, code := queriesVerify(verifyCtx, requestElements, request, verifier, config)
+		userId, ownerUserIdsBefore, err := verifyRequest(verifyCtx, request, verifier, requestElements)
+		verifySpan.End()
 		if err != nil {
-			c.Error(errors.Join(err, model.GetError(code)))
+			c.Error(err)
 			return
 		}
-		verifySpan.End()
 
 		// before the cache, so that cache and database reject the same requests
 		err = resolveJSONPaths(c.Request.Context(), remoteCache, requestElements)
 		if err != nil {
-			c.Error(err)
+			c.Error(classify(err, model.ErrInternalServerError))
 			return
 		}
 
@@ -123,29 +122,30 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 			ownerUserIds = append(ownerUserIds, ownerUserIdsBefore[dbRequestIndices[i]])
 		}
 		queries, err := wrapper.GenerateQueries(queriesCtx, dbRequestElements, userId, ownerUserIds, "", []models.Device{})
+		queriesSpan.End()
 		if err != nil {
-			c.Error(errors.Join(err, model.ErrInternalServerError))
+			c.Error(classify(err, model.ErrInternalServerError))
 			return
 		}
-		queriesSpan.End()
 
 		queryCtx, querySpan := tracer.Start(c.Request.Context(), "execute queries")
 		data, err := wrapper.ExecuteQueries(queryCtx, queries)
+		querySpan.End()
 		if err != nil {
-			c.Error(errors.Join(err, model.GetError(timescale.GetHTTPErrorCode(err))))
+			c.Error(classifyDB(err))
 			return
 		}
-		querySpan.End()
 
 		// merge DB results with remoteCache results
 		for i := range data {
 			raw[dbRequestIndices[i]] = data[i]
 		}
 		ppCtx, ppSpan := tracer.Start(c.Request.Context(), "postprocess results")
+		defer ppSpan.End()
 		timeFormat := request.URL.Query().Get("time_format")
 		response, err := formatResponse(tracing.SuppressChildren(ppCtx, config.DetailedTracing), remoteCache, requestedFormat, requestElements, raw, orderColumnIndex, orderDirection, timeFormat, converter)
 		if err != nil {
-			c.Error(errors.Join(err, model.ErrInternalServerError))
+			c.Error(classify(err, model.ErrInternalServerError))
 			return
 		}
 		roundResponse(response, precision)
@@ -160,23 +160,16 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 			}
 			err = csvWriter.Write(headers)
 			if err != nil {
-				c.Error(errors.Join(err, model.ErrInternalServerError))
+				c.Error(classify(err, model.ErrInternalServerError))
 				return
 			}
 			err = writeCsv(response, csvWriter)
 			if err != nil {
-				fmt.Println("ERROR: " + err.Error())
+				logResponseError(c, err)
 			}
 		} else {
-			writer.Header().Set("Content-Type", "application/json")
-			err = json.NewEncoder(writer).Encode(response)
-			if err != nil {
-				fmt.Println("ERROR: " + err.Error())
-			}
+			writeJSON(c, response)
 		}
-
-		ppSpan.End()
-
 	})
 
 }
@@ -198,24 +191,6 @@ func queriesParseQueryparams(request *http.Request) (requestedFormat model.Forma
 		orderDirection = model.Desc
 	} else if orderDirection != "asc" && orderDirection != "desc" {
 		err = errors.New("invalid param orderDirection")
-		return
-	}
-	return
-}
-
-func queriesVerify(ctx context.Context, requestElements []model.QueriesRequestElement, request *http.Request, verifier *verification.Verifier, config configuration.Config) (userId string, ownerUserIds []string, err error, code int) {
-	userId, err = getUserId(request)
-	code = http.StatusInternalServerError
-	if err != nil {
-		return
-	}
-	ok, ownerUserIds, err := verifier.VerifyAccess(ctx, requestElements, getToken(request), userId)
-	if err != nil {
-		return
-	}
-	if !ok {
-		code = http.StatusNotFound
-		err = errors.New("not found")
 		return
 	}
 	return
@@ -244,7 +219,7 @@ func queriesGetFromCache(ctx context.Context, requestElements []model.QueriesReq
 				defer m.Unlock()
 				dbRequestElements = append(dbRequestElements, requestElements[i])
 				dbRequestIndices = append(dbRequestIndices, i)
-				if err != cache.NotCachableError {
+				if !errors.Is(err, cache.NotCachableError) {
 					log.Logger.WarnContext(c, "Could not get data from remoteCache", attributes.ErrorKey, err)
 				}
 			}

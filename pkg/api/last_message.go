@@ -17,9 +17,7 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -53,7 +51,6 @@ func init() {
 // @Router       /last-message [GET]
 func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/last-message", func(c *gin.Context) {
-		writer := c.Writer
 		request := c.Request
 		deviceId := request.URL.Query().Get("device_id")
 		serviceId := request.URL.Query().Get("service_id")
@@ -68,7 +65,7 @@ func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrappe
 
 		ok, err := verifier.VerifyDevice(c.Request.Context(), deviceId, getToken(request))
 		if err != nil {
-			c.Error(errors.Join(err, model.ErrInternalServerError))
+			c.Error(classify(err, model.ErrInternalServerError))
 			return
 		}
 		if !ok.Ok {
@@ -82,7 +79,7 @@ func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrappe
 		if err != nil {
 			service, err := remoteCache.GetService(c.Request.Context(), serviceId)
 			if err != nil {
-				c.Error(errors.Join(err, model.ErrInternalServerError))
+				c.Error(classify(err, model.ErrInternalServerError))
 				return
 			}
 			entry, err = wrapper.GetLastMessage(c.Request.Context(), deviceId, serviceId, service)
@@ -91,7 +88,7 @@ func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrappe
 					c.Status(http.StatusNoContent)
 					return
 				}
-				c.Error(errors.Join(err, model.ErrInternalServerError))
+				c.Error(classify(err, model.ErrInternalServerError))
 				return
 			}
 		}
@@ -99,10 +96,6 @@ func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrappe
 		// both go out in the local time zone, like the timestamps of every other endpoint
 		entry.Time = model.LocalTime(entry.Time)
 
-		writer.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(writer).Encode(entry)
-		if err != nil {
-			fmt.Println("ERROR: " + err.Error())
-		}
+		writeJSON(c, entry)
 	})
 }
