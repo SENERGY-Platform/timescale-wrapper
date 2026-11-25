@@ -11,9 +11,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # the timescaledb-ha tags production runs: senergy and master/prod
+        timescale_tag: [pg18.7-ts2.32.1, pg17-ts2.29]
     steps:
       - uses: actions/checkout@v2
       - name: Build and Test
+        env:
+          TIMESCALE_TAG: ${{ matrix.timescale_tag }}
         run: docker compose -f tests/docker-compose.yml up --exit-code-from test
-  
-      

@@ -3,8 +3,9 @@ version: '3'
 services:
   timescale:
     # the HA image is the one production runs, and it brings timescaledb_toolkit, which
-    # TestTimeWeightedMatchesToolkit compares against
-    image: timescale/timescaledb-ha:pg17-ts2.25
+    # TestTimeWeightedMatchesToolkit compares against. The CI runs every tag production uses,
+    # see .github/workflows/tests.yml.
+    image: timescale/timescaledb-ha:${TIMESCALE_TAG:-pg18.7-ts2.32.1}
     environment:
       POSTGRES_PASSWORD: pw
       POSTGRES_DB: test
