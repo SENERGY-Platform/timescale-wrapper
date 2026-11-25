@@ -133,13 +133,12 @@ func GetErrFromCode(code int, msg string) error {
 
 	//clean message
 	cleanedMessage := msg
-	cleanedMessage = strings.TrimPrefix(msg, ErrBadRequest.Error())
-	cleanedMessage = strings.TrimPrefix(msg, ErrAccessDenied.Error())
-	cleanedMessage = strings.TrimPrefix(msg, ErrBadRequest.Error())
-	cleanedMessage = strings.TrimPrefix(msg, ErrInvalidAuth.Error())
-	cleanedMessage = strings.TrimSpace(msg)
-	cleanedMessage = strings.TrimPrefix(msg, ":")
-	cleanedMessage = strings.TrimSpace(msg)
+	for _, prefix := range []error{ErrBadRequest, ErrAccessDenied, ErrNotFound, ErrInvalidAuth} {
+		cleanedMessage = strings.TrimPrefix(cleanedMessage, prefix.Error())
+	}
+	cleanedMessage = strings.TrimSpace(cleanedMessage)
+	cleanedMessage = strings.TrimPrefix(cleanedMessage, ":")
+	cleanedMessage = strings.TrimSpace(cleanedMessage)
 	if cleanedMessage == "" {
 		cleanedMessage = msg
 	}

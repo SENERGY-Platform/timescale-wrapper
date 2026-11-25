@@ -102,3 +102,25 @@ func TestGetErrFromCodeRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// The server's message can already start with the sentinel text. The prefix
+// must appear once in the error, not twice.
+func TestGetErrFromCodeStripsPrefix(t *testing.T) {
+	tests := []struct {
+		name string
+		code int
+		msg  string
+		want string
+	}{
+		{name: "bad request", code: http.StatusBadRequest, msg: "bad request: invalid query", want: "bad request: invalid query"},
+		{name: "access denied", code: http.StatusForbidden, msg: "access denied: x", want: "access denied: x"},
+		{name: "invalid auth", code: http.StatusUnauthorized, msg: "invalid auth token: x", want: "invalid auth token: x"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GetErrFromCode(tt.code, tt.msg).Error(); got != tt.want {
+				t.Errorf("GetErrFromCode(%d, %q).Error() = %q, want %q", tt.code, tt.msg, got, tt.want)
+			}
+		})
+	}
+}
