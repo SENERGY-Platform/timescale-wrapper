@@ -242,29 +242,34 @@ func v2Order(element model.QueriesRequestElement) (int, model.Direction) {
 // element per matching service. The index of the device in the selectables is
 // no key: all services of a device share it, and it differs between columns
 // because each column selects with its own criteria.
+//
+// ColumnNames[i] names Data[i]: the requested column of a device or export
+// element, the path that serves criteria column i of a group or location. A
+// criteria column that more than one path of a service matches has a series
+// with one value column per path; it is named by the first of them.
 func mergeQueriesV2Series(response []model.QueriesV2ResponseElement, requestIndex int, elem *model.QueriesRequestElement, colIdx int, series [][]interface{}) []model.QueriesV2ResponseElement {
 	respIdx := slices.IndexFunc(response, func(r model.QueriesV2ResponseElement) bool {
 		return r.RequestIndex == requestIndex && equalPtr(r.DeviceId, elem.DeviceId) && equalPtr(r.ServiceId, elem.ServiceId) && equalPtr(r.ExportId, elem.ExportId)
 	})
 	if respIdx == -1 {
-		columnNames := []string{}
-		for _, col := range elem.Columns {
-			columnNames = append(columnNames, col.Name)
-		}
 		respIdx = len(response)
 		response = append(response, model.QueriesV2ResponseElement{
 			RequestIndex: requestIndex,
 			DeviceId:     elem.DeviceId,
 			ServiceId:    elem.ServiceId,
 			ExportId:     elem.ExportId,
-			ColumnNames:  columnNames,
 			Data:         [][][]interface{}{},
 		})
 	}
-	for len(response[respIdx].Data) <= colIdx {
-		response[respIdx].Data = append(response[respIdx].Data, [][]interface{}{})
+	element := &response[respIdx]
+	for len(element.Data) <= colIdx {
+		element.Data = append(element.Data, [][]interface{}{})
+		element.ColumnNames = append(element.ColumnNames, "")
 	}
-	response[respIdx].Data[colIdx] = series
+	element.Data[colIdx] = series
+	if len(elem.Columns) > 0 {
+		element.ColumnNames[colIdx] = elem.Columns[0].Name
+	}
 	return response
 }
 

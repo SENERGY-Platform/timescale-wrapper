@@ -87,8 +87,8 @@ func TestMergeQueriesV2Series(t *testing.T) {
 			{0, elem(&d1, &s1, nil, "b"), 1, series(4)},
 		})
 		expected := []model.QueriesV2ResponseElement{
-			{RequestIndex: 0, DeviceId: &d1, ServiceId: &s1, ColumnNames: []string{"a"}, Data: [][][]interface{}{series(1), series(4)}},
-			{RequestIndex: 0, DeviceId: &d2, ServiceId: &s1, ColumnNames: []string{"a"}, Data: [][][]interface{}{series(2), series(3)}},
+			{RequestIndex: 0, DeviceId: &d1, ServiceId: &s1, ColumnNames: []string{"a", "b"}, Data: [][][]interface{}{series(1), series(4)}},
+			{RequestIndex: 0, DeviceId: &d2, ServiceId: &s1, ColumnNames: []string{"a", "b"}, Data: [][][]interface{}{series(2), series(3)}},
 		}
 		if !reflect.DeepEqual(response, expected) {
 			t.Errorf("unexpected response %#v", response)
@@ -103,7 +103,7 @@ func TestMergeQueriesV2Series(t *testing.T) {
 		})
 		expected := []model.QueriesV2ResponseElement{
 			{RequestIndex: 0, DeviceId: &d1, ServiceId: &s1, ColumnNames: []string{"a"}, Data: [][][]interface{}{series(1)}},
-			{RequestIndex: 0, DeviceId: &d1, ServiceId: &s2, ColumnNames: []string{"b"}, Data: [][][]interface{}{{}, series(2)}},
+			{RequestIndex: 0, DeviceId: &d1, ServiceId: &s2, ColumnNames: []string{"", "b"}, Data: [][][]interface{}{{}, series(2)}},
 		}
 		if !reflect.DeepEqual(response, expected) {
 			t.Errorf("unexpected response %#v", response)
@@ -119,8 +119,8 @@ func TestMergeQueriesV2Series(t *testing.T) {
 			{1, elem(nil, nil, &export, "b"), 1, series(4)},
 		})
 		expected := []model.QueriesV2ResponseElement{
-			{RequestIndex: 0, DeviceId: &d1, ServiceId: &s1, ColumnNames: []string{"a"}, Data: [][][]interface{}{series(1), series(2)}},
-			{RequestIndex: 1, ExportId: &export, ColumnNames: []string{"a"}, Data: [][][]interface{}{series(3), series(4)}},
+			{RequestIndex: 0, DeviceId: &d1, ServiceId: &s1, ColumnNames: []string{"a", "b"}, Data: [][][]interface{}{series(1), series(2)}},
+			{RequestIndex: 1, ExportId: &export, ColumnNames: []string{"a", "b"}, Data: [][][]interface{}{series(3), series(4)}},
 		}
 		if !reflect.DeepEqual(response, expected) {
 			t.Errorf("unexpected response %#v", response)
@@ -170,11 +170,11 @@ func TestFormatCachedV2Responses(t *testing.T) {
 		t.Fatal(err)
 	}
 	// the form of a database result for the same element: column i at data[i], each series with
-	// time and one value. columnNames is what mergeQueriesV2Series sets for a device element.
+	// time and one value. columnNames names each series of the device element.
 	expected := []model.QueriesV2ResponseElement{{
 		DeviceId:     &device,
 		ServiceId:    &service,
-		ColumnNames:  []string{"root.level"},
+		ColumnNames:  []string{"root.level", "root.list.0.errorcode"},
 		RequestIndex: 1,
 		Data:         [][][]interface{}{{{"2022-12-06", 15.0}}, {{"2022-12-06", 7.0}}},
 	}}
