@@ -20,6 +20,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 
 	_ "github.com/SENERGY-Platform/timescale-wrapper/docs"
 
@@ -41,15 +42,22 @@ func init() {
 //go:generate go tool swag init --instanceName timescalewrapper -o ../../docs --parseDependency -d .. -g api/api.go
 func DocEndpoint(router gin.IRouter, config configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
 	router.GET("/doc", func(c *gin.Context) {
-		writer := c.Writer
-		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-		doc, err := swag.ReadDoc("timescalewrapper")
+		doc, err := readDoc()
 		if err != nil {
 			c.Error(errors.Join(errors.New(http.StatusText(http.StatusInternalServerError)), model.ErrInternalServerError))
 			return
 		}
-		//remove empty host to enable developer-swagger-api service to replace it; can not use cleaner delete on json object, because developer-swagger-api is sensible to formatting; better alternative is refactoring of developer-swagger-api/apis/db/db.py
-		doc = strings.Replace(doc, `"host": "",`, "", 1)
-		_, _ = writer.Write([]byte(doc))
+		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = c.Writer.Write(doc)
 	})
 }
+
+// readDoc renders the swagger document once; it is compiled into the binary and does not change.
+var readDoc = sync.OnceValues(func() ([]byte, error) {
+	doc, err := swag.ReadDoc("timescalewrapper")
+	if err != nil {
+		return nil, err
+	}
+	//remove empty host to enable developer-swagger-api service to replace it; can not use cleaner delete on json object, because developer-swagger-api is sensible to formatting; better alternative is refactoring of developer-swagger-api/apis/db/db.py
+	return []byte(strings.Replace(doc, `"host": "",`, "", 1)), nil
+})
