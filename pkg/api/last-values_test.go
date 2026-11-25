@@ -103,4 +103,12 @@ func TestBuildLastValuesElements(t *testing.T) {
 			t.Error("expected an error")
 		}
 	})
+
+	t.Run("invalid service id of a device element", func(t *testing.T) {
+		invalidService := "not-a-service-id"
+		_, _, err := buildLastValuesElements([]model.LastValuesRequestElement{{DeviceId: &deviceA, ServiceId: &invalidService, ColumnName: "root.a"}})
+		if err == nil {
+			t.Error("expected an error")
+		}
+	})
 }

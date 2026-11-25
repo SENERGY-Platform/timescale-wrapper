@@ -41,7 +41,7 @@ func TestQueriesV2RejectsBadRequests(t *testing.T) {
 	t.Parallel()
 	router := gin.New()
 	router.Use(gin_mw.ErrorHandler(model.GetStatusCode, ", "))
-	QueriesV2Endpoint(router, nil, nil, nil, nil, nil, nil)
+	QueriesV2Endpoint(router, newDeps(nil, nil, nil, nil, nil, nil))
 
 	cases := []struct {
 		name   string
@@ -68,7 +68,7 @@ func TestQueriesRejectsBadRequests(t *testing.T) {
 	t.Parallel()
 	router := gin.New()
 	router.Use(gin_mw.ErrorHandler(model.GetStatusCode, ", "))
-	QueriesEndpoint(router, nil, nil, nil, nil, nil, nil)
+	QueriesEndpoint(router, newDeps(nil, nil, nil, nil, nil, nil))
 
 	cases := []struct {
 		name   string
@@ -94,7 +94,7 @@ func TestQueriesRejectsBadRequests(t *testing.T) {
 
 func TestLastValuesRejectsBadRequests(t *testing.T) {
 	t.Parallel()
-	handler := lastValueHandler(nil, nil, nil, nil, nil)
+	handler := lastValueHandler(newDeps(nil, nil, nil, nil, nil, nil))
 	validBody := `[{"deviceId":"d","serviceId":"` + badRequestServiceId + `","columnName":"root.a"}]`
 
 	cases := []struct {
@@ -132,7 +132,7 @@ func TestPrepareDownloadRejectsBadQueries(t *testing.T) {
 	t.Parallel()
 	router := gin.New()
 	router.Use(gin_mw.ErrorHandler(model.GetStatusCode, ", "))
-	PrepareDownloadEndpoints(router, nil, nil, nil, nil, nil, nil)
+	PrepareDownloadEndpoints(router, newDeps(nil, nil, nil, nil, nil, nil))
 
 	cases := []struct {
 		name  string

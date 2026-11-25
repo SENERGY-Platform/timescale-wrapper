@@ -26,24 +26,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SENERGY-Platform/converter/lib/converter"
-	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
 	"github.com/SENERGY-Platform/models/go/models"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/gin-gonic/gin"
 )
-
-func init() {
-	endpoints = append(endpoints, PrepareDownloadEndpoints)
-	unauthenticatedEndpoints = append(unauthenticatedEndpoints, DownloadEndpoints)
-}
 
 // Query godoc
 // @Summary      download
@@ -99,11 +88,11 @@ func GetPrepareDownload() {} // for doc generation
 // @Router       /prepare-download [POST]
 func PostPrepareDownload() {} // for doc generation
 
-func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, conv *converter.Converter, _ deviceSelection.Client) {
-	p := newPipeline(config, wrapper, verifier, remoteCache, conv)
+func PrepareDownloadEndpoints(router gin.IRouter, d deps) {
+	p := d.pipeline
 
 	router.GET("/download", func(c *gin.Context) {
-		prepared, userId, ownerUserIds, err := prepareQueriesRequestElement(c.Request, verifier, c.Request.URL.Query().Get("query"))
+		prepared, userId, ownerUserIds, err := prepareQueriesRequestElement(c.Request, d.verifier, c.Request.URL.Query().Get("query"))
 		if err != nil {
 			c.Error(err)
 			return
@@ -113,12 +102,12 @@ func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, w
 
 	// prepareSecret verifies the query, stores it and answers with the secret of its download.
 	prepareSecret := func(c *gin.Context, marshalledQuery string) {
-		prepared, _, _, err := prepareQueriesRequestElement(c.Request, verifier, marshalledQuery)
+		prepared, _, _, err := prepareQueriesRequestElement(c.Request, d.verifier, marshalledQuery)
 		if err != nil {
 			c.Error(err)
 			return
 		}
-		secret, err := remoteCache.StoreSecretQuery(c.Request.Context(), prepared)
+		secret, err := d.remoteCache.StoreSecretQuery(c.Request.Context(), prepared)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
@@ -156,10 +145,10 @@ func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, w
 // @Failure      404
 // @Failure      500
 // @Router       /download/{secret} [GET]
-func DownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, conv *converter.Converter, _ deviceSelection.Client) {
-	p := newPipeline(config, wrapper, verifier, remoteCache, conv)
+func DownloadEndpoints(router gin.IRouter, d deps) {
+	p := d.pipeline
 	router.GET("/download/:secret", func(c *gin.Context) {
-		prepared, err := remoteCache.GetSecretQuery(c.Request.Context(), c.Param("secret"))
+		prepared, err := d.remoteCache.GetSecretQuery(c.Request.Context(), c.Param("secret"))
 		if err != nil {
 			if errors.Is(err, memcache.ErrCacheMiss) {
 				c.Error(errors.Join(errors.New("not found"), model.ErrNotFound))
@@ -177,7 +166,7 @@ func DownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper 
 			return
 		}
 		tokenRequest.Header.Set("Authorization", prepared.Token)
-		userId, ownerUserIds, err := verifyRequest(c.Request.Context(), tokenRequest, verifier, []model.QueriesRequestElement{prepared.QueriesRequestElement})
+		userId, ownerUserIds, err := verifyRequest(c.Request.Context(), tokenRequest, d.verifier, []model.QueriesRequestElement{prepared.QueriesRequestElement})
 		if err != nil {
 			c.Error(err)
 			return

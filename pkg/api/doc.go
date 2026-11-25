@@ -24,23 +24,13 @@ import (
 
 	_ "github.com/SENERGY-Platform/timescale-wrapper/docs"
 
-	"github.com/SENERGY-Platform/converter/lib/converter"
-	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 	"github.com/swaggo/swag"
 )
 
-func init() {
-	endpoints = append(endpoints, DocEndpoint)
-}
-
 //go:generate go tool swag init --instanceName timescalewrapper -o ../../docs --parseDependency -d .. -g api/api.go
-func DocEndpoint(router gin.IRouter, config configuration.Config, _ *timescale.Wrapper, _ *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
+func DocEndpoint(router gin.IRouter, _ deps) {
 	router.GET("/doc", func(c *gin.Context) {
 		doc, err := readDoc()
 		if err != nil {

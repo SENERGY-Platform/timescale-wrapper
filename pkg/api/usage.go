@@ -20,19 +20,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/SENERGY-Platform/converter/lib/converter"
-	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 )
-
-func init() {
-	endpoints = append(endpoints, UsageEndpoint)
-}
 
 // Query godoc
 // @Summary      Device Usage
@@ -64,7 +54,7 @@ func UsageDevices() {} // for doc
 // @Router       /usage/exports [GET]
 func UsageExports() {} // for doc
 
-func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
+func UsageEndpoint(router gin.IRouter, d deps) {
 	router.POST("/usage/devices", func(c *gin.Context) {
 		request := c.Request
 		deviceIds := []string{}
@@ -79,12 +69,12 @@ func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescal
 				DeviceId: &deviceId,
 			})
 		}
-		_, _, err = verifyRequest(c.Request.Context(), request, verifier, elems)
+		_, _, err = verifyRequest(c.Request.Context(), request, d.verifier, elems)
 		if err != nil {
 			c.Error(err)
 			return
 		}
-		response, err := wrapper.GetDeviceUsage(c.Request.Context(), deviceIds)
+		response, err := d.wrapper.GetDeviceUsage(c.Request.Context(), deviceIds)
 		if err != nil {
 			c.Error(classify(err, model.ErrInternalServerError))
 			return
@@ -106,12 +96,12 @@ func UsageEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescal
 				ExportId: &exportId,
 			})
 		}
-		_, _, err = verifyRequest(c.Request.Context(), request, verifier, elems)
+		_, _, err = verifyRequest(c.Request.Context(), request, d.verifier, elems)
 		if err != nil {
 			c.Error(err)
 			return
 		}
-		response, err := wrapper.GetExportUsage(c.Request.Context(), exportIds)
+		response, err := d.wrapper.GetExportUsage(c.Request.Context(), exportIds)
 		if err != nil {
 			c.Error(classify(err, model.ErrInternalServerError))
 			return

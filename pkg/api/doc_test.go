@@ -29,7 +29,7 @@ import (
 func TestDocEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	DocEndpoint(router, nil, nil, nil, nil, nil, nil)
+	DocEndpoint(router, newDeps(nil, nil, nil, nil, nil, nil))
 	for range 2 { // the second request is served from the rendered document
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/doc", nil))

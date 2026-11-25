@@ -24,25 +24,17 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/SENERGY-Platform/converter/lib/converter"
-	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tracing"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
-
-func init() {
-	endpoints = append(endpoints, QueriesEndpoint)
-}
 
 // Query godoc
 // @Summary      queries
@@ -63,8 +55,8 @@ func init() {
 // @Failure      404
 // @Failure      500
 // @Router       /queries [POST]
-func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
-	p := newPipeline(config, wrapper, verifier, remoteCache, converter)
+func QueriesEndpoint(router gin.IRouter, d deps) {
+	p := d.pipeline
 	router.POST("/queries", func(c *gin.Context) {
 		writer := c.Writer
 		request := c.Request

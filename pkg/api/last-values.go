@@ -25,20 +25,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SENERGY-Platform/converter/lib/converter"
-	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/models/go/models"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 )
-
-func init() {
-	endpoints = append(endpoints, LastValuesEndpoint)
-}
 
 type queriesRequestElementColumn struct {
 	*model.QueriesRequestElementColumn
@@ -60,8 +50,8 @@ type queriesRequestElementColumn struct {
 // @Failure      404
 // @Failure      500
 // @Router       /last-values [POST]
-func LastValuesEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
-	handler := lastValueHandler(config, wrapper, verifier, remoteCache, converter)
+func LastValuesEndpoint(router gin.IRouter, d deps) {
+	handler := lastValueHandler(d)
 
 	router.POST("/last-values", func(c *gin.Context) {
 		resp, code, err := handler(c.Request.Context(), c.Request)
@@ -73,8 +63,8 @@ func LastValuesEndpoint(router gin.IRouter, config configuration.Config, wrapper
 	})
 }
 
-func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) func(ctx context.Context, request *http.Request) ([]model.LastValuesResponseElement, int, error) {
-	p := newPipeline(config, wrapper, verifier, remoteCache, converter)
+func lastValueHandler(d deps) func(ctx context.Context, request *http.Request) ([]model.LastValuesResponseElement, int, error) {
+	p := d.pipeline
 	return func(ctx context.Context, request *http.Request) ([]model.LastValuesResponseElement, int, error) {
 		var requestElements []model.LastValuesRequestElement
 		err := json.NewDecoder(request.Body).Decode(&requestElements)
@@ -186,41 +176,38 @@ func buildLastValuesElements(requestElements []model.LastValuesRequestElement) (
 	desc := model.Desc
 	elementsIndex := 0
 	inserted := 0 // Count the number of requested columns
-	for k, v := range exportQueriesRequestElementColumnMap {
-		var cols []model.QueriesRequestElementColumn
-		cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
-		elements[elementsIndex] = model.QueriesRequestElement{
-			ExportId:         &k,
-			Time:             nil,
-			Limit:            &one,
-			Columns:          cols,
-			OrderColumnIndex: &zero,
-			OrderDirection:   &desc,
-			Filters:          notNullFilters(requestElements, v),
-		}
-		if !elements[elementsIndex].Valid() {
-			return nil, nil, errors.New("invalid request body")
-		}
-		elementsIndex++
+	// The export and the device elements differ only in their key fields, so one loop builds both.
+	groups := []struct {
+		columns map[string][]queriesRequestElementColumn
+		setKey  func(e *model.QueriesRequestElement, key string)
+	}{
+		{exportQueriesRequestElementColumnMap, func(e *model.QueriesRequestElement, key string) {
+			e.ExportId = &key
+		}},
+		{deviceQueriesRequestElementColumnMap, func(e *model.QueriesRequestElement, key string) {
+			s := strings.Split(key, ",")
+			e.DeviceId = &s[0]
+			e.ServiceId = &s[1]
+		}},
 	}
-	for k, v := range deviceQueriesRequestElementColumnMap {
-		s := strings.Split(k, ",")
-		var cols []model.QueriesRequestElementColumn
-		cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
-		elements[elementsIndex] = model.QueriesRequestElement{
-			DeviceId:         &s[0],
-			ServiceId:        &s[1],
-			Time:             nil,
-			Limit:            &one,
-			Columns:          cols,
-			OrderColumnIndex: &zero,
-			OrderDirection:   &desc,
-			Filters:          notNullFilters(requestElements, v),
+	for _, group := range groups {
+		for k, v := range group.columns {
+			var cols []model.QueriesRequestElementColumn
+			cols, inserted = prepColumns(inserted, outputIndexToInputIndex, v)
+			elements[elementsIndex] = model.QueriesRequestElement{
+				Time:             nil,
+				Limit:            &one,
+				Columns:          cols,
+				OrderColumnIndex: &zero,
+				OrderDirection:   &desc,
+				Filters:          notNullFilters(requestElements, v),
+			}
+			group.setKey(&elements[elementsIndex], k)
+			if !elements[elementsIndex].Valid() {
+				return nil, nil, errors.New("invalid request body")
+			}
+			elementsIndex++
 		}
-		if !elements[elementsIndex].Valid() {
-			return nil, nil, errors.New("invalid request body")
-		}
-		elementsIndex++
 	}
 	return elements, outputIndexToInputIndex, nil
 }
@@ -245,29 +232,15 @@ func notNullFilters(requestElements []model.LastValuesRequestElement, cols []que
 }
 
 func fillColumnMap(m map[string][]queriesRequestElementColumn, id string, i int, columnName string, columnMath *string, sourceCharacteristicId *string, targetCharacteristicId *string, conceptId *string) {
-	existing, ok := m[id]
-	if ok {
-		existing = append(existing, queriesRequestElementColumn{
-			requestIndex: i,
-			QueriesRequestElementColumn: &model.QueriesRequestElementColumn{
-				Name:                   columnName,
-				Math:                   columnMath,
-				SourceCharacteristicId: sourceCharacteristicId,
-				TargetCharacteristicId: targetCharacteristicId,
-				ConceptId:              conceptId,
-			}})
-	} else {
-		existing = []queriesRequestElementColumn{{
-			requestIndex: i,
-			QueriesRequestElementColumn: &model.QueriesRequestElementColumn{
-				Name:                   columnName,
-				Math:                   columnMath,
-				SourceCharacteristicId: sourceCharacteristicId,
-				TargetCharacteristicId: targetCharacteristicId,
-				ConceptId:              conceptId,
-			}}}
-	}
-	m[id] = existing
+	m[id] = append(m[id], queriesRequestElementColumn{
+		requestIndex: i,
+		QueriesRequestElementColumn: &model.QueriesRequestElementColumn{
+			Name:                   columnName,
+			Math:                   columnMath,
+			SourceCharacteristicId: sourceCharacteristicId,
+			TargetCharacteristicId: targetCharacteristicId,
+			ConceptId:              conceptId,
+		}})
 }
 
 func prepColumns(inserted int, outputIndexToInputIndex map[int]int, v []queriesRequestElementColumn) ([]model.QueriesRequestElementColumn, int) {

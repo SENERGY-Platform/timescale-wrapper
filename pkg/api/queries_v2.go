@@ -25,23 +25,14 @@ import (
 	"sync"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
-	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/models/go/models"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tracing"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
-
-func init() {
-	endpoints = append(endpoints, QueriesV2Endpoint)
-}
 
 // Query godoc
 // @Summary      last-values
@@ -64,8 +55,8 @@ func init() {
 // @Failure      404
 // @Failure      500
 // @Router       /queries/v2 [POST]
-func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, deviceSelectionClient deviceSelection.Client) {
-	h := &v2Handler{pipeline: newPipeline(config, wrapper, verifier, remoteCache, converter), timescale: wrapper, verifier: verifier}
+func QueriesV2Endpoint(router gin.IRouter, d deps) {
+	h := &v2Handler{pipeline: d.pipeline, timescale: d.wrapper, verifier: d.verifier}
 	router.POST("/queries/v2", func(c *gin.Context) {
 		tracer := otel.Tracer("api/queries_v2.go:QueriesV2Endpoint")
 		request := c.Request
@@ -88,7 +79,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		}
 
 		verifyCtx, verifySpan := tracer.Start(c.Request.Context(), "verification")
-		userId, ownerUserIdsBefore, err := verifyRequest(verifyCtx, request, verifier, requestElements)
+		userId, ownerUserIdsBefore, err := verifyRequest(verifyCtx, request, d.verifier, requestElements)
 		verifySpan.End()
 		if err != nil {
 			c.Error(err)
@@ -106,8 +97,8 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 
 		lookups := h.newLookups()
 		queryCacheCtx, queryCacheSpan := tracer.Start(c.Request.Context(), "fetch from cache")
-		raw, dbRequestElementsBefore, dbRequestIndices := queriesGetFromCache(queryCacheCtx, requestElements, remoteCache, config, forceTzp)
-		response, err := formatCachedV2Responses(queryCacheCtx, lookups, converter, requestElements, raw, timeFormat)
+		raw, dbRequestElementsBefore, dbRequestIndices := queriesGetFromCache(queryCacheCtx, requestElements, d.remoteCache, d.config, forceTzp)
+		response, err := formatCachedV2Responses(queryCacheCtx, lookups, d.converter, requestElements, raw, timeFormat)
 		queryCacheSpan.End()
 		if err != nil {
 			c.Error(classify(err, model.ErrInternalServerError))
@@ -137,7 +128,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		// The loop below runs per request element and calls cache, device
 		// repository, device selection and database once per element, so its
 		// spans are suppressed and this one span covers the whole fan-out.
-		elementCtx := tracing.SuppressChildren(queryGenCtx, config.DetailedTracing)
+		elementCtx := tracing.SuppressChildren(queryGenCtx, d.config.DetailedTracing)
 		params := v2Params{userId: userId, token: getToken(request), forceTz: forceTz, timeFormat: timeFormat, lookups: lookups}
 		if len(locateLat) > 0 && len(locateLon) > 0 {
 			params.locate = &[2]float64{locateLatFloat, locateLonFloat}

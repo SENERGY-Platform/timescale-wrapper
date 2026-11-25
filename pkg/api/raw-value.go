@@ -4,19 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/SENERGY-Platform/converter/lib/converter"
-	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 )
-
-func init() {
-	endpoints = append(endpoints, RawValueEndpoint)
-}
 
 // Query godoc
 // @Summary      Raw Value
@@ -37,8 +27,8 @@ func init() {
 // @Failure      404
 // @Failure      500
 // @Router       /raw-value [GET]
-func RawValueEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
-	p := newPipeline(config, wrapper, verifier, lastValueCache, converter)
+func RawValueEndpoint(router gin.IRouter, d deps) {
+	p := d.pipeline
 	router.GET("/raw-value", func(c *gin.Context) {
 		writer := c.Writer
 		request := c.Request

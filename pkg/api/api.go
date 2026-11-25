@@ -43,8 +43,47 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-var endpoints = []func(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client){}
-var unauthenticatedEndpoints = []func(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client){}
+// deps holds the dependencies the endpoints are built from. pipeline is built once from the other fields, so all
+// endpoints of a router share it.
+type deps struct {
+	config          configuration.Config
+	wrapper         *timescale.Wrapper
+	verifier        *verification.Verifier
+	remoteCache     *cache.RemoteCache
+	converter       *converter.Converter
+	deviceSelection deviceSelection.Client
+	pipeline        *pipeline
+}
+
+func newDeps(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, conv *converter.Converter, deviceSelection deviceSelection.Client) deps {
+	return deps{
+		config:          config,
+		wrapper:         wrapper,
+		verifier:        verifier,
+		remoteCache:     remoteCache,
+		converter:       conv,
+		deviceSelection: deviceSelection,
+		pipeline:        newPipeline(config, wrapper, verifier, remoteCache, conv),
+	}
+}
+
+// authenticatedEndpoints are registered on the router of Router, in this order.
+var authenticatedEndpoints = []func(router gin.IRouter, d deps){
+	LastValuesEndpoint,
+	DataAvailabilityEndpoint,
+	DocEndpoint,
+	PrepareDownloadEndpoints,
+	LastMessageEndpoint,
+	QueriesEndpoint,
+	QueriesV2Endpoint,
+	RawValueEndpoint,
+	UsageEndpoint,
+}
+
+// unauthenticatedEndpoints are registered on the router of UnauthenticatedRouter.
+var unauthenticatedEndpoints = []func(router gin.IRouter, d deps){
+	DownloadEndpoints,
+}
 
 func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) (err error) {
 	log.Logger.Info("start api")
@@ -97,29 +136,24 @@ func Start(ctx context.Context, wg *sync.WaitGroup, config configuration.Config,
 // @name Authorization
 // @description Type "Bearer" followed by a space and JWT token.
 func Router(ctx context.Context, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) (http.Handler, error) {
-	gin.SetMode(gin.ReleaseMode)
-	router := gin.New()
-	err := configureMW(ctx, router)
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range endpoints {
-		log.Logger.Info("add endpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
-		e(router, config, wrapper, verifier, cache, converter, deviceSelection)
-	}
-	return router, nil
+	return newRouter(ctx, "endpoints", authenticatedEndpoints, newDeps(config, wrapper, verifier, cache, converter, deviceSelection))
 }
 
 func UnauthenticatedRouter(ctx context.Context, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, cache *cache.RemoteCache, converter *converter.Converter, deviceSelection deviceSelection.Client) (http.Handler, error) {
+	return newRouter(ctx, "unauthenticatedEndpoints", unauthenticatedEndpoints, newDeps(config, wrapper, verifier, cache, converter, deviceSelection))
+}
+
+// newRouter returns a router with the middleware of configureMW and the given endpoints. label names the list in the log.
+func newRouter(ctx context.Context, label string, list []func(router gin.IRouter, d deps), d deps) (http.Handler, error) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	err := configureMW(ctx, router)
 	if err != nil {
 		return nil, err
 	}
-	for _, e := range unauthenticatedEndpoints {
-		log.Logger.Info("add unauthenticatedEndpoints: " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
-		e(router, config, wrapper, verifier, cache, converter, deviceSelection)
+	for _, e := range list {
+		log.Logger.Info("add " + label + ": " + runtime.FuncForPC(reflect.ValueOf(e).Pointer()).Name())
+		e(router, d)
 	}
 	return router, nil
 }

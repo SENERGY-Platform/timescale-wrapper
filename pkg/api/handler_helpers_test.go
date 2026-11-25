@@ -225,9 +225,9 @@ func TestQueriesEndpointsRejectInvalidToken(t *testing.T) {
 		path  string
 		setup func(gin.IRouter)
 	}{
-		{"/queries", func(r gin.IRouter) { QueriesEndpoint(r, nil, nil, nil, nil, nil, nil) }},
-		{"/queries/v2", func(r gin.IRouter) { QueriesV2Endpoint(r, nil, nil, nil, nil, nil, nil) }},
-		{"/usage/devices", func(r gin.IRouter) { UsageEndpoint(r, nil, nil, nil, nil, nil, nil) }},
+		{"/queries", func(r gin.IRouter) { QueriesEndpoint(r, newDeps(nil, nil, nil, nil, nil, nil)) }},
+		{"/queries/v2", func(r gin.IRouter) { QueriesV2Endpoint(r, newDeps(nil, nil, nil, nil, nil, nil)) }},
+		{"/usage/devices", func(r gin.IRouter) { UsageEndpoint(r, newDeps(nil, nil, nil, nil, nil, nil)) }},
 	} {
 		router := gin.New()
 		router.Use(gin_mw.ErrorHandler(model.GetStatusCode, ", "))

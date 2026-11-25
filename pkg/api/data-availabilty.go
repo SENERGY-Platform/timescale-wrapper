@@ -17,19 +17,9 @@
 package api
 
 import (
-	"github.com/SENERGY-Platform/converter/lib/converter"
-	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 )
-
-func init() {
-	endpoints = append(endpoints, DataAvailabilityEndpoint)
-}
 
 // Query godoc
 // @Summary      query data availabilty
@@ -45,16 +35,16 @@ func init() {
 // @Failure      404
 // @Failure      500
 // @Router       /data-availability [GET]
-func DataAvailabilityEndpoint(router gin.IRouter, _ configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, _ *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
+func DataAvailabilityEndpoint(router gin.IRouter, d deps) {
 	router.GET("/data-availability", func(c *gin.Context) {
 		request := c.Request
 		deviceId := request.URL.Query().Get("device_id")
-		_, _, err := verifyRequest(c.Request.Context(), request, verifier, []model.QueriesRequestElement{{DeviceId: &deviceId}})
+		_, _, err := verifyRequest(c.Request.Context(), request, d.verifier, []model.QueriesRequestElement{{DeviceId: &deviceId}})
 		if err != nil {
 			c.Error(err)
 			return
 		}
-		response, err := wrapper.GetDataAvailability(c.Request.Context(), deviceId)
+		response, err := d.wrapper.GetDataAvailability(c.Request.Context(), deviceId)
 		if err != nil {
 			c.Error(classify(err, model.ErrInternalServerError))
 			return

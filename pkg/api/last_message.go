@@ -21,19 +21,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/SENERGY-Platform/converter/lib/converter"
-	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
 )
-
-func init() {
-	endpoints = append(endpoints, LastMessageEndpoint)
-}
 
 // Query godoc
 // @Summary      Last Message
@@ -49,7 +39,7 @@ func init() {
 // @Failure      404
 // @Failure      500
 // @Router       /last-message [GET]
-func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
+func LastMessageEndpoint(router gin.IRouter, d deps) {
 	router.GET("/last-message", func(c *gin.Context) {
 		request := c.Request
 		deviceId := request.URL.Query().Get("device_id")
@@ -63,7 +53,7 @@ func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrappe
 			return
 		}
 
-		ok, err := verifier.VerifyDevice(c.Request.Context(), deviceId, getToken(request))
+		ok, err := d.verifier.VerifyDevice(c.Request.Context(), deviceId, getToken(request))
 		if err != nil {
 			c.Error(classify(err, model.ErrInternalServerError))
 			return
@@ -75,14 +65,14 @@ func LastMessageEndpoint(router gin.IRouter, config configuration.Config, wrappe
 
 		deviceId = strings.Split(deviceId, "$")[0]
 
-		entry, err := remoteCache.GetLastMessageFromCache(c.Request.Context(), deviceId, serviceId)
+		entry, err := d.remoteCache.GetLastMessageFromCache(c.Request.Context(), deviceId, serviceId)
 		if err != nil {
-			service, err := remoteCache.GetService(c.Request.Context(), serviceId)
+			service, err := d.remoteCache.GetService(c.Request.Context(), serviceId)
 			if err != nil {
 				c.Error(classify(err, model.ErrInternalServerError))
 				return
 			}
-			entry, err = wrapper.GetLastMessage(c.Request.Context(), deviceId, serviceId, service)
+			entry, err = d.wrapper.GetLastMessage(c.Request.Context(), deviceId, serviceId, service)
 			if err != nil {
 				if errors.Is(err, model.ErrNoContent) {
 					c.Status(http.StatusNoContent)
