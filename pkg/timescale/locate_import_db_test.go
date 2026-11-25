@@ -44,6 +44,10 @@ func TestSetupMaterializedRefreshJobConcurrent(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	wrapper := &Wrapper{config: &configuration.ConfigStruct{DefaultTimezone: dbTestTimezone}, writePool: pool}
+	// the refresh jobs call the procedure Migrate creates; on a fresh database no other test has run it yet
+	if err := wrapper.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
 
 	table := "ts_wrapper_test_setup_mv"
 	view := locate.ViewName(table)
