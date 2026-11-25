@@ -173,8 +173,8 @@ func TestTimeWeightedJSONPathAndInteger(t *testing.T) {
 }
 
 // TestTimeWeightedWithDifferenceColumn puts a time-weighted column next to a difference column,
-// whose window is widened by one bucket and whose subqueries are limited to the widened bucket
-// count (see widenTimeWindowForDifference). The time-weighted means have to be those of the same
+// whose window is widened by one bucket and whose subqueries are not limited to the requested bucket
+// count (see differenceWindowFor). The time-weighted means have to be those of the same
 // column queried alone, for every requested bucket. Skipped when TEST_POSTGRES_DSN is unset.
 func TestTimeWeightedWithDifferenceColumn(t *testing.T) {
 	ctx, pool, loc, wrapper := twDbTest(t)
@@ -218,7 +218,7 @@ func TestTimeWeightedWithDifferenceColumn(t *testing.T) {
 			if len(combined) != 12 || len(alone) != 12 {
 				t.Fatalf("expected 12 rows each, got %v combined and %v alone:\n%v\n%v", len(combined), len(alone), combined, alone)
 			}
-			// the combined query orders descending, see widenTimeWindowForDifference
+			// the combined query orders descending, see differenceWindowFor
 			means := map[time.Time]interface{}{}
 			for _, row := range alone {
 				means[row[0].(time.Time)] = row[1]

@@ -17,239 +17,75 @@
 package timescale
 
 import (
-	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
-func TestWidenTimeWindowForDifferenceUnits(t *testing.T) {
+func TestDifferenceWindowFor(t *testing.T) {
 	const startS = "2024-03-10T00:00:00Z"
 	const endS = "2024-03-12T00:00:00Z"
-
-	deref := func(s *string) string {
-		if s == nil {
-			return "<nil>"
-		}
-		return *s
-	}
-	diffElement := func(groupTime string) *model.QueriesRequestElement {
-		return &model.QueriesRequestElement{
-			Columns:   []model.QueriesRequestElementColumn{{GroupType: strPtr("difference-last")}},
-			Time:      &model.QueriesRequestElementTime{Start: strPtr(startS), End: strPtr(endS)},
-			GroupTime: strPtr(groupTime),
-		}
-	}
-
-	// The window spans 48 hours. wantStart is the start after widening by one unit, formatted as
-	// RFC3339, which keeps whole seconds only: a 1ms step therefore lands on 23:59:59.
-	tests := []struct {
-		groupTime   string
-		wantStart   string
-		wantBuckets int
-	}{
-		{groupTime: "1ms", wantStart: "2024-03-09T23:59:59Z", wantBuckets: 172800000},
-		{groupTime: "1s", wantStart: "2024-03-09T23:59:59Z", wantBuckets: 172800},
-		{groupTime: "1m", wantStart: "2024-03-09T23:59:00Z", wantBuckets: 2880},
-		{groupTime: "1h", wantStart: "2024-03-09T23:00:00Z", wantBuckets: 48},
-		{groupTime: "1d", wantStart: "2024-03-09T00:00:00Z", wantBuckets: 2},
-		{groupTime: "1day", wantStart: "2024-03-09T00:00:00Z", wantBuckets: 2},
-		{groupTime: "1w", wantStart: "2024-03-03T00:00:00Z", wantBuckets: 0},
-		{groupTime: "1mon", wantStart: "2024-02-10T00:00:00Z", wantBuckets: 0},
-		{groupTime: "1months", wantStart: "2024-02-10T00:00:00Z", wantBuckets: 0},
-		{groupTime: "1y", wantStart: "2023-03-10T00:00:00Z", wantBuckets: 0},
-	}
-	for _, tc := range tests {
-		t.Run(tc.groupTime, func(t *testing.T) {
-			element := diffElement(tc.groupTime)
-			origTime := element.Time
-
-			widened, buckets, err := widenTimeWindowForDifference(*element)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if buckets == nil {
-				t.Fatalf("buckets is nil, want %d", tc.wantBuckets)
-			}
-			if *buckets != tc.wantBuckets {
-				t.Errorf("buckets = %d, want %d", *buckets, tc.wantBuckets)
-			}
-			if got := deref(widened.Time.Start); got != tc.wantStart {
-				t.Errorf("Time.Start = %s, want %s", got, tc.wantStart)
-			}
-			if got := deref(widened.Time.End); got != endS {
-				t.Errorf("Time.End = %s, want %s", got, endS)
-			}
-
-			if widened.Time == origTime {
-				t.Errorf("widened.Time still points to the caller's time object")
-			}
-			if element.Time != origTime {
-				t.Errorf("the passed element's Time pointer changed")
-			}
-			if got := deref(origTime.Start); got != startS {
-				t.Errorf("caller's Time.Start changed to %s, want %s", got, startS)
-			}
-			if got := deref(origTime.End); got != endS {
-				t.Errorf("caller's Time.End changed to %s, want %s", got, endS)
-			}
-		})
-	}
-}
-
-func TestWidenTimeWindowForDifferenceUnitErrors(t *testing.T) {
-	const startS = "2024-03-10T00:00:00Z"
-	const endS = "2024-03-12T00:00:00Z"
+	diff := model.QueriesRequestElementColumn{Name: "a", GroupType: strPtr("difference-last")}
+	plain := model.QueriesRequestElementColumn{Name: "b", GroupType: strPtr("last")}
 
 	tests := []struct {
 		name      string
-		start     string
-		end       string
+		time      *model.QueriesRequestElementTime
+		columns   []model.QueriesRequestElementColumn
 		groupTime string
+		// wantFirst is the first requested bucket, empty if the window is not widened
+		wantFirst string
 	}{
-		{name: "group time without unit", start: startS, end: endS, groupTime: "15"},
-		{name: "start not RFC3339", start: "2024-03-10", end: endS, groupTime: "1h"},
-		{name: "end not RFC3339", start: startS, end: "12.03.2024", groupTime: "1h"},
+		{
+			name: "last", time: &model.QueriesRequestElementTime{Last: strPtr("1d")}, columns: []model.QueriesRequestElementColumn{diff}, groupTime: "1h",
+			wantFirst: "time_bucket('1h', now() - interval '1d', 'Europe/Berlin')",
+		},
+		{
+			name: "ahead", time: &model.QueriesRequestElementTime{Ahead: strPtr("2d")}, columns: []model.QueriesRequestElementColumn{diff, plain}, groupTime: "6h",
+			wantFirst: "time_bucket('6h', now(), 'Europe/Berlin')",
+		},
+		{
+			name: "start and end", time: &model.QueriesRequestElementTime{Start: strPtr(startS), End: strPtr(endS)}, columns: []model.QueriesRequestElementColumn{diff}, groupTime: "1mon",
+			wantFirst: "time_bucket('1mon', '2024-03-10T00:00:00Z'::timestamptz, 'Europe/Berlin')",
+		},
+		{name: "no difference column", time: &model.QueriesRequestElementTime{Last: strPtr("1d")}, columns: []model.QueriesRequestElementColumn{plain}, groupTime: "1h"},
+		{name: "no time window", columns: []model.QueriesRequestElementColumn{diff}, groupTime: "1h"},
+		{name: "incomplete time window", time: &model.QueriesRequestElementTime{Start: strPtr(startS)}, columns: []model.QueriesRequestElementColumn{diff}, groupTime: "1h"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			element := &model.QueriesRequestElement{
-				Columns:   []model.QueriesRequestElementColumn{{GroupType: strPtr("difference-last")}},
-				Time:      &model.QueriesRequestElementTime{Start: strPtr(tc.start), End: strPtr(tc.end)},
-				GroupTime: strPtr(tc.groupTime),
-			}
-
-			_, buckets, err := widenTimeWindowForDifference(*element)
-			if err == nil {
-				t.Errorf("expected error, got nil")
-			}
-			if buckets != nil {
-				t.Errorf("buckets = %d, want nil", *buckets)
-			}
-		})
-	}
-}
-
-func TestWidenTimeWindowForDifferenceRelative(t *testing.T) {
-	deref := func(s *string) string {
-		if s == nil {
-			return "<nil>"
-		}
-		return *s
-	}
-
-	tests := []struct {
-		name        string
-		time        model.QueriesRequestElementTime
-		wantLast    string
-		wantAhead   string
-		wantBuckets int
-	}{
-		{name: "last", time: model.QueriesRequestElementTime{Last: strPtr("3h")}, wantLast: "4h", wantAhead: "<nil>", wantBuckets: 3},
-		{name: "ahead", time: model.QueriesRequestElementTime{Ahead: strPtr("2d")}, wantLast: "<nil>", wantAhead: "3d", wantBuckets: 2},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			timeObj := tc.time
-			element := &model.QueriesRequestElement{
-				Columns:   []model.QueriesRequestElementColumn{{GroupType: strPtr("difference-first")}},
-				Time:      &timeObj,
-				GroupTime: strPtr("1h"),
-			}
-
-			widened, buckets, err := widenTimeWindowForDifference(*element)
+			element := model.QueriesRequestElement{Columns: tc.columns, Time: tc.time, GroupTime: strPtr(tc.groupTime)}
+			query, err := newElementQuery(element, "t", "Europe/Berlin")
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatal(err)
 			}
-			if buckets == nil {
-				t.Fatalf("buckets is nil, want %d", tc.wantBuckets)
-			}
-			if *buckets != tc.wantBuckets {
-				t.Errorf("buckets = %d, want %d", *buckets, tc.wantBuckets)
-			}
-			if got := deref(widened.Time.Last); got != tc.wantLast {
-				t.Errorf("Time.Last = %s, want %s", got, tc.wantLast)
-			}
-			if got := deref(widened.Time.Ahead); got != tc.wantAhead {
-				t.Errorf("Time.Ahead = %s, want %s", got, tc.wantAhead)
-			}
-			if widened.Time == &timeObj {
-				t.Errorf("widened.Time still points to the caller's time object")
-			}
-			if got := deref(timeObj.Last); got != deref(tc.time.Last) {
-				t.Errorf("caller's Time.Last changed to %s", got)
-			}
-			if got := deref(timeObj.Ahead); got != deref(tc.time.Ahead) {
-				t.Errorf("caller's Time.Ahead changed to %s", got)
-			}
-		})
-	}
-}
-
-func TestWidenTimeWindowForDifferenceNoop(t *testing.T) {
-	const startS = "2024-03-10T00:00:00Z"
-	const endS = "2024-03-12T00:00:00Z"
-
-	validTime := func() *model.QueriesRequestElementTime {
-		return &model.QueriesRequestElementTime{Start: strPtr(startS), End: strPtr(endS)}
-	}
-
-	tests := []struct {
-		name    string
-		element func() *model.QueriesRequestElement
-	}{
-		{
-			name: "no difference column",
-			element: func() *model.QueriesRequestElement {
-				return &model.QueriesRequestElement{
-					Columns: []model.QueriesRequestElementColumn{
-						{GroupType: strPtr("last")},
-						{GroupType: nil},
-					},
-					Time:      validTime(),
-					GroupTime: strPtr("1h"),
+			if tc.wantFirst == "" {
+				if query.difference != nil {
+					t.Fatalf("unexpected difference window %+v", *query.difference)
 				}
-			},
-		},
-		{
-			name: "time nil",
-			element: func() *model.QueriesRequestElement {
-				return &model.QueriesRequestElement{
-					Columns:   []model.QueriesRequestElementColumn{{GroupType: strPtr("difference-last")}},
-					Time:      nil,
-					GroupTime: strPtr("1h"),
-				}
-			},
-		},
-		{
-			name: "start and end without group time",
-			element: func() *model.QueriesRequestElement {
-				return &model.QueriesRequestElement{
-					Columns:   []model.QueriesRequestElementColumn{{GroupType: strPtr("difference-last")}},
-					Time:      validTime(),
-					GroupTime: nil,
-				}
-			},
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			element := tc.element()
-			want := tc.element()
-			timeBefore := element.Time
-
-			widened, buckets, err := widenTimeWindowForDifference(*element)
+				return
+			}
+			if query.difference == nil {
+				t.Fatal("no difference window")
+			}
+			if query.difference.firstBucket != tc.wantFirst {
+				t.Errorf("firstBucket = %s, want %s", query.difference.firstBucket, tc.wantFirst)
+			}
+			wantStart := "(" + tc.wantFirst + " AT TIME ZONE 'Europe/Berlin' - interval '" + tc.groupTime + "') AT TIME ZONE 'Europe/Berlin'"
+			if query.difference.start != wantStart {
+				t.Errorf("start = %s, want %s", query.difference.start, wantStart)
+			}
+			// the end of the window is not moved
+			where, err := getWhereString(query.element, query.difference.start)
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatal(err)
 			}
-			if buckets != nil {
-				t.Errorf("buckets = %d, want nil", *buckets)
+			if !strings.HasPrefix(where, " WHERE \"time\" > "+wantStart) {
+				t.Errorf("where = %s", where)
 			}
-			if widened.Time != timeBefore {
-				t.Errorf("widened.Time pointer changed")
-			}
-			if !reflect.DeepEqual(widened, *want) {
-				t.Errorf("element changed: got %+v, want %+v", widened, want)
+			if tc.time.Start != nil && !strings.HasSuffix(where, " AND \"time\" < '"+endS+"'") {
+				t.Errorf("where = %s", where)
 			}
 		})
 	}

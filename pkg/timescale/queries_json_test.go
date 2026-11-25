@@ -151,10 +151,10 @@ func TestGenerateQueriesJSONPaths(t *testing.T) {
 				GroupTime: &h1,
 				Columns:   []model.QueriesRequestElementColumn{{Name: jsonResults, GroupType: &diffLast}},
 			},
-			expected: `SELECT sub0.time AS "time", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS "` + jsonResults + `" FROM ` +
+			expected: `SELECT * FROM (SELECT sub0.time AS "time", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS "` + jsonResults + `" FROM ` +
 				`(SELECT time_bucket('1h', "time", 'Europe/Berlin') AS "time", (array_agg(("__e"."__v" #>> '{}')::bigint ORDER BY "time" DESC, "__e"."__n" DESC) FILTER (WHERE ("__e"."__v" #>> '{}')::bigint IS NOT NULL))[1] AS value FROM ` + table +
 				` LEFT JOIN LATERAL jsonb_path_query(` + col + `, '$[*]."result"'::jsonpath) WITH ORDINALITY AS "__e"("__v", "__n") ON TRUE` +
-				` WHERE "time" > now() - interval '2d' GROUP BY 1 ORDER BY 1 ASC LIMIT 3) sub0 ORDER BY 1 DESC LIMIT 1`,
+				` WHERE "time" > (time_bucket('1h', now() - interval '1d', 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin' - interval '1h') AT TIME ZONE 'Europe/Berlin' GROUP BY 1 ORDER BY 1 ASC) sub0) d WHERE "time" >= time_bucket('1h', now() - interval '1d', 'Europe/Berlin') ORDER BY 1 DESC`,
 		},
 	}
 	for _, tc := range tt {

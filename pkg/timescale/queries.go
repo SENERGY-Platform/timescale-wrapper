@@ -19,14 +19,10 @@ package timescale
 import (
 	"context"
 	"errors"
-	"fmt"
-	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
-	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/SENERGY-Platform/models/go/models"
+	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
@@ -186,15 +182,13 @@ type columnSQL struct {
 
 // elementQuery holds what the query of one element is built from.
 type elementQuery struct {
-	// element is the element as the query reads it: its time window is already widened for difference
-	// columns, see widenTimeWindowForDifference.
 	element  model.QueriesRequestElement
 	table    string
 	timezone string
 	columns  []columnSQL
-	// differenceBuckets is the number of buckets requested from a widened window, nil if it was not
-	// widened.
-	differenceBuckets *int
+	// difference is set if the element has a difference-* column and a time window, see
+	// differenceWindowFor, nil otherwise.
+	difference *differenceWindow
 }
 
 // newElementQuery resolves the columns of an element. A raw element has no aggregation on any
@@ -220,10 +214,7 @@ func newElementQuery(element model.QueriesRequestElement, table string, timezone
 		query.columns[i].agg = agg
 	}
 	if grouped {
-		var err error
-		if query.element, query.differenceBuckets, err = widenTimeWindowForDifference(element); err != nil {
-			return query, err
-		}
+		query.difference = differenceWindowFor(query)
 	}
 	for i, column := range query.columns {
 		var err error
@@ -249,7 +240,7 @@ func (q elementQuery) raw() (string, error) {
 		query += " AS " + sqlliteral.QuoteIdentifier(column.name)
 	}
 	query += " FROM " + sqlliteral.QuoteIdentifier(q.table)
-	where, err := getWhereString(q.element)
+	where, err := getWhereString(q.element, "")
 	if err != nil {
 		return "", err
 	}
@@ -292,24 +283,33 @@ func (q elementQuery) grouped() (string, error) {
 		}
 	}
 
-	outer := defaultOrderLimit(q.element)
-	if q.differenceBuckets != nil {
-		// the widened window holds one bucket more than was requested: the newest ones are kept
-		outer = orderLimit{index: 0, direction: model.Desc, limit: q.differenceBuckets}
+	if q.difference == nil {
+		return query + defaultOrderLimit(q.element).String(), nil
 	}
-	return query + outer.String(), nil
+	// The window holds the bucket before the first requested one, so that lag() has a predecessor
+	// for it. It is dropped here, after lag(), and the order and limit of the element apply to what is
+	// left: a limit inside would cut buckets before lag() saw them. The inner select may name two
+	// columns alike, which SELECT * passes on.
+	order := defaultOrderLimit(q.element)
+	if order.index == -1 {
+		// the newest bucket first, as the query always returned a difference series
+		order.index = 0
+	}
+	return "SELECT * FROM (" + query + ") d WHERE \"time\" >= " + q.difference.firstBucket + order.String(), nil
 }
 
 // bucketSubquery renders the subquery with the buckets of column i, named subAlias(i).
 func (q elementQuery) bucketSubquery(i int) (string, error) {
 	column := q.columns[i]
-	// All columns of a widened element read the same rows in the same order, see
-	// widenTimeWindowForDifference. Otherwise "last" reads from the newest bucket on and the
-	// others from the oldest.
+	// A column of a difference element has no limit of its own: it would cut buckets before lag()
+	// sees them, and the columns would then hold different buckets. The limit of the element
+	// applies to the outer query, see grouped. Otherwise "last" reads from the newest bucket on and
+	// the others from the oldest.
 	rows := orderLimit{groupBy: true, index: 0, direction: model.Asc, limit: q.element.Limit}
-	if q.differenceBuckets != nil {
-		n := *q.differenceBuckets + 2
-		rows.limit = &n
+	windowStart := ""
+	if q.difference != nil {
+		rows.limit = nil
+		windowStart = q.difference.start
 	} else if column.agg.Kind == model.Plain && column.agg.Function == "last" {
 		rows.direction = model.Desc
 	}
@@ -318,13 +318,13 @@ func (q elementQuery) bucketSubquery(i int) (string, error) {
 		if column.join != "" {
 			return "", errors.Join(errors.New("time-weighted group types can not be combined with all elements of a list"), model.ErrBadRequest)
 		}
-		subquery, err := timeWeightedQuery(q.element, column.agg.Function, column.value, q.table, q.timezone, rows.String())
+		subquery, err := timeWeightedQuery(q.element, windowStart, column.agg.Function, column.value, q.table, q.timezone, rows.String())
 		if err != nil {
 			return "", err
 		}
 		return "(" + subquery + ") " + subAlias(i), nil
 	}
-	where, err := getWhereString(q.element)
+	where, err := getWhereString(q.element, windowStart)
 	if err != nil {
 		return "", err
 	}
@@ -334,138 +334,15 @@ func (q elementQuery) bucketSubquery(i int) (string, error) {
 	return subquery + where + rows.String() + ") " + subAlias(i), nil
 }
 
-// widenTimeWindowForDifference returns a copy of the element whose time window is extended by one
-// unit if it has difference-* columns, so that the first requested bucket has a predecessor to be
-// differenced against, and reports how many buckets the caller originally asked for. The element
-// passed in is not changed: its time is copied before it is. Elements without a difference column,
-// and elements without a time window, are returned as they are and yield a nil bucket count.
-//
-// It runs once per element, before the first column subquery is generated. Every column of such an
-// element then reads the same window with the same row limit: widening per column would give the
-// subqueries different bucket sets, and the FULL OUTER JOIN combining them would then emit rows
-// that match nothing on the other side.
-//
-// Two limits of the widening, both older than this function and both unchanged by it: it moves the
-// window by one unit rather than by one bucket, which is the same thing only while the group time
-// has no multiplier ("1h", not "6h"); and for Time.Ahead it moves the far end into the future,
-// which does not produce a predecessor for the first bucket at all.
-func widenTimeWindowForDifference(element model.QueriesRequestElement) (widened model.QueriesRequestElement, buckets *int, err error) {
-	hasDifference := false
-	for _, column := range element.Columns {
-		if agg, ok := column.Aggregation(); ok && agg.Kind == model.Difference {
-			hasDifference = true
-			break
-		}
-	}
-	if !hasDifference || element.Time == nil {
-		return element, nil, nil
-	}
-
-	if element.Time.Last != nil || element.Time.Ahead != nil {
-		// manually increase the last offset by 1 to ensure unified results
-		copy := element.Time.Copy() // ensure no other elements are affected that share this pointer
-		element.Time = &copy
-		re := regexp.MustCompile(`\d+`)
-		var prefix string
-		if element.Time.Last != nil {
-			prefix = string(re.Find([]byte(*element.Time.Last)))
-		} else {
-			prefix = string(re.Find([]byte(*element.Time.Ahead)))
-		}
-		num, err := strconv.Atoi(prefix)
-		if err != nil {
-			return element, nil, err
-		}
-		n := num
-		num++
-		if element.Time.Last != nil {
-			modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Last, prefix)
-			element.Time.Last = &modified
-		} else {
-			modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Ahead, prefix)
-			element.Time.Ahead = &modified
-		}
-		return element, &n, nil
-	}
-
-	if element.Time.Start == nil || element.Time.End == nil || element.GroupTime == nil {
-		return element, nil, nil
-	}
-	copy := element.Time.Copy() // ensure no other elements are affected that share this pointer
-	element.Time = &copy
-	re := regexp.MustCompile(`\D+`)
-	suffix := re.Find([]byte(*element.GroupTime))
-	if suffix == nil {
-		return element, nil, fmt.Errorf("could not parse GroupTime %v", *element.GroupTime)
-	}
-	endT, err := time.Parse(time.RFC3339, *element.Time.End)
-	if err != nil {
-		return element, nil, err
-	}
-	startT, err := time.Parse(time.RFC3339, *element.Time.Start)
-	if err != nil {
-		return element, nil, err
-	}
-	diff := endT.Sub(startT)
-	diffT := 0
-	const before = -1
-	const after = 0
-	var start time.Time
-	var end time.Time
-	switch string(suffix) {
-	case "ms":
-		diffT = int(diff.Milliseconds())
-		start = startT.Add(before * time.Millisecond)
-		end = endT.Add(after * time.Millisecond)
-	case "s":
-		diffT = int(diff.Seconds())
-		start = startT.Add(before * time.Second)
-		end = endT.Add(after * time.Second)
-	case "months":
-		fallthrough
-	case "mon":
-		start = startT.AddDate(0, before, 0)
-		end = endT.AddDate(0, after, 0)
-		diffT = (endT.Year()-startT.Year())*12 + (int(endT.Month()) - int(startT.Month()))
-	case "m":
-		start = startT.Add(before * time.Minute)
-		end = endT.Add(after * time.Minute)
-		diffT = int(diff.Minutes())
-	case "h":
-		start = startT.Add(before * time.Hour)
-		end = endT.Add(after * time.Hour)
-		diffT = int(diff.Hours())
-	case "day":
-		fallthrough
-	case "d":
-		start = startT.Add(before * 24 * time.Hour)
-		end = endT.Add(after * 24 * time.Hour)
-		diffT = int(diff.Hours() / 24)
-	case "w":
-		start = startT.Add(before * 24 * 7 * time.Hour)
-		end = endT.Add(after * 24 * 7 * time.Hour)
-		diffT = int(diff.Hours() / 24 / 7)
-	case "y":
-		start = startT.AddDate(before, 0, 0)
-		end = endT.AddDate(after, 0, 0)
-		diffT = endT.Year() - startT.Year()
-	}
-	startS := start.Format(time.RFC3339)
-	element.Time.Start = &startS
-	endS := end.Format(time.RFC3339)
-	element.Time.End = &endS
-	return element, &diffT, nil
-}
-
 // getWhereString renders the filters and the time window of an element as a WHERE clause, or the
-// empty string if the element has neither.
-func getWhereString(element model.QueriesRequestElement) (string, error) {
+// empty string if the element has neither. A non-empty start replaces the start of the window.
+func getWhereString(element model.QueriesRequestElement, start string) (string, error) {
 	conditions, err := getFilterConditions(element)
 	if err != nil {
 		return "", err
 	}
 	if element.Time != nil {
-		condition, err := timeCondition(element.Time)
+		condition, err := timeConditionFrom(element.Time, start)
 		if err != nil {
 			return "", err
 		}

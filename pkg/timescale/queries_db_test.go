@@ -409,3 +409,214 @@ func dbTestRequireSpillingHashJoin(ctx context.Context, t *testing.T, pool *pgxp
 		t.Fatal("expected the hash join to spill into several batches, got:\n" + plan)
 	}
 }
+
+// dbTestRunDifference generates and runs the query of one element on the test table.
+func dbTestRunDifference(ctx context.Context, t *testing.T, pool *pgxpool.Pool, element model.QueriesRequestElement) (rows [][]interface{}, query string) {
+	t.Helper()
+	deviceId, serviceId := dbTestDeviceId, dbTestServiceId
+	element.DeviceId, element.ServiceId = &deviceId, &serviceId
+	wrapper := &Wrapper{config: &configuration.ConfigStruct{DefaultTimezone: dbTestTimezone}, readPool: pool}
+	queries, err := wrapper.GenerateQueries(ctx, []model.QueriesRequestElement{element}, "", []string{""}, dbTestTimezone, []models.Device{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := wrapper.ExecuteQueries(ctx, queries)
+	if err != nil {
+		t.Fatal(queries[0], err)
+	}
+	return results[0], queries[0]
+}
+
+// dbTestMeterReadings is a meter that rises by one per minute, read half a minute after each
+// minute, from from until to. The last reading of every hour is therefore 60 above that of the hour
+// before.
+func dbTestMeterReadings(from time.Time, to time.Time) (readings []dbTestReading) {
+	from = from.Truncate(time.Minute)
+	for i := 0; from.Add(time.Duration(i)*time.Minute + 30*time.Second).Before(to); i++ {
+		readings = append(readings, dbTestReading{
+			time:   from.Add(time.Duration(i)*time.Minute + 30*time.Second),
+			energy: 1000 + float64(i),
+			water:  500 + float64(2*i),
+		})
+	}
+	return readings
+}
+
+// TestDifferenceLastWindowOfSeveralBuckets asks for the last day in hourly buckets. The window is
+// a day, the bucket an hour: every bucket of the day has to come back with the difference to its
+// predecessor, the oldest included. A window widened by one unit of the window instead of one
+// bucket, with the window's number used as the bucket count, returned one bucket. Skipped when
+// TEST_POSTGRES_DSN is unset.
+func TestDifferenceLastWindowOfSeveralBuckets(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	now := time.Now()
+	dbTestSetup(ctx, t, pool, dbTestMeterReadings(now.Add(-72*time.Hour), now))
+
+	last, groupTime, dl := "1d", "1h", "difference-last"
+	before := time.Now()
+	rows, query := dbTestRunDifference(ctx, t, pool, model.QueriesRequestElement{
+		Time:      &model.QueriesRequestElementTime{Last: &last},
+		GroupTime: &groupTime,
+		Columns:   []model.QueriesRequestElementColumn{{Name: dbTestEnergy, GroupType: &dl}},
+	})
+	after := time.Now()
+
+	// From the hour that holds now() - 1d to the hour that holds now(): 25 buckets, 24 if the first or
+	// the newest has no reading yet, 26 if the hour changed while the query ran.
+	if len(rows) < 24 || len(rows) > 26 {
+		t.Fatalf("expected 24 to 26 hourly buckets, got %d\n%s", len(rows), query)
+	}
+	oldest := rows[len(rows)-1][0].(time.Time)
+	if !oldest.Equal(before.Add(-24*time.Hour).Truncate(time.Hour)) && !oldest.Equal(after.Add(-24*time.Hour).Truncate(time.Hour)) &&
+		!oldest.Equal(before.Add(-23*time.Hour).Truncate(time.Hour)) && !oldest.Equal(after.Add(-23*time.Hour).Truncate(time.Hour)) {
+		t.Errorf("oldest bucket %v is not the hour of now() - 1d\n%s", oldest, query)
+	}
+	for i, row := range rows {
+		ts := row[0].(time.Time)
+		if i > 0 && !rows[i-1][0].(time.Time).Equal(ts.Add(time.Hour)) {
+			t.Errorf("row %d: bucket %v does not follow %v", i, ts, rows[i-1][0])
+		}
+		diff, ok := row[1].(float64)
+		if !ok {
+			t.Errorf("row %d (%v) has no difference: %v\n%s", i, ts, row[1], query)
+			continue
+		}
+		// the newest bucket is still filling
+		if i == 0 && diff >= 0 && diff <= 60 {
+			continue
+		}
+		if math.Abs(diff-60) > 1e-9 {
+			t.Errorf("row %d (%v): difference %v, expected the hourly increment 60", i, ts, diff)
+		}
+	}
+}
+
+// TestDifferenceFirstBucketOfStartEnd asks for a window of start and end in 6 hour buckets. The
+// first bucket has to be differenced against the bucket before the window as well, for a start on a
+// bucket edge and for one inside a bucket. The group time is 6h, not 1h: widening by one unit (the
+// 1h of "6h") left the bucket before the window empty and the first difference NULL. Skipped when
+// TEST_POSTGRES_DSN is unset.
+func TestDifferenceFirstBucketOfStartEnd(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	loc, err := time.LoadLocation(dbTestTimezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dayStart := time.Date(2021, 6, 1, 0, 0, 0, 0, loc)
+	table := dbTestSetup(ctx, t, pool, dbTestMeterReadings(dayStart, dayStart.AddDate(0, 0, 4)))
+
+	// reads the aggregate of a 6 hour bucket directly
+	edge := func(function string, bucket time.Time) float64 {
+		t.Helper()
+		var value float64
+		query := "SELECT " + function + "(" + sqlliteral.QuoteIdentifier(dbTestEnergy) + `, "time") FROM ` + sqlliteral.QuoteIdentifier(table) +
+			` WHERE "time" >= $1 AND "time" < $2`
+		if err := pool.QueryRow(ctx, query, bucket, bucket.Add(6*time.Hour)).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+
+	cases := []struct {
+		name  string
+		start time.Time
+		// groupType is the difference function, aggregate the function a bucket is reduced with
+		groupType, aggregate string
+	}{
+		{"start on a bucket edge", time.Date(2021, 6, 2, 6, 0, 0, 0, loc), "difference-last", "last"},
+		{"start inside a bucket", time.Date(2021, 6, 2, 8, 30, 0, 0, loc), "difference-last", "last"},
+		// the first bucket is read whole, whatever the start: its first reading lies before the start
+		{"first reading of a bucket, start inside a bucket", time.Date(2021, 6, 2, 8, 30, 0, 0, loc), "difference-first", "first"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			end := time.Date(2021, 6, 3, 12, 0, 0, 0, loc)
+			startS, endS, groupTime := c.start.Format(time.RFC3339), end.Format(time.RFC3339), "6h"
+			rows, query := dbTestRunDifference(ctx, t, pool, model.QueriesRequestElement{
+				Time:      &model.QueriesRequestElementTime{Start: &startS, End: &endS},
+				GroupTime: &groupTime,
+				Columns:   []model.QueriesRequestElementColumn{{Name: dbTestEnergy, GroupType: &c.groupType}},
+			})
+			local := c.start.In(loc)
+			firstBucket := time.Date(local.Year(), local.Month(), local.Day(), local.Hour()/6*6, 0, 0, 0, loc)
+			want := int(end.Sub(firstBucket) / (6 * time.Hour))
+			if len(rows) != want {
+				t.Fatalf("expected %d buckets from %v, got %d\n%s", want, firstBucket, len(rows), query)
+			}
+			for i, row := range rows {
+				bucket := firstBucket.Add(time.Duration(len(rows)-1-i) * 6 * time.Hour)
+				if ts := row[0].(time.Time); !ts.Equal(bucket) {
+					t.Errorf("row %d: bucket %v, expected %v", i, ts, bucket)
+				}
+				diff, ok := row[1].(float64)
+				if !ok {
+					t.Errorf("row %d (%v) has no difference: %v\n%s", i, bucket, row[1], query)
+					continue
+				}
+				expected := edge(c.aggregate, bucket) - edge(c.aggregate, bucket.Add(-6*time.Hour))
+				if math.Abs(diff-expected) > 1e-9 {
+					t.Errorf("row %d (%v): difference %v, expected %v", i, bucket, diff, expected)
+				}
+			}
+		})
+	}
+}
+
+// TestDifferenceAhead reads the buckets from the one that holds now() to the one that holds
+// now() + 6h. The first of them needs the bucket before now() as predecessor, which the old
+// widening of the far end into the future did not provide. Skipped when TEST_POSTGRES_DSN is unset.
+func TestDifferenceAhead(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	now := time.Now()
+	dbTestSetup(ctx, t, pool, dbTestMeterReadings(now.Add(-6*time.Hour), now.Add(12*time.Hour)))
+
+	ahead, groupTime, dl := "6h", "1h", "difference-last"
+	rows, query := dbTestRunDifference(ctx, t, pool, model.QueriesRequestElement{
+		Time:      &model.QueriesRequestElementTime{Ahead: &ahead},
+		GroupTime: &groupTime,
+		Columns:   []model.QueriesRequestElementColumn{{Name: dbTestEnergy, GroupType: &dl}},
+	})
+	// 7 buckets: the hours of now() to now() + 6h; 6 if the last hour holds no reading before the end
+	// of the window, 8 if the hour changed while the query ran
+	if len(rows) < 6 || len(rows) > 8 {
+		t.Fatalf("expected 6 to 8 hourly buckets, got %d\n%s", len(rows), query)
+	}
+	for i, row := range rows {
+		diff, ok := row[1].(float64)
+		if !ok {
+			t.Errorf("row %d (%v) has no difference: %v\n%s", i, row[0], row[1], query)
+			continue
+		}
+		// the newest bucket ends with the window, the others are whole hours
+		if i > 0 && math.Abs(diff-60) > 1e-9 {
+			t.Errorf("row %d (%v): difference %v, expected 60", i, row[0], diff)
+		}
+	}
+}

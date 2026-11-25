@@ -43,9 +43,10 @@ import (
 // requires, and it may hold at most maxTimeWeightedBuckets buckets: every one of them is computed
 // whether or not it holds a point.
 //
-// groupOrderLimit is the GROUP BY, ORDER BY and LIMIT clause the element's other columns use, see
-// GenerateQueries.
-func timeWeightedQuery(element model.QueriesRequestElement, groupType string, value string, table string, timezone string, groupOrderLimit string) (string, error) {
+// startSQL is the SQL expression the window starts at if it is not the start of the element's
+// time, see differenceWindowFor. groupOrderLimit is the GROUP BY, ORDER BY and LIMIT clause the
+// element's other columns use, see GenerateQueries.
+func timeWeightedQuery(element model.QueriesRequestElement, startSQL string, groupType string, value string, table string, timezone string, groupOrderLimit string) (string, error) {
 	conditions, err := getFilterConditions(element)
 	if err != nil {
 		return "", err
@@ -65,6 +66,10 @@ func timeWeightedQuery(element model.QueriesRequestElement, groupType string, va
 	}
 	window := [2]time.Time{windowStart, windowEnd}
 	start, end := sqlBounds(element.Time)
+	if startSQL != "" {
+		// the bucket before the first one is not counted against the limit
+		start = startSQL
+	}
 	if err := timeWeightedBucketsAllowed(window, *element.GroupTime); err != nil {
 		return "", err
 	}

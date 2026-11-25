@@ -44,7 +44,7 @@ func TestTimeWeightedQueryRejectsUnboundedBuckets(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			groupTime := c.groupTime
 			element := model.QueriesRequestElement{Time: c.time, GroupTime: &groupTime}
-			_, err := timeWeightedQuery(element, "time-weighted-mean-locf", `"v"`, "t", "Europe/Berlin", "")
+			_, err := timeWeightedQuery(element, "", "time-weighted-mean-locf", `"v"`, "t", "Europe/Berlin", "")
 			if c.rejected && !errors.Is(err, model.ErrBadRequest) {
 				t.Errorf("expected a bad request, got %v", err)
 			}

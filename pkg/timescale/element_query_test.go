@@ -33,11 +33,11 @@ func TestNewElementQueryDoesNotChangeTheElement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *element.Time.Last != "5h" {
-		t.Errorf("the passed element was widened to %s", *element.Time.Last)
+	if *element.Time.Last != "5h" || *query.element.Time.Last != "5h" {
+		t.Errorf("the window was widened in the element: %s, %s", *element.Time.Last, *query.element.Time.Last)
 	}
-	if *query.element.Time.Last != "6h" || query.differenceBuckets == nil || *query.differenceBuckets != 5 {
-		t.Errorf("unexpected widening: %s, %v", *query.element.Time.Last, query.differenceBuckets)
+	if query.difference == nil {
+		t.Fatal("no difference window")
 	}
 }
 

@@ -54,13 +54,66 @@ func sqlWindow(elementTime *model.QueriesRequestElementTime, cast string) (start
 // is exclusive, and so is the end of ahead and of start and end. last reads up to the newest row.
 // A window with neither last, ahead nor both start and end is rejected.
 func timeCondition(elementTime *model.QueriesRequestElementTime) (string, error) {
-	start, end, bounded := sqlWindow(elementTime, "")
-	if start == "" {
+	return timeConditionFrom(elementTime, "")
+}
+
+// timeConditionFrom renders the condition like timeCondition, with the SQL expression start as the
+// start of the window instead of the window's own if it is not empty.
+func timeConditionFrom(elementTime *model.QueriesRequestElementTime, start string) (string, error) {
+	ownStart, end, bounded := sqlWindow(elementTime, "")
+	if ownStart == "" {
 		return "", errors.Join(errors.New("incomplete time window"), model.ErrBadRequest)
+	}
+	if start == "" {
+		start = ownStart
 	}
 	condition := "\"time\" > " + start
 	if bounded {
 		condition += " AND \"time\" < " + end
 	}
 	return condition, nil
+}
+
+// differenceWindow is the time window a grouped element with a difference-* column reads: it starts
+// one bucket early, so that the first requested bucket has a predecessor for lag() to subtract. The
+// end stays where it is.
+type differenceWindow struct {
+	// start is the SQL expression of the start of the bucket before the first requested one.
+	start string
+	// firstBucket is the SQL expression of the first requested bucket: the bucket the requested
+	// start lies in. Buckets before it hold the predecessor and are dropped after lag().
+	firstBucket string
+}
+
+// differenceWindowFor returns the window of an element query, nil if it has no difference-* column
+// or no time window.
+//
+// The start moves back to the start of the bucket before the one the requested start lies in, not
+// by a group time from the requested start: a start inside a bucket would otherwise leave the
+// predecessor with only part of its rows, which changes every aggregate but last and, for last,
+// still needs data in that part. The predecessor starts where its bucket does, which is
+// time_bucket(start) minus the group time. That subtraction is made on the local time of the
+// element's zone: time_bucket buckets by the local clock, so a day or a multiple of hours is a
+// bucket wide there even on the days the zone changes its offset, which a subtraction on the absolute
+// time (in the session's zone, whatever it is) does not follow. Both expressions are SQL and stay
+// SQL for a window of start and end: a literal computed in Go would need the zone's rules in Go too.
+func differenceWindowFor(q elementQuery) *differenceWindow {
+	if q.element.Time == nil || q.element.GroupTime == nil {
+		return nil
+	}
+	hasDifference := false
+	for _, column := range q.columns {
+		hasDifference = hasDifference || column.agg.Kind == model.Difference
+	}
+	start, _, _ := sqlWindow(q.element.Time, "::timestamptz")
+	if !hasDifference || start == "" {
+		return nil
+	}
+	width := sqlliteral.QuoteString(*q.element.GroupTime)
+	tz := sqlliteral.QuoteString(q.timezone)
+	first := "time_bucket(" + width + ", " + start + ", " + tz + ")"
+	return &differenceWindow{
+		start:       "(" + first + " AT TIME ZONE " + tz + " - interval " + width + ") AT TIME ZONE " + tz,
+		firstBucket: first,
+	}
 }
