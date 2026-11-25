@@ -20,7 +20,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestGetUserId(t *testing.T) {
@@ -84,8 +84,8 @@ func TestTokenValid(t *testing.T) {
 		token   Token
 		wantErr bool
 	}{
-		{name: "leerer sub", token: Token{Sub: ""}, wantErr: true},
-		{name: "gesetzter sub", token: Token{Sub: "user-1"}, wantErr: false},
+		{name: "leerer sub", token: Token{}, wantErr: true},
+		{name: "gesetzter sub", token: Token{RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"}}, wantErr: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

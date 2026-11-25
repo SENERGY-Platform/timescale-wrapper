@@ -31,7 +31,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type fakeVerifier struct {

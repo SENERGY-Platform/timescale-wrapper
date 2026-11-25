@@ -7,12 +7,12 @@ require (
 	github.com/SENERGY-Platform/converter v0.0.12
 	github.com/SENERGY-Platform/device-repository v0.3.5
 	github.com/SENERGY-Platform/device-selection v0.0.28
-	github.com/SENERGY-Platform/gin-middleware v0.14.2
+	github.com/SENERGY-Platform/gin-middleware v0.14.4
 	github.com/SENERGY-Platform/go-service-base/struct-logger v0.8.0
 	github.com/SENERGY-Platform/import-repository v0.0.15
 	github.com/SENERGY-Platform/models/go v0.0.0-20260710115411-5b8e00d6e038
 	github.com/SENERGY-Platform/permissions-v2 v0.0.47
-	github.com/SENERGY-Platform/service-commons v0.0.0-20260821114734-3e4578ac2358
+	github.com/SENERGY-Platform/service-commons v0.0.0-20261112092203-c8689838acc5
 	github.com/SENERGY-Platform/timescale-tableworker v0.0.36
 	github.com/bradfitz/gomemcache v0.0.0-20230905024940-24af94b03874
 	github.com/coocood/freecache v1.2.4
@@ -20,7 +20,7 @@ require (
 	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-contrib/requestid v1.0.5
 	github.com/gin-gonic/gin v1.12.0
-	github.com/golang-jwt/jwt v3.2.2+incompatible
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v5 v5.10.0
@@ -67,6 +67,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.2 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
+	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect

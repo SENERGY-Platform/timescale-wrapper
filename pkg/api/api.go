@@ -40,7 +40,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/requestid"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // deps holds the dependencies the endpoints are built from. pipeline is built once from the other fields, so all
@@ -201,17 +201,16 @@ func getUserId(request *http.Request) (string, error) {
 	if err = t.Valid(); err != nil {
 		return "", err
 	}
-	return t.Sub, nil
+	return t.Subject, nil
 }
 
 type Token struct {
-	Token       string              `json:"-"`
-	Sub         string              `json:"sub,omitempty"`
+	jwt.RegisteredClaims
 	RealmAccess map[string][]string `json:"realm_access,omitempty"`
 }
 
 func (this *Token) Valid() error {
-	if this.Sub == "" {
+	if this.Subject == "" {
 		return errors.New("missing subject")
 	}
 	return nil
