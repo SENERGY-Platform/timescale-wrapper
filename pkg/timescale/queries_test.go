@@ -352,14 +352,21 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
+		// the subqueries themselves are checked against a database in
+		// TestTimeWeightedQueriesAgainstDatabase, here only how they are combined
+		table := "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA"
+		linear, err := timeWeightedQuery(elements[0], twavglinear, "\"sensor.ENERGY.Total\"", table, "Europe/Berlin", " GROUP BY 1 ORDER BY 1 ASC")
+		if err != nil {
+			t.Fatal(err)
+		}
+		locf, err := timeWeightedQuery(elements[0], twavglocf, "\"sensor.ENERGY.Total\"", table, "Europe/Berlin", " GROUP BY 1 ORDER BY 1 ASC")
+		if err != nil {
+			t.Fatal(err)
+		}
 		expected := "SELECT COALESCE(sub0.time, sub1.time) AS \"time\", " +
 			"(sub0.value) AS \"sensor.ENERGY.Total\", " +
 			"(sub1.value) +5 AS \"sensor.ENERGY.Total\" " +
-			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +
-			"average(time_weight('Linear', \"time\", \"sensor.ENERGY.Total\")) AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
-			"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN " +
-			"(SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", average(time_weight('LOCF', \"time\", \"sensor.ENERGY.Total\")) AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
-			"WHERE \"time\" > now() - interval '10d' GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time " +
+			"FROM (" + linear + ") sub0 FULL OUTER JOIN (" + locf + ") sub1 on sub0.time = sub1.time " +
 			"ORDER BY 1 DESC"
 
 		if actual[0] != expected {

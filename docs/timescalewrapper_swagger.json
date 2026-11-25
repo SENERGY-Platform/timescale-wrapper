@@ -939,6 +939,7 @@
                     "$ref": "#/definitions/models.DeviceGroupFilterCriteria"
                 },
                 "groupType": {
+                    "description": "Aggregation per time bucket of groupTime. time-weighted-mean-locf and time-weighted-mean-linear weight each value with the time it is valid for, holding it until the next value (locf) or interpolating linearly towards it (linear). The mean covers the whole bucket: the last value before a bucket, also one older than the time window, carries into it, so a bucket without a value of its own gets the held or interpolated value. After the newest value it is held until now. time-weighted-* needs a time window of at most 100000 buckets and at most 100000 days, and a groupTime of whole seconds.",
                     "type": "string"
                 },
                 "math": {

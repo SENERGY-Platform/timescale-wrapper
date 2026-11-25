@@ -2,7 +2,9 @@ version: '3'
 
 services:
   timescale:
-    image: timescale/timescaledb:2.25.2-pg17
+    # the HA image is the one production runs, and it brings timescaledb_toolkit, which
+    # TestTimeWeightedMatchesToolkit compares against
+    image: timescale/timescaledb-ha:pg17-ts2.25
     environment:
       POSTGRES_PASSWORD: pw
       POSTGRES_DB: test
@@ -21,6 +23,8 @@ services:
     # test skips, and the difference-* queries are only covered as strings.
     environment:
       TEST_POSTGRES_DSN: postgres://postgres:pw@timescale:5432/test
+      # fail rather than skip TestTimeWeightedMatchesToolkit if the image lacks the toolkit
+      TEST_REQUIRE_TOOLKIT: "1"
     depends_on:
       timescale:
         condition: service_healthy

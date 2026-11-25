@@ -256,40 +256,50 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				if err != nil {
 					return nil, err
 				}
-				unnested := join != ""
-				query += "(SELECT time_bucket(" + quoteSQLString(*element.GroupTime) + ", \"time\", " + quoteSQLString(timezone) + ") AS \"time\", "
-				if strings.HasPrefix(*column.GroupType, "difference") {
-					groupParts := strings.Split(*column.GroupType, "-")
-					if groupParts[1] == "first" || groupParts[1] == "last" {
-						query += firstLast(groupParts[1], columnValueSQL, unnested)
-					} else {
-						query += translateFunctionName(groupParts[1]) + columnValueSQL + ")"
-					}
-				} else if *column.GroupType == "first" || *column.GroupType == "last" {
-					query += firstLast(*column.GroupType, columnValueSQL, unnested)
-				} else if strings.HasPrefix(*column.GroupType, "time-weighted-") {
-					query += translateFunctionName(*column.GroupType) + columnValueSQL + "))"
-				} else {
-					query += translateFunctionName(*column.GroupType) + columnValueSQL + ")"
-				}
-				query += " AS value"
-				query += " FROM " + quoteIdentifier(table) + join
-				filterString := ""
+				var groupOrderLimit string
 				if l != nil {
 					n := *l
 					n += 2
-					filterString, err = getFilterString(element, true, &zero, &asc, &n)
+					groupOrderLimit = getOrderLimitString(element, true, &zero, &asc, &n)
 				} else {
 					dir := asc
 					if column.GroupType != nil && *column.GroupType == "last" {
 						dir = desc
 					}
-					filterString, err = getFilterString(element, true, &zero, &dir, nil)
+					groupOrderLimit = getOrderLimitString(element, true, &zero, &dir, nil)
 				}
-				if err != nil {
-					return nil, err
+				if strings.HasPrefix(*column.GroupType, "time-weighted-") {
+					if join != "" {
+						return nil, errors.Join(errors.New("time-weighted group types can not be combined with all elements of a list"), model.ErrBadRequest)
+					}
+					subquery, err := timeWeightedQuery(element, *column.GroupType, columnValueSQL, table, timezone, groupOrderLimit)
+					if err != nil {
+						return nil, err
+					}
+					query += "(" + subquery + ") sub" + strconv.Itoa(idx)
+				} else {
+					unnested := join != ""
+					query += "(SELECT time_bucket(" + quoteSQLString(*element.GroupTime) + ", \"time\", " + quoteSQLString(timezone) + ") AS \"time\", "
+					if strings.HasPrefix(*column.GroupType, "difference") {
+						groupParts := strings.Split(*column.GroupType, "-")
+						if groupParts[1] == "first" || groupParts[1] == "last" {
+							query += firstLast(groupParts[1], columnValueSQL, unnested)
+						} else {
+							query += translateFunctionName(groupParts[1]) + columnValueSQL + ")"
+						}
+					} else if *column.GroupType == "first" || *column.GroupType == "last" {
+						query += firstLast(*column.GroupType, columnValueSQL, unnested)
+					} else {
+						query += translateFunctionName(*column.GroupType) + columnValueSQL + ")"
+					}
+					query += " AS value"
+					query += " FROM " + quoteIdentifier(table) + join
+					where, err := getWhereString(element)
+					if err != nil {
+						return nil, err
+					}
+					query += where + groupOrderLimit + ") sub" + strconv.Itoa(idx)
 				}
-				query += filterString + ") sub" + strconv.Itoa(idx)
 				if idx > 0 {
 					query += " on " + bucketTime(idx) + " = sub" + strconv.Itoa(idx) + ".time"
 				}
@@ -479,56 +489,72 @@ func widenTimeWindowForDifference(element *model.QueriesRequestElement) (buckets
 }
 
 func getFilterString(element model.QueriesRequestElement, group bool, overrideSortIndex *int, overrideOrderDirection *model.Direction, overrideLimit *int) (query string, err error) {
-	if (element.Filters != nil && len(*element.Filters) > 0) || element.Time != nil {
-		query += " WHERE "
-	}
-	if element.Filters != nil && len(*element.Filters) > 0 {
-		for idx, filter := range *element.Filters {
-			if idx != 0 {
-				query += " AND "
-			}
-			// filters are evaluated per row, so "*" is not valid here (see QueriesRequestElementFilter.Valid)
-			filterColumn, _, err := columnValue(element, filter.Column, false)
-			if err != nil {
-				return "", err
-			}
-			if path, ok := element.JSONPaths[filter.Column]; ok && path.Wildcard() {
-				return "", errors.Join(errors.New("filtering on all elements of a list is not supported"), model.ErrBadRequest)
-			}
-			if filter.Value == nil {
-				query += filterColumn + " IS "
-				if filter.Type == "!=" {
-					query += "NOT "
-				}
-				query += "NULL"
-			} else {
-				value, err := filterValueLiteral(filter.Value)
-				if err != nil {
-					return "", err
-				}
-				query += filterColumn
-				if filter.Math != nil {
-					query += *filter.Math + " "
-				}
-				query += filter.Type
-				query += " " + value
-			}
-		}
-	}
-	if element.Time != nil {
-		if element.Filters != nil && len(*element.Filters) > 0 {
-			query += " AND "
-		}
-		if element.Time.Last != nil {
-			query += "\"time\" > now() - interval " + quoteSQLString(*element.Time.Last)
-		} else if element.Time.Ahead != nil {
-			query += "\"time\" > now() AND \"time\" < now() + interval " + quoteSQLString(*element.Time.Ahead)
-		} else {
-			query += "\"time\" > " + quoteSQLString(*element.Time.Start) + " AND \"time\" < " + quoteSQLString(*element.Time.End)
-		}
+	query, err = getWhereString(element)
+	if err != nil {
+		return "", err
 	}
 	query += getOrderLimitString(element, group, overrideSortIndex, overrideOrderDirection, overrideLimit)
 	return
+}
+
+// getWhereString renders the filters and the time window of an element as a WHERE clause, or the
+// empty string if the element has neither.
+func getWhereString(element model.QueriesRequestElement) (string, error) {
+	conditions, err := getFilterConditions(element)
+	if err != nil {
+		return "", err
+	}
+	if element.Time != nil {
+		if element.Time.Last != nil {
+			conditions = append(conditions, "\"time\" > now() - interval "+quoteSQLString(*element.Time.Last))
+		} else if element.Time.Ahead != nil {
+			conditions = append(conditions, "\"time\" > now() AND \"time\" < now() + interval "+quoteSQLString(*element.Time.Ahead))
+		} else {
+			conditions = append(conditions, "\"time\" > "+quoteSQLString(*element.Time.Start)+" AND \"time\" < "+quoteSQLString(*element.Time.End))
+		}
+	}
+	if len(conditions) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(conditions, " AND "), nil
+}
+
+// getFilterConditions renders the filters of an element as SQL conditions, one per filter.
+func getFilterConditions(element model.QueriesRequestElement) (conditions []string, err error) {
+	if element.Filters == nil {
+		return nil, nil
+	}
+	for _, filter := range *element.Filters {
+		// filters are evaluated per row, so "*" is not valid here (see QueriesRequestElementFilter.Valid)
+		filterColumn, _, err := columnValue(element, filter.Column, false)
+		if err != nil {
+			return nil, err
+		}
+		if path, ok := element.JSONPaths[filter.Column]; ok && path.Wildcard() {
+			return nil, errors.Join(errors.New("filtering on all elements of a list is not supported"), model.ErrBadRequest)
+		}
+		condition := ""
+		if filter.Value == nil {
+			condition = filterColumn + " IS "
+			if filter.Type == "!=" {
+				condition += "NOT "
+			}
+			condition += "NULL"
+		} else {
+			value, err := filterValueLiteral(filter.Value)
+			if err != nil {
+				return nil, err
+			}
+			condition = filterColumn
+			if filter.Math != nil {
+				condition += *filter.Math + " "
+			}
+			condition += filter.Type
+			condition += " " + value
+		}
+		conditions = append(conditions, condition)
+	}
+	return conditions, nil
 }
 
 func getOrderLimitString(element model.QueriesRequestElement, group bool, overrideOrderIndex *int, overrideOrderDirection *model.Direction, overrideLimit *int) (query string) {

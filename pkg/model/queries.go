@@ -199,7 +199,8 @@ func (elementTime *QueriesRequestElementTime) Copy() QueriesRequestElementTime {
 
 type QueriesRequestElementColumn struct {
 	// Dot separated path of the value, starting with the name of the output variable. Below a variable length list the path continues with a list index (0, 1, ...), with * for all elements of the list, and with field names of structures, for example root.list.0.field or root.list.*.field. The value has the type of the variable, a missing element or field is null. Without groupType, * returns the matching values of each message as a flat array. With groupType, the aggregation runs over all matching elements of all messages in a time bucket; first and last order by time, then by position in the list. Without a groupType, * can not be combined with math or targetCharacteristicId. * can not be combined with time-weighted-* group types or used in filters.
-	Name                   string                           `json:"name,omitempty"`
+	Name string `json:"name,omitempty"`
+	// Aggregation per time bucket of groupTime. time-weighted-mean-locf and time-weighted-mean-linear weight each value with the time it is valid for, holding it until the next value (locf) or interpolating linearly towards it (linear). The mean covers the whole bucket: the last value before a bucket, also one older than the time window, carries into it, so a bucket without a value of its own gets the held or interpolated value. After the newest value it is held until now. time-weighted-* needs a time window of at most 100000 buckets and at most 100000 days, and a groupTime of whole seconds.
 	GroupType              *string                          `json:"groupType,omitempty"`
 	Math                   *string                          `json:"math,omitempty"`
 	SourceCharacteristicId *string                          `json:"sourceCharacteristicId,omitempty"`
