@@ -165,3 +165,41 @@ func TestGetDeepContentVariable(t *testing.T) {
 		}
 	}
 }
+
+func TestGetDeepContentVariableEdgeCases(t *testing.T) {
+	root := outputs()[0].ContentVariable
+	if actual := GetDeepContentVariable(root, nil); actual == nil || actual.Name != "root" {
+		t.Errorf("empty path: unexpected %#v", actual)
+	}
+	if actual := GetDeepContentVariable(root, []string{}); actual == nil || actual.Name != "root" {
+		t.Errorf("empty path: unexpected %#v", actual)
+	}
+	for path, expected := range map[string]string{
+		"matrix.0.1":                    "*", // list in list
+		"matrix.*.*":                    "*",
+		"matrix.0":                      "*",
+		"module_1_processdata.0.0":      "0", // the field of the element whose name looks like an index
+		"module_1_processdata.0.tags.1": "1",
+		"fixed.0":                       "0",
+		"fixed.0.value":                 "value",
+	} {
+		actual := GetDeepContentVariable(root, strings.Split(path, "."))
+		if actual == nil || actual.Name != expected {
+			t.Errorf("%s: unexpected %#v", path, actual)
+		}
+	}
+	for _, path := range []string{
+		"level.0",            // below a leaf
+		"fixed.2",            // outside of a fixed list
+		"fixed.*",            // "*" does not address a fixed list
+		"fixed.-1",           // negative
+		"Channel.0.x",        // below the element, a leaf
+		"Channel.1234567890", // longer than maxIndexLength
+		"matrix.0.x",
+		"",
+	} {
+		if actual := GetDeepContentVariable(root, strings.Split(path, ".")); actual != nil {
+			t.Errorf("%q: expected nil, got %#v", path, actual)
+		}
+	}
+}
