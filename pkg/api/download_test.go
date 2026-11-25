@@ -18,15 +18,18 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/gin-gonic/gin"
 )
@@ -235,5 +238,95 @@ func TestNextDownloadWindow(t *testing.T) {
 		if got := nextDownloadWindow(tc.size, tc.rows); got != tc.want {
 			t.Errorf("after %s with %d rows: got %s, want %s", tc.size, tc.rows, got, tc.want)
 		}
+	}
+}
+
+// writerGoroutines counts the CSV writer goroutines of handleCSVDownload that are still alive.
+func writerGoroutines() int {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	return strings.Count(string(buf), "api.writeCSVChunks(")
+}
+
+// An aborted download must not leave its CSV writer goroutine behind.
+func TestCSVDownloadAbortStopsWriter(t *testing.T) {
+	var mux sync.Mutex
+	calls := 0
+	queries := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.Lock()
+		calls++
+		i := calls
+		mux.Unlock()
+		if i > 1 {
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(rows(1, "2025-09-15T20:30:00Z"))
+	}))
+	defer queries.Close()
+	queriesURL, err := url.Parse(queries.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	log.InitForTest()
+	before := writerGoroutines()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/download", nil)
+	func() {
+		defer func() {
+			if r := recover(); r != http.ErrAbortHandler {
+				t.Fatalf("expected panic(http.ErrAbortHandler), got %v", r)
+			}
+		}()
+		handleCSVDownload(c, rawElement("2025-09-15T20:00:00Z", "2025-09-16T20:00:00Z"), "", nil, "Bearer token", c.Writer, &configuration.ConfigStruct{ApiPort: queriesURL.Port()})
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for writerGoroutines() > before && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if after := writerGoroutines(); after > before {
+		t.Errorf("%d csv writer goroutine(s) still running after the abort", after-before)
+	}
+}
+
+// failingResponseWriter accepts headers and flushes but fails every write of the body.
+type failingResponseWriter struct{ header http.Header }
+
+func (w *failingResponseWriter) Header() http.Header       { return w.header }
+func (w *failingResponseWriter) Write([]byte) (int, error) { return 0, errors.New("client gone") }
+func (w *failingResponseWriter) WriteHeader(int)           {}
+func (w *failingResponseWriter) Flush()                    {}
+
+// When the writer fails, the download aborts without waiting for a writer result it has already taken.
+func TestCSVDownloadWriterErrorAborts(t *testing.T) {
+	queries := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(rows(1, "2025-09-15T20:30:00Z"))
+	}))
+	defer queries.Close()
+	queriesURL, err := url.Parse(queries.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	log.InitForTest()
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/download", nil)
+	done := make(chan interface{})
+	go func() {
+		defer func() { done <- recover() }()
+		handleCSVDownload(c, rawElement("2025-09-15T20:00:00Z", "2025-09-25T20:00:00Z"), "", nil, "Bearer token", &failingResponseWriter{header: http.Header{}}, &configuration.ConfigStruct{ApiPort: queriesURL.Port()})
+	}()
+	select {
+	case r := <-done:
+		if r != http.ErrAbortHandler {
+			t.Fatalf("expected panic(http.ErrAbortHandler), got %v", r)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("download did not return after the writer failed")
 	}
 }

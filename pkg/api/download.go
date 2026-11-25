@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
@@ -332,15 +333,19 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 	*/
 	chunks := make(chan [][]interface{}, 1)
 	writeErr := make(chan error, 1)
-	go func() {
-		for chunk := range chunks {
-			if err := writeCsv(chunk, csvWriter); err != nil {
-				writeErr <- err
-				return
-			}
-		}
-		writeErr <- nil
-	}()
+	// The writer goroutine ends only when chunks is closed. Every exit of this function, the panics of query and
+	// send included, closes it and waits for the writer's one result; the deferred call runs before a panic
+	// propagates. Waiting keeps the writer from writing to the response after the handler returned.
+	var stopWriter sync.Once
+	var writerResult error
+	stop := func() {
+		stopWriter.Do(func() {
+			close(chunks)
+			writerResult = <-writeErr
+		})
+	}
+	defer stop()
+	go writeCSVChunks(chunks, csvWriter, writeErr)
 
 	// query runs one /queries request for requestElement as it is at the call and returns its rows.
 	query := func() [][]interface{} {
@@ -392,6 +397,11 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 	send := func(rows [][]interface{}) {
 		select {
 		case err := <-writeErr:
+			// the writer has ended and its one result is taken here, so stop must not wait for it
+			stopWriter.Do(func() {
+				close(chunks)
+				writerResult = err
+			})
 			if err != nil {
 				log.Logger.ErrorContext(c, "failed to write csv", attributes.ErrorKey, err)
 			} else {
@@ -454,10 +464,22 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 		}
 	}
 
-	close(chunks)
-	err = <-writeErr
+	stop()
+	err = writerResult
 	if err != nil {
 		log.Logger.ErrorContext(c, "failed to write csv", attributes.ErrorKey, err)
 		panic(http.ErrAbortHandler)
 	}
+}
+
+// writeCSVChunks writes every chunk until chunks is closed, then sends nil to result. On the first
+// error it sends the error and returns. It sends exactly once.
+func writeCSVChunks(chunks <-chan [][]interface{}, csvWriter *csv.Writer, result chan<- error) {
+	for chunk := range chunks {
+		if err := writeCsv(chunk, csvWriter); err != nil {
+			result <- err
+			return
+		}
+	}
+	result <- nil
 }
