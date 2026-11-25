@@ -92,9 +92,8 @@ func FunctionName(name string) string {
 	case "time-weighted-mean-locf":
 		return "average(time_weight('LOCF', \"time\", "
 	default:
-		if strings.HasPrefix(name, "difference") {
-			parts := strings.Split(name, "-")
-			return parts[1] + "("
+		if _, function, found := strings.Cut(name, "-"); found && strings.HasPrefix(name, "difference") {
+			return function + "("
 		}
 		return name + "("
 	}

@@ -35,6 +35,8 @@ func TestFunctionName(t *testing.T) {
 		// Current behavior: the "difference-" prefix is stripped and the remaining part is used as the function name.
 		{name: "difference-mean", groupType: "difference-mean", expected: "mean("},
 		{name: "max", groupType: "max", expected: "max("},
+		// "difference" without a dash must not panic
+		{name: "difference without dash", groupType: "difference", expected: "difference("},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

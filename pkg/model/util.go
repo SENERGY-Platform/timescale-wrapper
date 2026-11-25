@@ -26,15 +26,6 @@ import (
 	"time"
 )
 
-func ElementInArray(element interface{}, array []interface{}) bool {
-	for _, comparison := range array {
-		if comparison == element {
-			return true
-		}
-	}
-	return false
-}
-
 /*
 Removes an element form an array. If the array was ordered before, it will loose that order.
 */

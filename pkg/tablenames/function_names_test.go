@@ -50,3 +50,13 @@ func TestTableNamesRejectInvalidIds(t *testing.T) {
 		})
 	}
 }
+
+func TestFunctionNamesWithoutDashDoNotPanic(t *testing.T) {
+	if got := TranslateFunctionName("difference"); got != "difference(" {
+		t.Error("unexpected function name", got)
+	}
+	columns := []ContinuousAggregateColumn{{Name: "a", GroupType: "difference"}}
+	if _, err := ContinuousAggregateQuery("t", "1h", "UTC", columns); err != nil {
+		t.Error("unexpected error", err)
+	}
+}

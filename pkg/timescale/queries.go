@@ -118,6 +118,17 @@ func firstLast(function string, value string, unnested bool) string {
 	return "(array_agg(" + value + " ORDER BY \"time\" " + direction + ", " + jsonElementOrdinal + " " + direction + ") FILTER (WHERE " + value + " IS NOT NULL))[1]"
 }
 
+// aggregateExpression renders the aggregate over value that a time bucket is reduced with.
+// Difference aggregates with the function it is based on; the subtraction of the previous bucket
+// is done by the outer query. TimeWeighted has its own subquery (timeWeightedQuery) and is not
+// handled here.
+func aggregateExpression(agg model.Aggregation, value string, unnested bool) string {
+	if agg.Function == "first" || agg.Function == "last" {
+		return firstLast(agg.Function, value, unnested)
+	}
+	return sqlliteral.FunctionName(agg.Function) + value + ")"
+}
+
 func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.QueriesRequestElement, userId string, ownerUserIds []string, forceTz string, devices []models.Device) (queries []string, err error) {
 	queries = make([]string, len(elements))
 	for i, element := range elements {
@@ -150,11 +161,15 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				if column.GroupType == nil {
 					return nil, errors.New("mixing aggregate and non-aggregate queries is not supported\n")
 				}
+				agg, ok := column.Aggregation()
+				if !ok {
+					return nil, errors.Join(errors.New("unknown group type "+*column.GroupType), model.ErrBadRequest)
+				}
 				if idx > 0 {
 					query += ", "
 				}
 				query += "(sub" + strconv.Itoa(idx) + ".value"
-				if strings.HasPrefix(*column.GroupType, "difference") {
+				if agg.Kind == model.Difference {
 					// ORDER BY 1 would be the constant 1, not a positional reference: all rows
 					// would be peers and lag() would pair whatever rows the join happens to emit
 					// next to each other. Order by the column's own bucket instead.
@@ -173,6 +188,10 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 			}
 			elements[i] = element
 			for idx, column := range element.Columns {
+				agg, ok := column.Aggregation()
+				if !ok {
+					return nil, errors.Join(errors.New("unknown group type"), model.ErrBadRequest)
+				}
 				columnValueSQL, join, err := columnValue(element, column.Name, true)
 				if err != nil {
 					return nil, err
@@ -184,16 +203,16 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 					groupOrderLimit = getOrderLimitString(element, true, &zero, &asc, &n)
 				} else {
 					dir := asc
-					if column.GroupType != nil && *column.GroupType == "last" {
+					if agg.Kind == model.Plain && agg.Function == "last" {
 						dir = desc
 					}
 					groupOrderLimit = getOrderLimitString(element, true, &zero, &dir, nil)
 				}
-				if strings.HasPrefix(*column.GroupType, "time-weighted-") {
+				if agg.Kind == model.TimeWeighted {
 					if join != "" {
 						return nil, errors.Join(errors.New("time-weighted group types can not be combined with all elements of a list"), model.ErrBadRequest)
 					}
-					subquery, err := timeWeightedQuery(element, *column.GroupType, columnValueSQL, table, timezone, groupOrderLimit)
+					subquery, err := timeWeightedQuery(element, agg.Function, columnValueSQL, table, timezone, groupOrderLimit)
 					if err != nil {
 						return nil, err
 					}
@@ -201,18 +220,7 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				} else {
 					unnested := join != ""
 					query += "(SELECT time_bucket(" + sqlliteral.QuoteString(*element.GroupTime) + ", \"time\", " + sqlliteral.QuoteString(timezone) + ") AS \"time\", "
-					if strings.HasPrefix(*column.GroupType, "difference") {
-						groupParts := strings.Split(*column.GroupType, "-")
-						if groupParts[1] == "first" || groupParts[1] == "last" {
-							query += firstLast(groupParts[1], columnValueSQL, unnested)
-						} else {
-							query += sqlliteral.FunctionName(groupParts[1]) + columnValueSQL + ")"
-						}
-					} else if *column.GroupType == "first" || *column.GroupType == "last" {
-						query += firstLast(*column.GroupType, columnValueSQL, unnested)
-					} else {
-						query += sqlliteral.FunctionName(*column.GroupType) + columnValueSQL + ")"
-					}
+					query += aggregateExpression(agg, columnValueSQL, unnested)
 					query += " AS value"
 					query += " FROM " + sqlliteral.QuoteIdentifier(table) + join
 					where, err := getWhereString(element)
@@ -303,7 +311,7 @@ func bucketTime(n int) string {
 func widenTimeWindowForDifference(element *model.QueriesRequestElement) (buckets *int, err error) {
 	hasDifference := false
 	for _, column := range element.Columns {
-		if column.GroupType != nil && strings.HasPrefix(*column.GroupType, "difference") {
+		if agg, ok := column.Aggregation(); ok && agg.Kind == model.Difference {
 			hasDifference = true
 			break
 		}

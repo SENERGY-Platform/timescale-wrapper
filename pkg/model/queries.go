@@ -230,11 +230,7 @@ func (elementColumn *QueriesRequestElementColumn) Valid(hasTime bool) bool {
 		return false
 	}
 	if elementColumn.GroupType != nil {
-		allowedTypes := []interface{}{}
-		allowedTypes = append(allowedTypes, "mean", "sum", "count", "median", "min", "max", "first", "last",
-			"difference-first", "difference-last", "difference-min", "difference-max", "difference-count", "difference-mean",
-			"difference-sum", "difference-median", "time-weighted-mean-linear", "time-weighted-mean-locf")
-		if !ElementInArray(*elementColumn.GroupType, allowedTypes) {
+		if _, ok := elementColumn.Aggregation(); !ok {
 			return false
 		}
 	}
@@ -259,7 +255,7 @@ func (elementColumn *QueriesRequestElementColumn) WildcardValid() bool {
 	if elementColumn.GroupType == nil && (elementColumn.Math != nil || elementColumn.TargetCharacteristicId != nil) {
 		return false
 	}
-	if elementColumn.GroupType != nil && strings.HasPrefix(*elementColumn.GroupType, "time-weighted-") {
+	if agg, ok := elementColumn.Aggregation(); ok && agg.Kind == TimeWeighted {
 		return false
 	}
 	return true
@@ -278,10 +274,9 @@ func (filter *QueriesRequestElementFilter) Valid() bool {
 	if filter.Math != nil && !mathValid(*filter.Math) {
 		return false
 	}
-	allowedTypes := []interface{}{}
-	allowedTypes = append(allowedTypes, "=", "!=")
+	typeAllowed := filter.Type == "=" || filter.Type == "!="
 	if filter.Value != nil {
-		allowedTypes = append(allowedTypes, "<>", ">", ">=", "<", "<=")
+		typeAllowed = typeAllowed || filter.Type == "<>" || filter.Type == ">" || filter.Type == ">=" || filter.Type == "<" || filter.Type == "<="
 		switch v := filter.Value.(type) {
 		case string:
 			if !valueMatcher.MatchString(v) {
@@ -295,7 +290,7 @@ func (filter *QueriesRequestElementFilter) Valid() bool {
 			return false
 		}
 	}
-	return ElementInArray(filter.Type, allowedTypes) && columnNameValid(filter.Column) && !HasWildcardSegment(filter.Column)
+	return typeAllowed && columnNameValid(filter.Column) && !HasWildcardSegment(filter.Column)
 }
 
 // the comma used to be allowed as a decimal separator, but postgres reads it as a list
