@@ -100,17 +100,12 @@ func formatResponse(ctx context.Context, remoteCache *cache.RemoteCache, f model
 			if err != nil {
 				return nil, err
 			}
-			if request[seriesIndex].Time != nil && (request[seriesIndex].Time.EndOriginal != nil || request[seriesIndex].Time.End != nil) {
+			if request[seriesIndex].Time != nil && request[seriesIndex].Time.End != nil {
 				// if tables do not contain enough data, LIMIT clauses miss their intention.
 				// therefore, result are filtered in this post-processing step again. The rows at or
 				// after the end can be anywhere in the sorted series, and the filter has to run
 				// before the limit, or it would remove rows the limit counted.
-				var ts time.Time
-				if request[seriesIndex].Time.EndOriginal != nil {
-					ts, err = time.Parse(time.RFC3339, *request[seriesIndex].Time.EndOriginal)
-				} else {
-					ts, err = time.Parse(time.RFC3339, *request[seriesIndex].Time.End)
-				}
+				ts, err := time.Parse(time.RFC3339, *request[seriesIndex].Time.End)
 				if err != nil {
 					return nil, err
 				}

@@ -53,13 +53,10 @@ func TestFormatResponsePerQueryLimitAndEnd(t *testing.T) {
 			expected: [][]interface{}{row(10, 1), row(11, 2)},
 		},
 		{
-			name: "end original takes precedence over end",
+			name: "end filters the rows at or after it",
 			element: model.QueriesRequestElement{
 				Columns: columns,
-				Time: &model.QueriesRequestElementTime{
-					End:         str("2022-12-06T12:00:00Z"),
-					EndOriginal: str("2022-12-06T11:00:00Z"),
-				},
+				Time:    &model.QueriesRequestElementTime{End: str("2022-12-06T11:00:00Z")},
 			},
 			rows:     [][]interface{}{row(10, 1), row(11, 2), row(12, 3), row(13, 4)},
 			expected: [][]interface{}{row(10, 1)},

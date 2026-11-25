@@ -129,175 +129,216 @@ func aggregateExpression(agg model.Aggregation, value string, unnested bool) str
 	return sqlliteral.FunctionName(agg.Function) + value + ")"
 }
 
+// GenerateQueries renders one SQL query per element: a raw query if the element has no group
+// time, otherwise the buckets of its columns joined on their time.
 func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.QueriesRequestElement, userId string, ownerUserIds []string, forceTz string, devices []models.Device) (queries []string, err error) {
 	queries = make([]string, len(elements))
 	for i, element := range elements {
-		var timezone string
-		if len(forceTz) > 0 {
-			if !model.TimezoneValid(forceTz) {
-				return nil, errors.New("invalid timezone")
-			}
-			timezone = forceTz
-		} else {
-			if element.DeviceId != nil {
-				timezone = getTZ(*element.DeviceId, devices, wrapper.config.DefaultTimezone)
-			} else {
-				timezone = wrapper.config.DefaultTimezone // no special tz support for exports
-			}
+		timezone, err := wrapper.resolveTimezone(element, forceTz, devices)
+		if err != nil {
+			return nil, err
 		}
 		table, err := wrapper.tableName(ctx, element, ownerUserIds[i], timezone)
 		if err != nil {
 			return queries, err
 		}
-
-		query := ""
-		query += "SELECT "
-		if element.GroupTime != nil {
-			zero := 0
-			asc := model.Asc
-			desc := model.Desc
-			query += bucketTime(len(element.Columns)) + " AS \"time\", "
-			for idx, column := range element.Columns {
-				if column.GroupType == nil {
-					return nil, errors.New("mixing aggregate and non-aggregate queries is not supported\n")
-				}
-				agg, ok := column.Aggregation()
-				if !ok {
-					return nil, errors.Join(errors.New("unknown group type "+*column.GroupType), model.ErrBadRequest)
-				}
-				if idx > 0 {
-					query += ", "
-				}
-				query += "(sub" + strconv.Itoa(idx) + ".value"
-				if agg.Kind == model.Difference {
-					// ORDER BY 1 would be the constant 1, not a positional reference: all rows
-					// would be peers and lag() would pair whatever rows the join happens to emit
-					// next to each other. Order by the column's own bucket instead.
-					query += " - lag(sub" + strconv.Itoa(idx) + ".value) OVER (ORDER BY sub" + strconv.Itoa(idx) + ".time)"
-				}
-				query += ") "
-				if column.Math != nil {
-					query += *column.Math + " "
-				}
-				query += "AS " + sqlliteral.QuoteIdentifier(column.Name)
-			}
-			query += " FROM "
-			l, err := widenTimeWindowForDifference(&element)
-			if err != nil {
-				return nil, err
-			}
-			elements[i] = element
-			for idx, column := range element.Columns {
-				agg, ok := column.Aggregation()
-				if !ok {
-					return nil, errors.Join(errors.New("unknown group type"), model.ErrBadRequest)
-				}
-				columnValueSQL, join, err := columnValue(element, column.Name, true)
-				if err != nil {
-					return nil, err
-				}
-				var groupOrderLimit string
-				if l != nil {
-					n := *l
-					n += 2
-					groupOrderLimit = getOrderLimitString(element, true, &zero, &asc, &n)
-				} else {
-					dir := asc
-					if agg.Kind == model.Plain && agg.Function == "last" {
-						dir = desc
-					}
-					groupOrderLimit = getOrderLimitString(element, true, &zero, &dir, nil)
-				}
-				if agg.Kind == model.TimeWeighted {
-					if join != "" {
-						return nil, errors.Join(errors.New("time-weighted group types can not be combined with all elements of a list"), model.ErrBadRequest)
-					}
-					subquery, err := timeWeightedQuery(element, agg.Function, columnValueSQL, table, timezone, groupOrderLimit)
-					if err != nil {
-						return nil, err
-					}
-					query += "(" + subquery + ") sub" + strconv.Itoa(idx)
-				} else {
-					unnested := join != ""
-					query += "(SELECT time_bucket(" + sqlliteral.QuoteString(*element.GroupTime) + ", \"time\", " + sqlliteral.QuoteString(timezone) + ") AS \"time\", "
-					query += aggregateExpression(agg, columnValueSQL, unnested)
-					query += " AS value"
-					query += " FROM " + sqlliteral.QuoteIdentifier(table) + join
-					where, err := getWhereString(element)
-					if err != nil {
-						return nil, err
-					}
-					query += where + groupOrderLimit + ") sub" + strconv.Itoa(idx)
-				}
-				if idx > 0 {
-					query += " on " + bucketTime(idx) + " = sub" + strconv.Itoa(idx) + ".time"
-				}
-				if idx < len(element.Columns)-1 {
-					query += " FULL OUTER JOIN "
-				}
-			}
-
-			var limit *int
-			var order *model.Direction
-			var orderIndex *int
-			if l != nil {
-				limit = l
-				order = &desc
-				orderIndex = &zero
-			}
-			query += getOrderLimitString(element, false, orderIndex, order, limit)
-
-		} else {
-			query += "\"time\", "
-			for idx, column := range element.Columns {
-				if column.GroupType != nil {
-					return nil, errors.New("mixing aggregate and non-aggregate queries is not supported\n")
-				}
-				if idx > 0 {
-					query += ", "
-				}
-				columnValueSQL, _, err := columnValue(element, column.Name, false)
-				if err != nil {
-					return nil, err
-				}
-				query += columnValueSQL
-				if column.Math != nil {
-					query += *column.Math
-				}
-				query += " AS " + sqlliteral.QuoteIdentifier(column.Name)
-			}
-			query += " FROM " + sqlliteral.QuoteIdentifier(table)
-			filterString, err := getFilterString(element, false, nil, nil, nil)
-			if err != nil {
-				return nil, err
-			}
-			query += filterString
+		query, err := newElementQuery(element, table, timezone)
+		if err != nil {
+			return nil, err
 		}
-		queries[i] = query
+		if element.GroupTime != nil {
+			queries[i], err = query.grouped()
+		} else {
+			queries[i], err = query.raw()
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
-	return
+	return queries, nil
 }
 
-// bucketTime is the bucket of a row of the FULL OUTER JOIN over the first n column subqueries.
-// The subqueries can hold different buckets: a "last" column reads its rows in descending order
-// and the others in ascending order, so with a limit they cover different ends of the window. A
-// bucket only a later column has would otherwise get no time, and the next column, joined on
-// sub0.time, would not join to it and land on a row of its own.
-func bucketTime(n int) string {
-	if n <= 1 {
-		return "sub0.time"
+// resolveTimezone returns the time zone the buckets of an element are aligned to: forceTz if
+// given, else the zone of the element's device, else the default.
+func (wrapper *Wrapper) resolveTimezone(element model.QueriesRequestElement, forceTz string, devices []models.Device) (string, error) {
+	if len(forceTz) > 0 {
+		if !model.TimezoneValid(forceTz) {
+			return "", errors.New("invalid timezone")
+		}
+		return forceTz, nil
 	}
-	subs := make([]string, n)
-	for i := range subs {
-		subs[i] = "sub" + strconv.Itoa(i) + ".time"
+	if element.DeviceId != nil {
+		return getTZ(*element.DeviceId, devices, wrapper.config.DefaultTimezone), nil
 	}
-	return "COALESCE(" + strings.Join(subs, ", ") + ")"
+	return wrapper.config.DefaultTimezone, nil // no special tz support for exports
 }
 
-// widenTimeWindowForDifference extends the time window of an element that has difference-* columns
-// by one unit, so that the first requested bucket has a predecessor to be differenced against, and
-// reports how many buckets the caller originally asked for. Elements without a difference column,
-// and elements without a time window, are left untouched and yield a nil bucket count.
+// columnSQL is a requested column with the SQL its value is read with.
+type columnSQL struct {
+	name string
+	math *string
+	// value is the SQL expression of the column, join the lateral join it needs, see columnValue.
+	value string
+	join  string
+	// agg is the aggregation of the column, the zero value for a column of a raw query.
+	agg model.Aggregation
+}
+
+// elementQuery holds what the query of one element is built from.
+type elementQuery struct {
+	// element is the element as the query reads it: its time window is already widened for difference
+	// columns, see widenTimeWindowForDifference.
+	element  model.QueriesRequestElement
+	table    string
+	timezone string
+	columns  []columnSQL
+	// differenceBuckets is the number of buckets requested from a widened window, nil if it was not
+	// widened.
+	differenceBuckets *int
+}
+
+// newElementQuery resolves the columns of an element. A raw element has no aggregation on any
+// column, a grouped element one on every column.
+func newElementQuery(element model.QueriesRequestElement, table string, timezone string) (elementQuery, error) {
+	query := elementQuery{element: element, table: table, timezone: timezone, columns: make([]columnSQL, len(element.Columns))}
+	grouped := element.GroupTime != nil
+	for i, column := range element.Columns {
+		query.columns[i] = columnSQL{name: column.Name, math: column.Math}
+		if !grouped {
+			if column.GroupType != nil {
+				return query, errors.New("mixing aggregate and non-aggregate queries is not supported\n")
+			}
+			continue
+		}
+		if column.GroupType == nil {
+			return query, errors.New("mixing aggregate and non-aggregate queries is not supported\n")
+		}
+		agg, ok := column.Aggregation()
+		if !ok {
+			return query, errors.Join(errors.New("unknown group type "+*column.GroupType), model.ErrBadRequest)
+		}
+		query.columns[i].agg = agg
+	}
+	if grouped {
+		var err error
+		if query.element, query.differenceBuckets, err = widenTimeWindowForDifference(element); err != nil {
+			return query, err
+		}
+	}
+	for i, column := range query.columns {
+		var err error
+		if column.value, column.join, err = columnValue(query.element, column.name, grouped); err != nil {
+			return query, err
+		}
+		query.columns[i] = column
+	}
+	return query, nil
+}
+
+// raw renders the query of an element without group time: the rows of the table.
+func (q elementQuery) raw() (string, error) {
+	query := "SELECT \"time\", "
+	for i, column := range q.columns {
+		if i > 0 {
+			query += ", "
+		}
+		query += column.value
+		if column.math != nil {
+			query += *column.math
+		}
+		query += " AS " + sqlliteral.QuoteIdentifier(column.name)
+	}
+	query += " FROM " + sqlliteral.QuoteIdentifier(q.table)
+	where, err := getWhereString(q.element)
+	if err != nil {
+		return "", err
+	}
+	return query + where + defaultOrderLimit(q.element).String(), nil
+}
+
+// grouped renders the query of an element with group time: one subquery per column that reads the
+// buckets of the column, full outer joined on the bucket time.
+func (q elementQuery) grouped() (string, error) {
+	query := "SELECT " + bucketTime(len(q.columns)) + " AS \"time\", "
+	for i, column := range q.columns {
+		if i > 0 {
+			query += ", "
+		}
+		query += "(" + subAlias(i) + ".value"
+		if column.agg.Kind == model.Difference {
+			// ORDER BY 1 would be the constant 1, not a positional reference: all rows
+			// would be peers and lag() would pair whatever rows the join happens to emit
+			// next to each other. Order by the column's own bucket instead.
+			query += " - lag(" + subAlias(i) + ".value) OVER (ORDER BY " + subAlias(i) + ".time)"
+		}
+		query += ") "
+		if column.math != nil {
+			query += *column.math + " "
+		}
+		query += "AS " + sqlliteral.QuoteIdentifier(column.name)
+	}
+	query += " FROM "
+	for i := range q.columns {
+		subquery, err := q.bucketSubquery(i)
+		if err != nil {
+			return "", err
+		}
+		query += subquery
+		if i > 0 {
+			query += " on " + bucketTime(i) + " = " + subAlias(i) + ".time"
+		}
+		if i < len(q.columns)-1 {
+			query += " FULL OUTER JOIN "
+		}
+	}
+
+	outer := defaultOrderLimit(q.element)
+	if q.differenceBuckets != nil {
+		// the widened window holds one bucket more than was requested: the newest ones are kept
+		outer = orderLimit{index: 0, direction: model.Desc, limit: q.differenceBuckets}
+	}
+	return query + outer.String(), nil
+}
+
+// bucketSubquery renders the subquery with the buckets of column i, named subAlias(i).
+func (q elementQuery) bucketSubquery(i int) (string, error) {
+	column := q.columns[i]
+	// All columns of a widened element read the same rows in the same order, see
+	// widenTimeWindowForDifference. Otherwise "last" reads from the newest bucket on and the
+	// others from the oldest.
+	rows := orderLimit{groupBy: true, index: 0, direction: model.Asc, limit: q.element.Limit}
+	if q.differenceBuckets != nil {
+		n := *q.differenceBuckets + 2
+		rows.limit = &n
+	} else if column.agg.Kind == model.Plain && column.agg.Function == "last" {
+		rows.direction = model.Desc
+	}
+
+	if column.agg.Kind == model.TimeWeighted {
+		if column.join != "" {
+			return "", errors.Join(errors.New("time-weighted group types can not be combined with all elements of a list"), model.ErrBadRequest)
+		}
+		subquery, err := timeWeightedQuery(q.element, column.agg.Function, column.value, q.table, q.timezone, rows.String())
+		if err != nil {
+			return "", err
+		}
+		return "(" + subquery + ") " + subAlias(i), nil
+	}
+	where, err := getWhereString(q.element)
+	if err != nil {
+		return "", err
+	}
+	subquery := "(SELECT time_bucket(" + sqlliteral.QuoteString(*q.element.GroupTime) + ", \"time\", " + sqlliteral.QuoteString(q.timezone) + ") AS \"time\", "
+	subquery += aggregateExpression(column.agg, column.value, column.join != "")
+	subquery += " AS value FROM " + sqlliteral.QuoteIdentifier(q.table) + column.join
+	return subquery + where + rows.String() + ") " + subAlias(i), nil
+}
+
+// widenTimeWindowForDifference returns a copy of the element whose time window is extended by one
+// unit if it has difference-* columns, so that the first requested bucket has a predecessor to be
+// differenced against, and reports how many buckets the caller originally asked for. The element
+// passed in is not changed: its time is copied before it is. Elements without a difference column,
+// and elements without a time window, are returned as they are and yield a nil bucket count.
 //
 // It runs once per element, before the first column subquery is generated. Every column of such an
 // element then reads the same window with the same row limit: widening per column would give the
@@ -308,7 +349,7 @@ func bucketTime(n int) string {
 // window by one unit rather than by one bucket, which is the same thing only while the group time
 // has no multiplier ("1h", not "6h"); and for Time.Ahead it moves the far end into the future,
 // which does not produce a predecessor for the first bucket at all.
-func widenTimeWindowForDifference(element *model.QueriesRequestElement) (buckets *int, err error) {
+func widenTimeWindowForDifference(element model.QueriesRequestElement) (widened model.QueriesRequestElement, buckets *int, err error) {
 	hasDifference := false
 	for _, column := range element.Columns {
 		if agg, ok := column.Aggregation(); ok && agg.Kind == model.Difference {
@@ -317,7 +358,7 @@ func widenTimeWindowForDifference(element *model.QueriesRequestElement) (buckets
 		}
 	}
 	if !hasDifference || element.Time == nil {
-		return nil, nil
+		return element, nil, nil
 	}
 
 	if element.Time.Last != nil || element.Time.Ahead != nil {
@@ -333,7 +374,7 @@ func widenTimeWindowForDifference(element *model.QueriesRequestElement) (buckets
 		}
 		num, err := strconv.Atoi(prefix)
 		if err != nil {
-			return nil, err
+			return element, nil, err
 		}
 		n := num
 		num++
@@ -344,26 +385,26 @@ func widenTimeWindowForDifference(element *model.QueriesRequestElement) (buckets
 			modified := strconv.Itoa(num) + strings.TrimPrefix(*element.Time.Ahead, prefix)
 			element.Time.Ahead = &modified
 		}
-		return &n, nil
+		return element, &n, nil
 	}
 
 	if element.Time.Start == nil || element.Time.End == nil || element.GroupTime == nil {
-		return nil, nil
+		return element, nil, nil
 	}
 	copy := element.Time.Copy() // ensure no other elements are affected that share this pointer
 	element.Time = &copy
 	re := regexp.MustCompile(`\D+`)
 	suffix := re.Find([]byte(*element.GroupTime))
 	if suffix == nil {
-		return nil, fmt.Errorf("could not parse GroupTime %v", *element.GroupTime)
+		return element, nil, fmt.Errorf("could not parse GroupTime %v", *element.GroupTime)
 	}
 	endT, err := time.Parse(time.RFC3339, *element.Time.End)
 	if err != nil {
-		return nil, err
+		return element, nil, err
 	}
 	startT, err := time.Parse(time.RFC3339, *element.Time.Start)
 	if err != nil {
-		return nil, err
+		return element, nil, err
 	}
 	diff := endT.Sub(startT)
 	diffT := 0
@@ -412,18 +453,8 @@ func widenTimeWindowForDifference(element *model.QueriesRequestElement) (buckets
 	startS := start.Format(time.RFC3339)
 	element.Time.Start = &startS
 	endS := end.Format(time.RFC3339)
-	element.Time.EndOriginal = element.Time.End
 	element.Time.End = &endS
-	return &diffT, nil
-}
-
-func getFilterString(element model.QueriesRequestElement, group bool, overrideSortIndex *int, overrideOrderDirection *model.Direction, overrideLimit *int) (query string, err error) {
-	query, err = getWhereString(element)
-	if err != nil {
-		return "", err
-	}
-	query += getOrderLimitString(element, group, overrideSortIndex, overrideOrderDirection, overrideLimit)
-	return
+	return element, &diffT, nil
 }
 
 // getWhereString renders the filters and the time window of an element as a WHERE clause, or the
@@ -434,7 +465,11 @@ func getWhereString(element model.QueriesRequestElement) (string, error) {
 		return "", err
 	}
 	if element.Time != nil {
-		conditions = append(conditions, timeCondition(element.Time))
+		condition, err := timeCondition(element.Time)
+		if err != nil {
+			return "", err
+		}
+		conditions = append(conditions, condition)
 	}
 	if len(conditions) == 0 {
 		return "", nil
@@ -478,38 +513,6 @@ func getFilterConditions(element model.QueriesRequestElement) (conditions []stri
 		conditions = append(conditions, condition)
 	}
 	return conditions, nil
-}
-
-func getOrderLimitString(element model.QueriesRequestElement, group bool, overrideOrderIndex *int, overrideOrderDirection *model.Direction, overrideLimit *int) (query string) {
-	if group {
-		query += " GROUP BY 1"
-	}
-	var orderIndex int
-	if overrideOrderIndex != nil {
-		orderIndex = *overrideOrderIndex
-	} else if element.OrderColumnIndex != nil {
-		orderIndex = *element.OrderColumnIndex
-	} else {
-		orderIndex = -1
-	}
-	var orderDirection model.Direction
-	if overrideOrderDirection != nil {
-		orderDirection = *overrideOrderDirection
-	} else if element.OrderDirection != nil {
-		orderDirection = *element.OrderDirection
-	} else {
-		orderDirection = model.Desc
-	}
-
-	if orderIndex != -1 {
-		query += " ORDER BY " + strconv.Itoa(orderIndex+1) + " " + strings.ToUpper(string(orderDirection))
-	}
-	if overrideLimit != nil {
-		query += " LIMIT " + strconv.Itoa(*overrideLimit)
-	} else if element.Limit != nil {
-		query += " LIMIT " + strconv.Itoa(*element.Limit)
-	}
-	return
 }
 
 // tableName builds the hypertable name and, if a matching continuous aggregate view exists,

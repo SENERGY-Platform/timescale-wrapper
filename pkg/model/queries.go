@@ -141,11 +141,10 @@ func (element *QueriesRequestElement) Valid() bool {
 }
 
 type QueriesRequestElementTime struct {
-	Last        *string `json:"last,omitempty"`
-	Ahead       *string `json:"ahead,omitempty"`
-	Start       *string `json:"start,omitempty"`
-	End         *string `json:"end,omitempty"`
-	EndOriginal *string `json:"-"`
+	Last  *string `json:"last,omitempty"`
+	Ahead *string `json:"ahead,omitempty"`
+	Start *string `json:"start,omitempty"`
+	End   *string `json:"end,omitempty"`
 }
 
 func (elementTime *QueriesRequestElementTime) Valid() bool {

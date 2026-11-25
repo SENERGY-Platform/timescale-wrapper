@@ -17,6 +17,8 @@
 package timescale
 
 import (
+	"errors"
+
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 )
@@ -50,11 +52,15 @@ func sqlWindow(elementTime *model.QueriesRequestElementTime, cast string) (start
 
 // timeCondition renders the condition on "time" that selects the rows of the time window: the start
 // is exclusive, and so is the end of ahead and of start and end. last reads up to the newest row.
-func timeCondition(elementTime *model.QueriesRequestElementTime) string {
+// A window with neither last, ahead nor both start and end is rejected.
+func timeCondition(elementTime *model.QueriesRequestElementTime) (string, error) {
 	start, end, bounded := sqlWindow(elementTime, "")
+	if start == "" {
+		return "", errors.Join(errors.New("incomplete time window"), model.ErrBadRequest)
+	}
 	condition := "\"time\" > " + start
 	if bounded {
 		condition += " AND \"time\" < " + end
 	}
-	return condition
+	return condition, nil
 }

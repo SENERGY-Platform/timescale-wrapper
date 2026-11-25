@@ -64,7 +64,7 @@ func TestWidenTimeWindowForDifferenceUnits(t *testing.T) {
 			element := diffElement(tc.groupTime)
 			origTime := element.Time
 
-			buckets, err := widenTimeWindowForDifference(element)
+			widened, buckets, err := widenTimeWindowForDifference(*element)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -74,27 +74,24 @@ func TestWidenTimeWindowForDifferenceUnits(t *testing.T) {
 			if *buckets != tc.wantBuckets {
 				t.Errorf("buckets = %d, want %d", *buckets, tc.wantBuckets)
 			}
-			if got := deref(element.Time.Start); got != tc.wantStart {
+			if got := deref(widened.Time.Start); got != tc.wantStart {
 				t.Errorf("Time.Start = %s, want %s", got, tc.wantStart)
 			}
-			if got := deref(element.Time.End); got != endS {
+			if got := deref(widened.Time.End); got != endS {
 				t.Errorf("Time.End = %s, want %s", got, endS)
 			}
-			if got := deref(element.Time.EndOriginal); got != endS {
-				t.Errorf("Time.EndOriginal = %s, want %s", got, endS)
-			}
 
-			if element.Time == origTime {
-				t.Errorf("element.Time still points to the caller's time object")
+			if widened.Time == origTime {
+				t.Errorf("widened.Time still points to the caller's time object")
+			}
+			if element.Time != origTime {
+				t.Errorf("the passed element's Time pointer changed")
 			}
 			if got := deref(origTime.Start); got != startS {
 				t.Errorf("caller's Time.Start changed to %s, want %s", got, startS)
 			}
 			if got := deref(origTime.End); got != endS {
 				t.Errorf("caller's Time.End changed to %s, want %s", got, endS)
-			}
-			if origTime.EndOriginal != nil {
-				t.Errorf("caller's Time.EndOriginal set to %s, want nil", *origTime.EndOriginal)
 			}
 		})
 	}
@@ -122,7 +119,7 @@ func TestWidenTimeWindowForDifferenceUnitErrors(t *testing.T) {
 				GroupTime: strPtr(tc.groupTime),
 			}
 
-			buckets, err := widenTimeWindowForDifference(element)
+			_, buckets, err := widenTimeWindowForDifference(*element)
 			if err == nil {
 				t.Errorf("expected error, got nil")
 			}
@@ -160,7 +157,7 @@ func TestWidenTimeWindowForDifferenceRelative(t *testing.T) {
 				GroupTime: strPtr("1h"),
 			}
 
-			buckets, err := widenTimeWindowForDifference(element)
+			widened, buckets, err := widenTimeWindowForDifference(*element)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -170,14 +167,14 @@ func TestWidenTimeWindowForDifferenceRelative(t *testing.T) {
 			if *buckets != tc.wantBuckets {
 				t.Errorf("buckets = %d, want %d", *buckets, tc.wantBuckets)
 			}
-			if got := deref(element.Time.Last); got != tc.wantLast {
+			if got := deref(widened.Time.Last); got != tc.wantLast {
 				t.Errorf("Time.Last = %s, want %s", got, tc.wantLast)
 			}
-			if got := deref(element.Time.Ahead); got != tc.wantAhead {
+			if got := deref(widened.Time.Ahead); got != tc.wantAhead {
 				t.Errorf("Time.Ahead = %s, want %s", got, tc.wantAhead)
 			}
-			if element.Time == &timeObj {
-				t.Errorf("element.Time still points to the caller's time object")
+			if widened.Time == &timeObj {
+				t.Errorf("widened.Time still points to the caller's time object")
 			}
 			if got := deref(timeObj.Last); got != deref(tc.time.Last) {
 				t.Errorf("caller's Time.Last changed to %s", got)
@@ -241,18 +238,18 @@ func TestWidenTimeWindowForDifferenceNoop(t *testing.T) {
 			want := tc.element()
 			timeBefore := element.Time
 
-			buckets, err := widenTimeWindowForDifference(element)
+			widened, buckets, err := widenTimeWindowForDifference(*element)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if buckets != nil {
 				t.Errorf("buckets = %d, want nil", *buckets)
 			}
-			if element.Time != timeBefore {
-				t.Errorf("element.Time pointer changed")
+			if widened.Time != timeBefore {
+				t.Errorf("widened.Time pointer changed")
 			}
-			if !reflect.DeepEqual(element, want) {
-				t.Errorf("element changed: got %+v, want %+v", element, want)
+			if !reflect.DeepEqual(widened, *want) {
+				t.Errorf("element changed: got %+v, want %+v", widened, want)
 			}
 		})
 	}

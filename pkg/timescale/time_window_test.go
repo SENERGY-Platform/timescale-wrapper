@@ -17,6 +17,7 @@
 package timescale
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
@@ -59,8 +60,15 @@ func TestSQLBoundsAndTimeCondition(t *testing.T) {
 			if start != c.start || end != c.end {
 				t.Errorf("got %q, %q; want %q, %q", start, end, c.start, c.end)
 			}
-			if c.condition != "" && timeCondition(&c.time) != c.condition {
-				t.Errorf("got %q, want %q", timeCondition(&c.time), c.condition)
+			condition, err := timeCondition(&c.time)
+			if c.condition == "" {
+				if !errors.Is(err, model.ErrBadRequest) {
+					t.Errorf("expected a bad request for an incomplete window, got %q, %v", condition, err)
+				}
+				return
+			}
+			if err != nil || condition != c.condition {
+				t.Errorf("got %q, %v; want %q", condition, err, c.condition)
 			}
 		})
 	}

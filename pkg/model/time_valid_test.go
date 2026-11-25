@@ -95,15 +95,4 @@ func TestQueriesRequestElementTimeCopy(t *testing.T) {
 		}
 	})
 
-	t.Run("EndOriginal is not copied", func(t *testing.T) {
-		orig := QueriesRequestElementTime{
-			Start:       ptr("2021-01-01T00:00:00Z"),
-			End:         ptr("2021-01-02T00:00:00Z"),
-			EndOriginal: ptr("2021-01-02T02:00:00+02:00"),
-		}
-		cpy := orig.Copy()
-		if cpy.EndOriginal != nil {
-			t.Errorf("EndOriginal = %q, want nil", *cpy.EndOriginal)
-		}
-	})
 }
