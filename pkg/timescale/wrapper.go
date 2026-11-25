@@ -19,9 +19,9 @@ package timescale
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"math"
 	"net/url"
+	"strconv"
 	"sync"
 
 	serving "github.com/SENERGY-Platform/analytics-serving/client"
@@ -87,14 +87,7 @@ func NewWrapper(ctx context.Context, wg *sync.WaitGroup, config configuration.Co
 // newPool opens a pool against host with the port, database and pool size of config, and closes
 // it when ctx ends.
 func newPool(ctx context.Context, wg *sync.WaitGroup, config configuration.Config, host, user, pw string) (*pgxpool.Pool, error) {
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
-		url.QueryEscape(user),
-		url.QueryEscape(pw),
-		host,
-		config.PostgresPort,
-		url.PathEscape(config.PostgresDb),
-	)
-	poolConfig, err := pgxpool.ParseConfig(dsn)
+	poolConfig, err := pgxpool.ParseConfig(postgresDSN(host, config.PostgresPort, config.PostgresDb, user, pw))
 	if err != nil {
 		return nil, err
 	}
@@ -119,4 +112,15 @@ func (wrapper *Wrapper) Migrate(ctx context.Context) error {
 	c, span := tracer.Start(ctx, "Migrate")
 	defer span.End()
 	return wrapper.migrateMaterializedRefreshJobs(c)
+}
+
+// postgresDSN renders a connection URL. User and password go through url.UserPassword: userinfo
+// escaping differs from query escaping, which writes a space as "+" and so changes the password.
+func postgresDSN(host string, port uint16, db string, user string, pw string) string {
+	return (&url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(user, pw),
+		Host:   host + ":" + strconv.FormatUint(uint64(port), 10),
+		Path:   "/" + db,
+	}).String()
 }

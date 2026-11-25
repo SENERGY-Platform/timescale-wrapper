@@ -92,7 +92,10 @@ func Load(location string) (config Config, err error) {
 		log.Println("invalid config json: ", err)
 		return config, err
 	}
-	HandleEnvironmentVars(config)
+	err = HandleEnvironmentVars(config)
+	if err != nil {
+		return config, err
+	}
 	return config, nil
 }
 
@@ -112,7 +115,9 @@ func fieldNameToEnvName(s string) string {
 }
 
 // preparations for docker
-func HandleEnvironmentVars(config Config) {
+//
+// A value that does not parse as the type of its field is an error rather than a silent zero.
+func HandleEnvironmentVars(config Config) error {
 	configValue := reflect.Indirect(reflect.ValueOf(config))
 	configType := configValue.Type()
 	for index := 0; index < configType.NumField(); index++ {
@@ -125,22 +130,34 @@ func HandleEnvironmentVars(config Config) {
 				fmt.Println("use environment variable: ", envName, " = ", envValue)
 			}
 			if configValue.FieldByName(fieldName).Kind() == reflect.Int64 {
-				i, _ := strconv.ParseInt(envValue, 10, 64)
+				i, err := strconv.ParseInt(envValue, 10, 64)
+				if err != nil {
+					return fmt.Errorf("invalid value for %s: %w", envName, err)
+				}
 				configValue.FieldByName(fieldName).SetInt(i)
 			}
 			if configValue.FieldByName(fieldName).Kind() == reflect.Uint16 {
-				i, _ := strconv.ParseUint(envValue, 10, 16)
+				i, err := strconv.ParseUint(envValue, 10, 16)
+				if err != nil {
+					return fmt.Errorf("invalid value for %s: %w", envName, err)
+				}
 				configValue.FieldByName(fieldName).SetUint(i)
 			}
 			if configValue.FieldByName(fieldName).Kind() == reflect.Float64 {
-				f, _ := strconv.ParseFloat(envValue, 64)
+				f, err := strconv.ParseFloat(envValue, 64)
+				if err != nil {
+					return fmt.Errorf("invalid value for %s: %w", envName, err)
+				}
 				configValue.FieldByName(fieldName).SetFloat(f)
 			}
 			if configValue.FieldByName(fieldName).Kind() == reflect.String {
 				configValue.FieldByName(fieldName).SetString(envValue)
 			}
 			if configValue.FieldByName(fieldName).Kind() == reflect.Bool {
-				b, _ := strconv.ParseBool(envValue)
+				b, err := strconv.ParseBool(envValue)
+				if err != nil {
+					return fmt.Errorf("invalid value for %s: %w", envName, err)
+				}
 				configValue.FieldByName(fieldName).SetBool(b)
 			}
 			if configValue.FieldByName(fieldName).Kind() == reflect.Slice {
@@ -162,4 +179,5 @@ func HandleEnvironmentVars(config Config) {
 			}
 		}
 	}
+	return nil
 }

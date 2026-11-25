@@ -48,7 +48,7 @@ func main() {
 
 	go func() {
 		shutdown := make(chan os.Signal, 1)
-		signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+		signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM) // SIGKILL cannot be caught
 		sig := <-shutdown
 		_log.Logger.Info("received shutdown signal", "signal", sig)
 		cancel()
