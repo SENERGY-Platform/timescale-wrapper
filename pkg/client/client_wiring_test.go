@@ -22,7 +22,6 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-
 )
 
 func TestTheClientHasItsOwnTimeout(t *testing.T) {
