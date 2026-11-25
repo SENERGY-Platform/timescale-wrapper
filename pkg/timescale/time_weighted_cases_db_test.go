@@ -26,6 +26,7 @@ import (
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -281,10 +282,10 @@ func TestTimeWeightedMatchesToolkit(t *testing.T) {
 	query := "SELECT bucket," +
 		" interpolated_average(l, bucket, '1h', lag(l) OVER o, lead(l) OVER o)," +
 		" interpolated_average(i, bucket, '1h', lag(i) OVER o, lead(i) OVER o)" +
-		" FROM (SELECT time_bucket('1h', \"time\", " + quoteSQLString(dbTestTimezone) + ") AS bucket," +
-		" time_weight('LOCF', \"time\", " + quoteIdentifier(dbTestEnergy) + ") AS l," +
-		" time_weight('Linear', \"time\", " + quoteIdentifier(dbTestEnergy) + ") AS i" +
-		" FROM " + quoteIdentifier(table) + " GROUP BY 1) x WINDOW o AS (ORDER BY bucket)"
+		" FROM (SELECT time_bucket('1h', \"time\", " + sqlliteral.QuoteString(dbTestTimezone) + ") AS bucket," +
+		" time_weight('LOCF', \"time\", " + sqlliteral.QuoteIdentifier(dbTestEnergy) + ") AS l," +
+		" time_weight('Linear', \"time\", " + sqlliteral.QuoteIdentifier(dbTestEnergy) + ") AS i" +
+		" FROM " + sqlliteral.QuoteIdentifier(table) + " GROUP BY 1) x WINDOW o AS (ORDER BY bucket)"
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
 		t.Fatal(err)

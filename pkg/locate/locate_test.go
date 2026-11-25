@@ -17,7 +17,6 @@
 package locate
 
 import (
-	"encoding/json"
 	"testing"
 )
 
@@ -141,48 +140,5 @@ func TestNearestUsesLatLonInTheRightOrder(t *testing.T) {
 	}
 	if c.Id != "hamburg" {
 		t.Error("expected hamburg to be nearest to berlin, got", c.Id)
-	}
-}
-
-func TestValueLiteral(t *testing.T) {
-	cases := []struct {
-		name     string
-		value    any
-		expected string
-	}{
-		{"string", "abc", "'abc'"},
-		{"string with embedded quote", "a'bc", "'a''bc'"},
-		{"bool true", true, "true"},
-		{"bool false", false, "false"},
-		{"float64", float64(1.5), "1.5"},
-		{"float32", float32(1.5), "1.5"},
-		{"int", int(42), "42"},
-		{"int16", int16(42), "42"},
-		{"int32", int32(42), "42"},
-		{"int64", int64(42), "42"},
-		{"json.Number", json.Number("42.5"), "42.5"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			actual, err := ValueLiteral(c.value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if actual != c.expected {
-				t.Error("Expected/Actual\n", c.expected, "\n", actual)
-			}
-		})
-	}
-}
-
-func TestValueLiteralRejectsInvalidJsonNumber(t *testing.T) {
-	if _, err := ValueLiteral(json.Number("not-a-number")); err == nil {
-		t.Error("expected an error for an invalid json.Number")
-	}
-}
-
-func TestValueLiteralRejectsUnknownType(t *testing.T) {
-	if _, err := ValueLiteral(struct{}{}); err == nil {
-		t.Error("expected an error for an unsupported type")
 	}
 }

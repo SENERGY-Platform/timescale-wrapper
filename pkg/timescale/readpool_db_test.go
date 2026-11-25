@@ -31,6 +31,7 @@ import (
 	"github.com/SENERGY-Platform/service-commons/pkg/jwt"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/locate"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tablenames"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -106,8 +107,8 @@ func newReadTestFixture(t *testing.T) *readTestFixture {
 		"GRANT USAGE ON SCHEMA "+readTestLagSchema+" TO "+readTestLaggingRole,
 		"GRANT SELECT ON ALL TABLES IN SCHEMA public TO "+readTestRole,
 		"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO "+readTestRole,
-		"CREATE TABLE "+quoteIdentifier(table)+" (time TIMESTAMPTZ NOT NULL, station TEXT, lat DOUBLE PRECISION, lon DOUBLE PRECISION)",
-		"INSERT INTO "+quoteIdentifier(table)+" VALUES (now(), 'near', 51.0, 9.0), (now(), 'near', 51.0, 9.0), (now(), 'far', 48.0, 11.0)",
+		"CREATE TABLE "+sqlliteral.QuoteIdentifier(table)+" (time TIMESTAMPTZ NOT NULL, station TEXT, lat DOUBLE PRECISION, lon DOUBLE PRECISION)",
+		"INSERT INTO "+sqlliteral.QuoteIdentifier(table)+" VALUES (now(), 'near', 51.0, 9.0), (now(), 'near', 51.0, 9.0), (now(), 'far', 48.0, 11.0)",
 	)
 
 	serving := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -143,10 +144,10 @@ func (f *readTestFixture) dropAll(t *testing.T, ctx context.Context) {
 	for _, statement := range []string{
 		// The table name is the config of a job created before SNRGY-5103.
 		"SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = '" + wrapperMaterializedViewProcedureName +
-			"' AND config #>> '{}' IN (" + quoteSQLString(readTestStaleJob) + ", " + quoteSQLString(f.table) + ", " +
-			quoteSQLString(locate.ViewName(f.table)) + ")",
-		"DROP MATERIALIZED VIEW IF EXISTS " + quoteIdentifier(locate.ViewName(f.table)),
-		"DROP TABLE IF EXISTS " + quoteIdentifier(f.table),
+			"' AND config #>> '{}' IN (" + sqlliteral.QuoteString(readTestStaleJob) + ", " + sqlliteral.QuoteString(f.table) + ", " +
+			sqlliteral.QuoteString(locate.ViewName(f.table)) + ")",
+		"DROP MATERIALIZED VIEW IF EXISTS " + sqlliteral.QuoteIdentifier(locate.ViewName(f.table)),
+		"DROP TABLE IF EXISTS " + sqlliteral.QuoteIdentifier(f.table),
 		"DROP SCHEMA IF EXISTS " + readTestLagSchema,
 		"DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname = '" + readTestRole + "') THEN " +
 			"DROP OWNED BY " + readTestRole + "; DROP ROLE " + readTestRole + "; END IF; END $$",
@@ -253,7 +254,7 @@ func (f *readTestFixture) runRefreshJob(t *testing.T) {
 func (f *readTestFixture) requireStationInView(t *testing.T, station string) {
 	t.Helper()
 	var rows int
-	err := f.admin.QueryRow(t.Context(), "SELECT count(*) FROM "+quoteIdentifier(locate.ViewName(f.table))+" WHERE station = $1", station).Scan(&rows)
+	err := f.admin.QueryRow(t.Context(), "SELECT count(*) FROM "+sqlliteral.QuoteIdentifier(locate.ViewName(f.table))+" WHERE station = $1", station).Scan(&rows)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +326,7 @@ func TestRefreshJobRefreshesTheView(t *testing.T) {
 	f.locate(t, wrapper, "creating the view")
 	f.requireRefreshJobs(t, 1)
 
-	f.exec(t, "INSERT INTO "+quoteIdentifier(f.table)+" VALUES (now(), 'new', 52.0, 10.0)")
+	f.exec(t, "INSERT INTO "+sqlliteral.QuoteIdentifier(f.table)+" VALUES (now(), 'new', 52.0, 10.0)")
 	f.runRefreshJob(t)
 	f.requireStationInView(t, "new")
 }
@@ -340,8 +341,8 @@ func TestMigrateRepairsRefreshJobs(t *testing.T) {
 	f.exec(t,
 		"CREATE OR REPLACE PROCEDURE "+wrapperMaterializedViewProcedureName+"(job_id INT, view JSONB) LANGUAGE PLPGSQL "+
 			"AS $$ BEGIN EXECUTE format('REFRESH MATERIALIZED VIEW %s', view); END $$",
-		"CREATE MATERIALIZED VIEW "+quoteIdentifier(locate.ViewName(f.table))+" AS SELECT DISTINCT station, lat, lon FROM "+quoteIdentifier(f.table),
-		"SELECT add_job('"+wrapperMaterializedViewProcedureName+"', '1day', config => "+quoteSQLString(`"`+f.table+`"`)+", scheduled => false)",
+		"CREATE MATERIALIZED VIEW "+sqlliteral.QuoteIdentifier(locate.ViewName(f.table))+" AS SELECT DISTINCT station, lat, lon FROM "+sqlliteral.QuoteIdentifier(f.table),
+		"SELECT add_job('"+wrapperMaterializedViewProcedureName+"', '1day', config => "+sqlliteral.QuoteString(`"`+f.table+`"`)+", scheduled => false)",
 	)
 	wrapper := f.wrapper(t, readTestRole)
 
@@ -352,7 +353,7 @@ func TestMigrateRepairsRefreshJobs(t *testing.T) {
 		f.requireRefreshJobs(t, 1)
 	}
 
-	f.exec(t, "INSERT INTO "+quoteIdentifier(f.table)+" VALUES (now(), 'new', 52.0, 10.0)")
+	f.exec(t, "INSERT INTO "+sqlliteral.QuoteIdentifier(f.table)+" VALUES (now(), 'new', 52.0, 10.0)")
 	f.runRefreshJob(t)
 	f.requireStationInView(t, "new")
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -63,7 +64,7 @@ func listDbSetup(ctx context.Context, t *testing.T, pool *pgxpool.Pool, rows []l
 		t.Fatal(err)
 	}
 	table := "device:" + shortDeviceId + "_service:" + shortServiceId
-	quoted := quoteIdentifier(table)
+	quoted := sqlliteral.QuoteIdentifier(table)
 	exec := func(query string) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, query); err != nil {
@@ -72,9 +73,9 @@ func listDbSetup(ctx context.Context, t *testing.T, pool *pgxpool.Pool, rows []l
 	}
 	exec("CREATE EXTENSION IF NOT EXISTS timescaledb")
 	exec("DROP TABLE IF EXISTS " + quoted)
-	exec("CREATE TABLE " + quoted + " (\"time\" timestamptz NOT NULL, " + quoteIdentifier(listDbList) + " jsonb, " +
-		quoteIdentifier(listDbFixed) + " bigint, " + quoteIdentifier(listDbLevel) + " double precision)")
-	exec("SELECT create_hypertable(" + quoteSQLString(quoted) + ", 'time')")
+	exec("CREATE TABLE " + quoted + " (\"time\" timestamptz NOT NULL, " + sqlliteral.QuoteIdentifier(listDbList) + " jsonb, " +
+		sqlliteral.QuoteIdentifier(listDbFixed) + " bigint, " + sqlliteral.QuoteIdentifier(listDbLevel) + " double precision)")
+	exec("SELECT create_hypertable(" + sqlliteral.QuoteString(quoted) + ", 'time')")
 	t.Cleanup(func() {
 		if _, err := pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+quoted); err != nil {
 			t.Log("could not drop test table:", err)

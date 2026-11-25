@@ -28,6 +28,7 @@ import (
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -226,7 +227,7 @@ func dbTestSetup(ctx context.Context, t *testing.T, pool *pgxpool.Pool, readings
 		t.Fatal(err)
 	}
 	table = "device:" + shortDeviceId + "_service:" + shortServiceId
-	quoted := quoteIdentifier(table)
+	quoted := sqlliteral.QuoteIdentifier(table)
 
 	exec := func(query string, args ...interface{}) {
 		t.Helper()
@@ -237,9 +238,9 @@ func dbTestSetup(ctx context.Context, t *testing.T, pool *pgxpool.Pool, readings
 	exec("CREATE EXTENSION IF NOT EXISTS timescaledb")
 	exec("DROP TABLE IF EXISTS " + quoted)
 	exec("CREATE TABLE " + quoted + " (\"time\" timestamptz NOT NULL, " +
-		quoteIdentifier(dbTestEnergy) + " double precision, " + quoteIdentifier(dbTestWater) + " double precision)")
+		sqlliteral.QuoteIdentifier(dbTestEnergy) + " double precision, " + sqlliteral.QuoteIdentifier(dbTestWater) + " double precision)")
 	// create_hypertable takes a regclass, so the quoted identifier has to survive as such
-	exec("SELECT create_hypertable(" + quoteSQLString(quoted) + ", 'time')")
+	exec("SELECT create_hypertable(" + sqlliteral.QuoteString(quoted) + ", 'time')")
 	t.Cleanup(func() {
 		if _, err := pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+quoted); err != nil {
 			t.Log("could not drop test table:", err)
@@ -260,7 +261,7 @@ func dbTestSetup(ctx context.Context, t *testing.T, pool *pgxpool.Pool, readings
 // the window functions under test.
 func dbTestBucketEdges(ctx context.Context, t *testing.T, pool *pgxpool.Pool, table string, column string, buckets []time.Time) (values []float64) {
 	t.Helper()
-	query := "SELECT last(" + quoteIdentifier(column) + ", \"time\") FROM " + quoteIdentifier(table) +
+	query := "SELECT last(" + sqlliteral.QuoteIdentifier(column) + ", \"time\") FROM " + sqlliteral.QuoteIdentifier(table) +
 		" WHERE \"time\" >= $1 AND \"time\" < $2"
 	for _, bucket := range buckets {
 		var value float64

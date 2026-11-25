@@ -24,6 +24,7 @@ import (
 
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -35,10 +36,10 @@ import (
 // seconds. Seconds before the first point and from now on are left out.
 func twDbReference(ctx context.Context, t *testing.T, pool *pgxpool.Pool, table string, groupTime string, timezone string, start time.Time, end time.Time, linear bool) map[time.Time]float64 {
 	t.Helper()
-	width := quoteSQLString(groupTime) + "::interval"
-	tz := quoteSQLString(timezone)
-	quoted := quoteIdentifier(table)
-	energy := quoteIdentifier(dbTestEnergy)
+	width := sqlliteral.QuoteString(groupTime) + "::interval"
+	tz := sqlliteral.QuoteString(timezone)
+	quoted := sqlliteral.QuoteIdentifier(table)
+	energy := sqlliteral.QuoteIdentifier(dbTestEnergy)
 	value := "prev.v"
 	if linear {
 		value = "CASE WHEN next.t IS NULL THEN prev.v ELSE prev.v + (next.v - prev.v) * extract(epoch FROM x - prev.t) / extract(epoch FROM next.t - prev.t) END"

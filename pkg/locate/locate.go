@@ -19,22 +19,18 @@
 // locations. pkg/timescale's CreateFiltersForImport delegates here instead of keeping the only
 // copy of this logic.
 //
-// This is a leaf package on purpose: it imports nothing beyond the standard library,
-// github.com/SENERGY-Platform/timescale-wrapper/pkg/tablenames and github.com/jackc/pgx/v5 (only
-// for identifier quoting), so a caller outside this module - the measures service - can pick the
-// same nearest station without also pulling in the wrapper's database driver, tracing,
-// import-repository and analytics-serving clients.
+// This is a leaf package on purpose: it imports nothing beyond the standard library and
+// github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral (identifier and literal quoting),
+// so a caller outside this module - the measures service - can pick the same nearest station
+// without also pulling in the wrapper's tracing, import-repository and analytics-serving clients.
 package locate
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
-	"strconv"
 
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tablenames"
-	"github.com/jackc/pgx/v5"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 )
 
 // MaterializedViewPrefix marks the materialized views a caller creates to deduplicate and cache
@@ -45,14 +41,6 @@ const MaterializedViewPrefix = "_wmv_"
 // ViewName returns the materialized view name for the hypertable table.
 func ViewName(table string) string {
 	return MaterializedViewPrefix + table
-}
-
-// quoteIdentifier renders name as a quoted SQL identifier, escaping any embedded quotes. This
-// mirrors pkg/timescale's own quoteIdentifier; it is kept as a second copy instead of an exported
-// function because pgx.Identifier{}.Sanitize() is the only piece of pgx this package needs, and
-// exporting it would widen this leaf package's API beyond what it is for.
-func quoteIdentifier(name string) string {
-	return pgx.Identifier{name}.Sanitize()
 }
 
 // LocationsQuery builds the query that reads the distinct (idColumn, latColumn, lonColumn)
@@ -70,10 +58,10 @@ func LocationsQuery(relation, idColumn, latColumn, lonColumn, since string) (str
 	if idColumn == "" || latColumn == "" || lonColumn == "" {
 		return "", errors.New("locate: idColumn, latColumn and lonColumn must not be empty")
 	}
-	query := "SELECT DISTINCT " + quoteIdentifier(idColumn) + ", " + quoteIdentifier(latColumn) + ", " + quoteIdentifier(lonColumn) +
-		" FROM " + quoteIdentifier(relation)
+	query := "SELECT DISTINCT " + sqlliteral.QuoteIdentifier(idColumn) + ", " + sqlliteral.QuoteIdentifier(latColumn) + ", " + sqlliteral.QuoteIdentifier(lonColumn) +
+		" FROM " + sqlliteral.QuoteIdentifier(relation)
 	if since != "" {
-		query += ` WHERE "time" >= now() - interval ` + tablenames.QuoteSQLString(since)
+		query += ` WHERE "time" >= now() - interval ` + sqlliteral.QuoteString(since)
 	}
 	query += ";"
 	return query, nil
@@ -127,33 +115,8 @@ func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
 	return c * earthRadiusKm
 }
 
-// ValueLiteral renders v as a SQL literal. Values may originate from a request body or from a
-// previous query (see Candidate.Id as scanned from LocationsQuery's result), so unknown types are
-// rejected rather than printed with %v.
+// ValueLiteral renders v as a SQL literal, see sqlliteral.ValueLiteral. It stays for callers
+// outside this module.
 func ValueLiteral(v any) (string, error) {
-	switch val := v.(type) {
-	case string:
-		return tablenames.QuoteSQLString(val), nil
-	case bool:
-		return strconv.FormatBool(val), nil
-	case float64:
-		return strconv.FormatFloat(val, 'f', -1, 64), nil
-	case float32:
-		return strconv.FormatFloat(float64(val), 'f', -1, 32), nil
-	case int:
-		return strconv.Itoa(val), nil
-	case int16:
-		return strconv.FormatInt(int64(val), 10), nil
-	case int32:
-		return strconv.FormatInt(int64(val), 10), nil
-	case int64:
-		return strconv.FormatInt(val, 10), nil
-	case json.Number:
-		if _, err := val.Float64(); err != nil {
-			return "", fmt.Errorf("invalid numeric filter value %v", val)
-		}
-		return val.String(), nil
-	default:
-		return "", fmt.Errorf("unsupported filter value type %T", v)
-	}
+	return sqlliteral.ValueLiteral(v)
 }

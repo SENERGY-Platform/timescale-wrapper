@@ -24,6 +24,7 @@ import (
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/locate"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -55,12 +56,12 @@ func TestSetupMaterializedRefreshJobConcurrent(t *testing.T) {
 		return n
 	}
 	deleteJobs := "SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = " +
-		quoteSQLString(wrapperMaterializedViewProcedureName) + " AND config #>> '{}' = " + quoteSQLString(view)
+		sqlliteral.QuoteString(wrapperMaterializedViewProcedureName) + " AND config #>> '{}' = " + sqlliteral.QuoteString(view)
 	cleanup := func() {
 		for _, statement := range []string{
 			deleteJobs,
-			"DROP MATERIALIZED VIEW IF EXISTS " + quoteIdentifier(view),
-			"DROP TABLE IF EXISTS " + quoteIdentifier(table),
+			"DROP MATERIALIZED VIEW IF EXISTS " + sqlliteral.QuoteIdentifier(view),
+			"DROP TABLE IF EXISTS " + sqlliteral.QuoteIdentifier(table),
 		} {
 			if _, err := pool.Exec(context.Background(), statement); err != nil {
 				t.Errorf("cleanup: %v: %v", statement, err)
@@ -71,8 +72,8 @@ func TestSetupMaterializedRefreshJobConcurrent(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	for _, statement := range []string{
-		"CREATE TABLE " + quoteIdentifier(table) + " (time TIMESTAMPTZ NOT NULL, station TEXT, lat DOUBLE PRECISION, lon DOUBLE PRECISION)",
-		"INSERT INTO " + quoteIdentifier(table) + " VALUES (now(), 'a', 51.0, 9.0), (now(), 'a', 51.0, 9.0)",
+		"CREATE TABLE " + sqlliteral.QuoteIdentifier(table) + " (time TIMESTAMPTZ NOT NULL, station TEXT, lat DOUBLE PRECISION, lon DOUBLE PRECISION)",
+		"INSERT INTO " + sqlliteral.QuoteIdentifier(table) + " VALUES (now(), 'a', 51.0, 9.0), (now(), 'a', 51.0, 9.0)",
 	} {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatal(err)

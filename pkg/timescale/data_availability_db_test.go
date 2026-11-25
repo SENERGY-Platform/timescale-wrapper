@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/SENERGY-Platform/models/go/models"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -82,19 +83,19 @@ func TestDataAvailabilityOnlyOfRequestedDevice(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		for _, v := range []string{viewA, viewB} {
-			_, _ = pool.Exec(t.Context(), fmt.Sprintf("DROP MATERIALIZED VIEW IF EXISTS %s CASCADE", quoteIdentifier(v)))
+			_, _ = pool.Exec(t.Context(), fmt.Sprintf("DROP MATERIALIZED VIEW IF EXISTS %s CASCADE", sqlliteral.QuoteIdentifier(v)))
 		}
 		for _, tb := range []string{tableA, tableCAbase, tableB, tooLong} {
-			_, _ = pool.Exec(t.Context(), fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", quoteIdentifier(tb)))
+			_, _ = pool.Exec(t.Context(), fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", sqlliteral.QuoteIdentifier(tb)))
 		}
 	})
 	for _, tb := range []string{tableA, tableCAbase, tableB, tooLong} {
-		exec(fmt.Sprintf(`CREATE TABLE %s ("time" timestamptz NOT NULL, v double precision)`, quoteIdentifier(tb)))
-		exec(fmt.Sprintf(`SELECT create_hypertable('%s', 'time')`, strings.ReplaceAll(quoteIdentifier(tb), "'", "''")))
-		exec(fmt.Sprintf(`INSERT INTO %s VALUES ('2021-06-01T10:00:00Z', 1), ('2021-06-03T10:00:00Z', 2)`, quoteIdentifier(tb)))
+		exec(fmt.Sprintf(`CREATE TABLE %s ("time" timestamptz NOT NULL, v double precision)`, sqlliteral.QuoteIdentifier(tb)))
+		exec(fmt.Sprintf(`SELECT create_hypertable('%s', 'time')`, strings.ReplaceAll(sqlliteral.QuoteIdentifier(tb), "'", "''")))
+		exec(fmt.Sprintf(`INSERT INTO %s VALUES ('2021-06-01T10:00:00Z', 1), ('2021-06-03T10:00:00Z', 2)`, sqlliteral.QuoteIdentifier(tb)))
 	}
 	for _, p := range [][2]string{{viewA, tableCAbase}, {viewB, tableB}} {
-		exec(fmt.Sprintf(`CREATE MATERIALIZED VIEW %s WITH (timescaledb.continuous) AS SELECT time_bucket('1 day'::interval, "time") AS "time", last(v, "time") AS v FROM %s GROUP BY 1 WITH NO DATA`, quoteIdentifier(p[0]), quoteIdentifier(p[1])))
+		exec(fmt.Sprintf(`CREATE MATERIALIZED VIEW %s WITH (timescaledb.continuous) AS SELECT time_bucket('1 day'::interval, "time") AS "time", last(v, "time") AS v FROM %s GROUP BY 1 WITH NO DATA`, sqlliteral.QuoteIdentifier(p[0]), sqlliteral.QuoteIdentifier(p[1])))
 	}
 
 	wrapper := &Wrapper{readPool: pool}

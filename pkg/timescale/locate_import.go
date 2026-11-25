@@ -28,6 +28,7 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/locate"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -228,8 +229,8 @@ func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identif
 			return err
 		}
 		_, err = tx.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW IF NOT EXISTS %v AS SELECT DISTINCT %v, %v, %v FROM %v",
-			quoteIdentifier(viewName), quoteIdentifier(identifierPathTs),
-			quoteIdentifier(latPathTs), quoteIdentifier(lonPathTs), quoteIdentifier(tableName)))
+			sqlliteral.QuoteIdentifier(viewName), sqlliteral.QuoteIdentifier(identifierPathTs),
+			sqlliteral.QuoteIdentifier(latPathTs), sqlliteral.QuoteIdentifier(lonPathTs), sqlliteral.QuoteIdentifier(tableName)))
 		if err != nil {
 			return err
 		}
@@ -240,7 +241,7 @@ func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identif
 			return err
 		}
 		_, err = tx.Exec(ctx, fmt.Sprintf("SELECT add_job('%v', '1day', config => %v);",
-			wrapperMaterializedViewProcedureName, quoteSQLString(string(config))))
+			wrapperMaterializedViewProcedureName, sqlliteral.QuoteString(string(config))))
 		return err
 	})
 }

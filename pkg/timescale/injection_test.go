@@ -25,6 +25,7 @@ import (
 	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 )
 
 const injDeviceId = "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
@@ -155,49 +156,9 @@ func TestColumnNameQuoteEscaped(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertContained(t, queries[0], "SELECT now()", "version()", "--")
-	if !strings.HasSuffix(queries[0], " FROM "+quoteIdentifier(injTable)) {
+	if !strings.HasSuffix(queries[0], " FROM "+sqlliteral.QuoteIdentifier(injTable)) {
 		t.Errorf("query does not end with the authorized table: %s", queries[0])
 	}
-}
-
-func TestFilterValueLiteral(t *testing.T) {
-	t.Run("string quotes are doubled", func(t *testing.T) {
-		got, err := filterValueLiteral(`a' OR 1=1 --`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != `'a'' OR 1=1 --'` {
-			t.Errorf("unexpected literal %s", got)
-		}
-	})
-	t.Run("unsupported types are rejected", func(t *testing.T) {
-		for _, v := range []interface{}{
-			map[string]interface{}{"1 OR 1=1 --": 1},
-			[]interface{}{"1 OR 1=1 --"},
-			struct{}{},
-		} {
-			if _, err := filterValueLiteral(v); err == nil {
-				t.Errorf("accepted unsupported filter value %#v", v)
-			}
-		}
-	})
-	t.Run("numbers keep their rendering", func(t *testing.T) {
-		for value, expected := range map[interface{}]string{
-			10:          "10",
-			float64(10): "10",
-			10.5:        "10.5",
-			int64(-3):   "-3",
-			true:        "true",
-		} {
-			got, err := filterValueLiteral(value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != expected {
-				t.Errorf("filterValueLiteral(%v) = %s, want %s", value, got, expected)
-			}
-		}
-	})
 }
 
 // The continuous aggregate lookup embeds the timezone, table and column names into string

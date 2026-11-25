@@ -25,6 +25,7 @@ import (
 
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 )
 
 const servicePrefix = "urn:infai:ses:service:"
@@ -147,7 +148,7 @@ func (wrapper *Wrapper) parseDataAvailability(ctx context.Context, viewTableName
 		GroupTime: groupTime,
 	}
 
-	quotedViewTableName := quoteIdentifier(viewTableName) // read from the database
+	quotedViewTableName := sqlliteral.QuoteIdentifier(viewTableName) // read from the database
 	subRows, err := wrapper.readPool.Query(ctx, fmt.Sprintf("(SELECT time from %s ORDER BY time ASC LIMIT 1) UNION ALL (SELECT time from %s ORDER BY time DESC LIMIT 1);", quotedViewTableName, quotedViewTableName))
 	if err != nil {
 		return nil, err

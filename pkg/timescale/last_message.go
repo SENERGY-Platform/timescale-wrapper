@@ -29,6 +29,7 @@ import (
 	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tablenames"
 	"github.com/jackc/pgx/v5"
 )
@@ -39,7 +40,7 @@ func (wrapper *Wrapper) GetLastMessage(ctx context.Context, deviceId string, ser
 		return entry, err
 	}
 	var rawValues string
-	err = wrapper.readPool.QueryRow(ctx, "select to_json(r) from (select * from "+quoteIdentifier(table)+" order by time desc limit 1) r;").Scan(&rawValues)
+	err = wrapper.readPool.QueryRow(ctx, "select to_json(r) from (select * from "+sqlliteral.QuoteIdentifier(table)+" order by time desc limit 1) r;").Scan(&rawValues)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return entry, model.ErrNoContent

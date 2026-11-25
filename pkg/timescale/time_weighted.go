@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 )
 
 // timeWeightedQuery renders the subquery of a time-weighted-mean-locf or time-weighted-mean-linear
@@ -50,10 +51,10 @@ func timeWeightedQuery(element model.QueriesRequestElement, groupType string, va
 		return "", err
 	}
 	conditions = append(conditions, value+" IS NOT NULL")
-	from := " FROM " + quoteIdentifier(table)
+	from := " FROM " + sqlliteral.QuoteIdentifier(table)
 	where := " WHERE " + strings.Join(conditions, " AND ")
-	tz := quoteSQLString(timezone)
-	width := quoteSQLString(*element.GroupTime) + "::interval"
+	tz := sqlliteral.QuoteString(timezone)
+	width := sqlliteral.QuoteString(*element.GroupTime) + "::interval"
 
 	window, err := timeWeightedWindow(element, time.Now())
 	if err != nil {
@@ -62,14 +63,14 @@ func timeWeightedQuery(element model.QueriesRequestElement, groupType string, va
 	var start, end string
 	switch {
 	case element.Time.Last != nil:
-		start = "now() - interval " + quoteSQLString(*element.Time.Last)
+		start = "now() - interval " + sqlliteral.QuoteString(*element.Time.Last)
 		end = "now()"
 	case element.Time.Ahead != nil:
 		start = "now()"
-		end = "now() + interval " + quoteSQLString(*element.Time.Ahead)
+		end = "now() + interval " + sqlliteral.QuoteString(*element.Time.Ahead)
 	default:
-		start = quoteSQLString(*element.Time.Start) + "::timestamptz"
-		end = quoteSQLString(*element.Time.End) + "::timestamptz"
+		start = sqlliteral.QuoteString(*element.Time.Start) + "::timestamptz"
+		end = sqlliteral.QuoteString(*element.Time.End) + "::timestamptz"
 	}
 	if err := timeWeightedBucketsAllowed(window, *element.GroupTime); err != nil {
 		return "", err

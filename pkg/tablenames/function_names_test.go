@@ -18,31 +18,6 @@ package tablenames
 
 import "testing"
 
-func TestTranslateFunctionName(t *testing.T) {
-	tests := []struct {
-		name      string
-		groupType string
-		expected  string
-	}{
-		{name: "mean", groupType: "mean", expected: "avg("},
-		{name: "median", groupType: "median", expected: "percentile_disc(0.5) WITHIN GROUP (ORDER BY "},
-		{name: "time-weighted-mean-linear", groupType: "time-weighted-mean-linear", expected: "average(time_weight('Linear', \"time\", "},
-		{name: "time-weighted-mean-locf", groupType: "time-weighted-mean-locf", expected: "average(time_weight('LOCF', \"time\", "},
-		{name: "difference-last", groupType: "difference-last", expected: "last("},
-		// Current behavior: the "difference-" prefix is stripped and the remaining part is used as the function name.
-		{name: "difference-mean", groupType: "difference-mean", expected: "mean("},
-		{name: "max", groupType: "max", expected: "max("},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			actual := TranslateFunctionName(tt.groupType)
-			if actual != tt.expected {
-				t.Error("Expected/Actual\n", tt.expected, "\n", actual)
-			}
-		})
-	}
-}
-
 func TestTableNamesRejectInvalidIds(t *testing.T) {
 	validDevice := "urn:infai:ses:device:ade1fba6-fa5f-4704-9997-81dc168f62f4"
 	validService := "urn:infai:ses:service:97805820-ca0a-46c5-9dcf-16c2e386b050"

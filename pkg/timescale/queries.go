@@ -20,54 +20,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/SENERGY-Platform/models/go/models"
-	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/locate"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tablenames"
-	"github.com/jackc/pgx/v5"
 )
 
-// quoteIdentifier renders name as a quoted SQL identifier, escaping any embedded quotes.
-func quoteIdentifier(name string) string {
-	return pgx.Identifier{name}.Sanitize()
-}
-
-// hashedColumnName mirrors util.HashFieldNameIfNeeded, which quotes without escaping.
+// quoteColumnName renders a column name as the table worker names the column: hashed if it is too
+// long for postgres, then quoted. util.HashFieldNameIfNeeded quotes without escaping, so the quotes
+// it adds are replaced by an escaping quote. It stays in this package rather than in
+// pkg/sqlliteral, whose callers outside this module would otherwise import the table worker and
+// its Kafka and database dependencies with it.
 func quoteColumnName(name string) string {
 	hashed := util.HashFieldNameIfNeeded(name)
-	return quoteIdentifier(strings.TrimSuffix(strings.TrimPrefix(hashed, "\""), "\""))
-}
-
-// escapeSQLString escapes s for use inside a single quoted SQL string literal, without adding
-// the surrounding quotes. The implementation lives in pkg/tablenames, which also needs it and
-// must not import this package back, so this is a forwarder rather than a second copy.
-func escapeSQLString(s string) string {
-	return tablenames.EscapeSQLString(s)
-}
-
-// quoteSQLString renders s as a single quoted SQL string literal. See escapeSQLString for why
-// this forwards to pkg/tablenames instead of implementing it locally.
-func quoteSQLString(s string) string {
-	return tablenames.QuoteSQLString(s)
-}
-
-// filterValueLiteral forwards to pkg/locate; see escapeSQLString for why. Values may originate
-// from a request body or from a previous query (see CreateFiltersForImport), so unknown types are
-// rejected rather than printed with %v.
-func filterValueLiteral(value interface{}) (string, error) {
-	return locate.ValueLiteral(value)
-}
-
-// translateFunctionName forwards to pkg/tablenames; see escapeSQLString for why.
-func translateFunctionName(name string) string {
-	return tablenames.TranslateFunctionName(name)
+	return sqlliteral.QuoteIdentifier(strings.TrimSuffix(strings.TrimPrefix(hashed, "\""), "\""))
 }
 
 // Aliases of the lateral join that unnests a list, see columnValue. They are quoted and start with
@@ -79,58 +52,6 @@ const (
 	jsonElementValue   = jsonElementAlias + "." + jsonValueColumn
 	jsonElementOrdinal = jsonElementAlias + "." + jsonOrdinalColumn
 )
-
-// maxJSONIndexLength bounds list indexes taken from a request.
-const maxJSONIndexLength = 9
-
-// jsonPathLiteral renders the segments of a model.JSONPath as a jsonpath string literal. Indexes
-// consist of numerals only, fields are quoted keys, anything else is rejected, so no segment can
-// leave the literal or add path syntax.
-func jsonPathLiteral(segments []string) (string, error) {
-	path := strings.Builder{}
-	path.WriteString("$")
-	for _, segment := range segments {
-		switch {
-		case segment == "*":
-			path.WriteString("[*]")
-		case isJSONIndex(segment):
-			index, err := strconv.Atoi(segment) // drops leading zeros
-			if err != nil {
-				return "", err
-			}
-			path.WriteString("[" + strconv.Itoa(index) + "]")
-		case len(segment) == 0:
-			return "", errors.New("empty json path segment")
-		default:
-			key := strings.Builder{}
-			for _, r := range segment {
-				switch {
-				case r < 0x20 || r == 0x7f:
-					return "", errors.New("invalid character in json path segment")
-				case r == '\\' || r == '"':
-					key.WriteRune('\\')
-					key.WriteRune(r)
-				default:
-					key.WriteRune(r)
-				}
-			}
-			path.WriteString(".\"" + key.String() + "\"")
-		}
-	}
-	return quoteSQLString(path.String()) + "::jsonpath", nil
-}
-
-func isJSONIndex(segment string) bool {
-	if len(segment) == 0 || len(segment) > maxJSONIndexLength {
-		return false
-	}
-	for _, r := range segment {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
 
 // jsonSQLTypes are the casts a model.JSONPath may carry. The type is part of the query text.
 var jsonSQLTypes = map[string]bool{"": true, "text": true, "boolean": true, "double precision": true, "bigint": true}
@@ -161,7 +82,7 @@ func columnValue(element model.QueriesRequestElement, name string, aggregated bo
 	if !ok {
 		return quoteColumnName(name), "", nil
 	}
-	literal, err := jsonPathLiteral(path.Segments)
+	literal, err := sqlliteral.JSONPath(path.Segments)
 	if err != nil {
 		return "", "", err
 	}
@@ -243,7 +164,7 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				if column.Math != nil {
 					query += *column.Math + " "
 				}
-				query += "AS " + quoteIdentifier(column.Name)
+				query += "AS " + sqlliteral.QuoteIdentifier(column.Name)
 			}
 			query += " FROM "
 			l, err := widenTimeWindowForDifference(&element)
@@ -279,21 +200,21 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 					query += "(" + subquery + ") sub" + strconv.Itoa(idx)
 				} else {
 					unnested := join != ""
-					query += "(SELECT time_bucket(" + quoteSQLString(*element.GroupTime) + ", \"time\", " + quoteSQLString(timezone) + ") AS \"time\", "
+					query += "(SELECT time_bucket(" + sqlliteral.QuoteString(*element.GroupTime) + ", \"time\", " + sqlliteral.QuoteString(timezone) + ") AS \"time\", "
 					if strings.HasPrefix(*column.GroupType, "difference") {
 						groupParts := strings.Split(*column.GroupType, "-")
 						if groupParts[1] == "first" || groupParts[1] == "last" {
 							query += firstLast(groupParts[1], columnValueSQL, unnested)
 						} else {
-							query += translateFunctionName(groupParts[1]) + columnValueSQL + ")"
+							query += sqlliteral.FunctionName(groupParts[1]) + columnValueSQL + ")"
 						}
 					} else if *column.GroupType == "first" || *column.GroupType == "last" {
 						query += firstLast(*column.GroupType, columnValueSQL, unnested)
 					} else {
-						query += translateFunctionName(*column.GroupType) + columnValueSQL + ")"
+						query += sqlliteral.FunctionName(*column.GroupType) + columnValueSQL + ")"
 					}
 					query += " AS value"
-					query += " FROM " + quoteIdentifier(table) + join
+					query += " FROM " + sqlliteral.QuoteIdentifier(table) + join
 					where, err := getWhereString(element)
 					if err != nil {
 						return nil, err
@@ -335,9 +256,9 @@ func (wrapper *Wrapper) GenerateQueries(ctx context.Context, elements []model.Qu
 				if column.Math != nil {
 					query += *column.Math
 				}
-				query += " AS " + quoteIdentifier(column.Name)
+				query += " AS " + sqlliteral.QuoteIdentifier(column.Name)
 			}
-			query += " FROM " + quoteIdentifier(table)
+			query += " FROM " + sqlliteral.QuoteIdentifier(table)
 			filterString, err := getFilterString(element, false, nil, nil, nil)
 			if err != nil {
 				return nil, err
@@ -506,11 +427,11 @@ func getWhereString(element model.QueriesRequestElement) (string, error) {
 	}
 	if element.Time != nil {
 		if element.Time.Last != nil {
-			conditions = append(conditions, "\"time\" > now() - interval "+quoteSQLString(*element.Time.Last))
+			conditions = append(conditions, "\"time\" > now() - interval "+sqlliteral.QuoteString(*element.Time.Last))
 		} else if element.Time.Ahead != nil {
-			conditions = append(conditions, "\"time\" > now() AND \"time\" < now() + interval "+quoteSQLString(*element.Time.Ahead))
+			conditions = append(conditions, "\"time\" > now() AND \"time\" < now() + interval "+sqlliteral.QuoteString(*element.Time.Ahead))
 		} else {
-			conditions = append(conditions, "\"time\" > "+quoteSQLString(*element.Time.Start)+" AND \"time\" < "+quoteSQLString(*element.Time.End))
+			conditions = append(conditions, "\"time\" > "+sqlliteral.QuoteString(*element.Time.Start)+" AND \"time\" < "+sqlliteral.QuoteString(*element.Time.End))
 		}
 	}
 	if len(conditions) == 0 {
@@ -541,7 +462,7 @@ func getFilterConditions(element model.QueriesRequestElement) (conditions []stri
 			}
 			condition += "NULL"
 		} else {
-			value, err := filterValueLiteral(filter.Value)
+			value, err := sqlliteral.ValueLiteral(filter.Value)
 			if err != nil {
 				return nil, err
 			}
