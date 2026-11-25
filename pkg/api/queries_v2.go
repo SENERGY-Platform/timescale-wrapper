@@ -25,7 +25,6 @@ import (
 	"sync"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
-	"github.com/SENERGY-Platform/device-repository/lib/idmodifier"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
@@ -66,6 +65,7 @@ func init() {
 // @Failure      500
 // @Router       /queries/v2 [POST]
 func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, deviceSelectionClient deviceSelection.Client) {
+	h := &v2Handler{pipeline: newPipeline(config, wrapper, verifier, remoteCache, converter), timescale: wrapper, verifier: verifier}
 	router.POST("/queries/v2", func(c *gin.Context) {
 		tracer := otel.Tracer("api/queries_v2.go:QueriesV2Endpoint")
 		request := c.Request
@@ -137,6 +137,10 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		// repository, device selection and database once per element, so its
 		// spans are suppressed and this one span covers the whole fan-out.
 		elementCtx := tracing.SuppressChildren(queryGenCtx, config.DetailedTracing)
+		params := v2Params{userId: userId, token: getToken(request), forceTz: forceTz, timeFormat: timeFormat}
+		if len(locateLat) > 0 && len(locateLon) > 0 {
+			params.locate = &[2]float64{locateLatFloat, locateLonFloat}
+		}
 		mux := sync.Mutex{}
 		wg := sync.WaitGroup{}
 		var raisedErr error
@@ -145,212 +149,37 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			defer mux.Unlock()
 			raisedErr = errors.Join(raisedErr, err)
 		}
-		token := getToken(request)
+		// every element writes the series of its own slot, which are filed in the order of the elements below
+		results := make([][]v2Series, len(dbRequestElementsBefore))
 		for i, dbRequestElement := range dbRequestElementsBefore {
 			wg.Add(1)
-			i := i
-			dbRequestElement := dbRequestElement
-			columnMatch := map[int]struct {
-				colIdx int
-				elem   *model.QueriesRequestElement
-			}{}
 			go func() {
 				defer wg.Done()
-				dbRequestElements := []model.QueriesRequestElement{}
-				devices := []models.Device{}
+				requestIndex := dbRequestIndices[i]
+				var subs []subQuery
+				var devices []models.Device
+				var err error
 				if dbRequestElement.DeviceGroupId == nil && dbRequestElement.LocationId == nil {
-					for colIdx, col := range dbRequestElement.Columns {
-						filters := []model.QueriesRequestElementFilter{}
-						if dbRequestElement.Filters != nil {
-							filters = append(filters, *dbRequestElement.Filters...)
-						}
-						if dbRequestElement.ExportId != nil && len(locateLat) > 0 && len(locateLon) > 0 {
-							token := getToken(request)
-							importFilters, err := wrapper.CreateFiltersForImport(elementCtx, *dbRequestElement.ExportId, userId, token, locateLatFloat, locateLonFloat)
-							if err != nil {
-								raiseError(errors.Join(err, model.ErrBadRequest))
-								return
-							}
-							filters = append(filters, importFilters...)
-						}
-
-						if dbRequestElement.DeviceId != nil {
-							device, err := remoteCache.GetDevice(elementCtx, *dbRequestElement.DeviceId, token)
-							if err != nil {
-								raiseError(classify(err, model.ErrInternalServerError))
-								return
-							}
-							devices = append(devices, device)
-						}
-
-						elem := model.QueriesRequestElement{
-							ExportId:         dbRequestElement.ExportId,
-							DeviceId:         dbRequestElement.DeviceId,
-							ServiceId:        dbRequestElement.ServiceId,
-							Time:             dbRequestElement.Time,
-							Limit:            dbRequestElement.Limit,
-							Columns:          []model.QueriesRequestElementColumn{col},
-							Filters:          &filters,
-							GroupTime:        dbRequestElement.GroupTime,
-							OrderColumnIndex: dbRequestElement.OrderColumnIndex,
-							OrderDirection:   dbRequestElement.OrderDirection,
-						}
-						columnMatch[len(dbRequestElements)] = struct {
-							colIdx int
-							elem   *model.QueriesRequestElement
-						}{
-							colIdx: colIdx,
-							elem:   &elem,
-						}
-						dbRequestElements = append(dbRequestElements, elem)
-					}
+					subs, devices, err = h.expandDirect(elementCtx, params, dbRequestElement, requestIndex)
 				} else {
-					deviceGroupIds := []string{}
-					deviceIds := []string{}
-					if dbRequestElement.DeviceGroupId != nil {
-						deviceGroupIds = append(deviceGroupIds, *dbRequestElement.DeviceGroupId)
-					}
-					if dbRequestElement.LocationId != nil {
-						location, err := remoteCache.GetLocation(elementCtx, *dbRequestElement.LocationId, token)
-						if err != nil {
-							raiseError(classify(err, model.ErrInternalServerError))
-							return
-						}
-						deviceIds = append(deviceIds, location.DeviceIds...)
-						err = verifyDerivedDeviceGroups(elementCtx, location.DeviceGroupIds, func(ctx context.Context, id string) (bool, error) {
-							entry, err := verifier.VerifyAccessOnce(ctx, model.QueriesRequestElement{DeviceGroupId: &id}, token, userId)
-							return entry.Ok, err
-						})
-						if err != nil {
-							raiseError(err)
-							return
-						}
-						deviceGroupIds = append(deviceGroupIds, location.DeviceGroupIds...)
-					}
-
-					for _, deviceGroupid := range deviceGroupIds {
-						deviceGroup, err := remoteCache.GetDeviceGroup(elementCtx, deviceGroupid, token)
-						if err != nil {
-							raiseError(classify(err, model.ErrInternalServerError))
-							return
-						}
-						deviceIds = append(deviceIds, deviceGroup.DeviceIds...)
-					}
-					for colIdx, col := range dbRequestElement.Columns {
-						f, err := remoteCache.GetFunction(elementCtx, col.Criteria.FunctionId)
-						if err != nil {
-							raiseError(classify(err, model.ErrInternalServerError))
-							return
-						}
-
-						criteria := []models.DeviceGroupFilterCriteria{col.Criteria}
-
-						selectables, code, err := remoteCache.GetSelectables(elementCtx, userId, token, criteria, &deviceSelection.GetSelectablesOptions{
-							IncludeDevices:    true,
-							WithDeviceIds:     deviceIds,
-							IncludeIdModified: true,
-						})
-						if err != nil {
-							raiseError(classify(err, model.GetError(code)))
-							return
-						}
-						for _, selectable := range selectables {
-							if !slices.Contains(deviceIds, selectable.Device.Id) {
-								continue //ensures only correctly modified device ids included
-							}
-							pureDeviceId, _ := idmodifier.SplitModifier(selectable.Device.Id)
-							for serviceId, paths := range selectable.ServicePathOptions {
-								serviceId := serviceId
-								columns := []model.QueriesRequestElementColumn{}
-								for _, path := range paths {
-									columns = append(columns, model.QueriesRequestElementColumn{
-										Name:                   path.Path,
-										GroupType:              col.GroupType,
-										Math:                   col.Math,
-										SourceCharacteristicId: &path.CharacteristicId,
-										TargetCharacteristicId: col.TargetCharacteristicId,
-										ConceptId:              &f.ConceptId,
-									})
-								}
-								elem := model.QueriesRequestElement{
-									DeviceId:         &pureDeviceId,
-									ServiceId:        &serviceId,
-									Time:             dbRequestElement.Time,
-									Limit:            dbRequestElement.Limit,
-									Columns:          columns,
-									Filters:          dbRequestElement.Filters,
-									GroupTime:        dbRequestElement.GroupTime,
-									OrderColumnIndex: dbRequestElement.OrderColumnIndex,
-									OrderDirection:   dbRequestElement.OrderDirection,
-								}
-								columnMatch[len(dbRequestElements)] = struct {
-									colIdx int
-									elem   *model.QueriesRequestElement
-								}{
-									colIdx: colIdx,
-									elem:   &elem,
-								}
-								dbRequestElements = append(dbRequestElements, elem)
-							}
-						}
-					}
+					subs, devices, err = h.expandCriteria(elementCtx, params, dbRequestElement, requestIndex)
 				}
-
-				ownerUserIds := slices.Repeat([]string{ownerUserIdsBefore[dbRequestIndices[i]]}, len(dbRequestElements))
-				err := resolveJSONPaths(elementCtx, remoteCache, dbRequestElements)
 				if err != nil {
-					raiseError(classify(err, model.ErrInternalServerError))
+					raiseError(err)
 					return
 				}
-
-				queries, err := wrapper.GenerateQueries(elementCtx, dbRequestElements, userId, ownerUserIds, forceTz, devices)
+				results[i], err = h.querySubs(elementCtx, params, dbRequestElement, ownerUserIdsBefore[requestIndex], subs, devices)
 				if err != nil {
-					raiseError(classify(err, model.ErrInternalServerError))
-					return
-				}
-
-				data, err := wrapper.ExecuteQueries(elementCtx, queries)
-				if err != nil {
-					raiseError(classifyDB(err))
-					return
-				}
-
-				orderColumnIndex, orderDirection := v2Order(dbRequestElement)
-				subResponse, err := formatResponse(elementCtx, remoteCache, model.PerQuery, dbRequestElements, data, orderColumnIndex, orderDirection, timeFormat, converter)
-				if err != nil {
-					raiseError(classify(err, model.ErrInternalServerError))
-					return
-				}
-				subResponseCasted, ok := subResponse.([][][]interface{})
-				if !ok {
-					raiseError(errors.Join(errors.New("could not cast subresponse"), model.ErrInternalServerError))
-					return
-				}
-
-				// merge DB results with remoteCache results
-				mux.Lock()
-				defer mux.Unlock()
-				for j := range subResponseCasted {
-					if len(columnMatch) == 0 {
-						columnNames := []string{}
-						for _, col := range dbRequestElement.Columns {
-							columnNames = append(columnNames, col.Name)
-						}
-						response = append(response, model.QueriesV2ResponseElement{
-							DeviceId:     dbRequestElement.DeviceId,
-							ServiceId:    dbRequestElement.ServiceId,
-							ExportId:     dbRequestElement.ExportId,
-							ColumnNames:  columnNames,
-							RequestIndex: dbRequestIndices[i],
-							Data:         [][][]interface{}{subResponseCasted[j]},
-						})
-					} else {
-						response = mergeQueriesV2Series(response, dbRequestIndices[i], columnMatch[j].elem, columnMatch[j].colIdx, subResponseCasted[j])
-					}
+					raiseError(err)
 				}
 			}()
 		}
 		wg.Wait()
+		for _, elementSeries := range results {
+			for _, series := range elementSeries {
+				response = mergeQueriesV2Series(response, series.requestIndex, &series.element, series.columnIndex, series.rows)
+			}
+		}
 		queryGenSpan.SetAttributes(attribute.Int("request.elements", len(dbRequestElementsBefore)))
 		if raisedErr != nil {
 			queryGenSpan.RecordError(raisedErr)
