@@ -202,7 +202,7 @@ func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifie
 	asc := model.Asc
 	requestElement.OrderDirection = &asc
 	if requestElement.Time == nil {
-		c.Error(errors.Join(errors.New("need time element"), model.ErrInternalServerError))
+		c.Error(errors.Join(errors.New("need time element"), model.ErrBadRequest))
 		return elem, false
 	}
 

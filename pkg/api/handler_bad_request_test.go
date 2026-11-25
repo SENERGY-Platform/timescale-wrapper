@@ -140,6 +140,7 @@ func TestPrepareDownloadRejectsBadQueries(t *testing.T) {
 	}{
 		// the handler must not add an error of its own after the 400, the last status wins
 		{"invalid element returns 400", "{}"},
+		{"element without time returns 400", `{"deviceId":"d","serviceId":"` + badRequestServiceId + `","columns":[{"name":"root.a"}]}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
