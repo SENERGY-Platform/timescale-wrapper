@@ -364,3 +364,14 @@ func TestVerifyAccessKindsDoNotShareCache(t *testing.T) {
 		t.Errorf("%d permission calls (%v), want 3", len(fake.topics), fake.topics)
 	}
 }
+
+// A denied access is cached for a minute, so that a permission just granted takes effect soon; a
+// granted one for the expiration of the cache.
+func TestVerifierCacheExpiration(t *testing.T) {
+	if got := verifierCacheExpiration(VerifierCacheEntry{Ok: false}); got != 60 {
+		t.Errorf("denied: %d seconds, want 60", got)
+	}
+	if got := verifierCacheExpiration(VerifierCacheEntry{Ok: true}); got != cache.LocalCacheExpirationInSec {
+		t.Errorf("granted: %d seconds, want %d", got, cache.LocalCacheExpirationInSec)
+	}
+}

@@ -100,10 +100,23 @@ func resourceOf(element model.QueriesRequestElement) (kind *resourceKind, id str
 	return nil, "", false
 }
 
+// deniedExpirationInSec is how long a denied access stays cached. Shorter than the expiration of
+// a granted one, so that a permission just granted takes effect within a minute.
+const deniedExpirationInSec = 60
+
 func (verifier *Verifier) verifyResource(ctx context.Context, kind *resourceKind, id string, token string, userId string) (VerifierCacheEntry, error) {
-	return cache.UseLocal(verifier.c, kind.name+":"+userId+":"+id, func() (VerifierCacheEntry, error) {
+	return cache.UseLocalFor(verifier.c, kind.name+":"+userId+":"+id, func() (VerifierCacheEntry, error) {
 		return kind.check(verifier, ctx, id, token, userId)
-	})
+	}, verifierCacheExpiration)
+}
+
+// verifierCacheExpiration keeps a denied access for deniedExpirationInSec and a granted one for
+// the expiration of the cache.
+func verifierCacheExpiration(entry VerifierCacheEntry) int {
+	if !entry.Ok {
+		return deniedExpirationInSec
+	}
+	return cache.LocalCacheExpirationInSec
 }
 
 type resourceKey struct {

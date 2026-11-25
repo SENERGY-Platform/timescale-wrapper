@@ -19,6 +19,7 @@ package cache
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 type localTestValue struct {
@@ -76,5 +77,28 @@ func TestUseLocalKeysAreIndependent(t *testing.T) {
 	b, _ := UseLocal(c, "b", func() (int, error) { return 2, nil })
 	if a != 1 || b != 2 {
 		t.Errorf("a=%d b=%d", a, b)
+	}
+}
+
+// UseLocalFor keeps each result for the expiration chosen for it.
+func TestUseLocalForExpiresPerResult(t *testing.T) {
+	c := NewLocal()
+	calls := 0
+	getter := func() (string, error) { calls++; return "v", nil }
+	short := func(string) int { return 1 }
+	for range 2 {
+		if _, err := UseLocalFor(c, "short", getter, short); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("getter called %d times before the expiration, want 1", calls)
+	}
+	time.Sleep(2100 * time.Millisecond)
+	if _, err := UseLocalFor(c, "short", getter, short); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("getter called %d times after the expiration, want 2", calls)
 	}
 }

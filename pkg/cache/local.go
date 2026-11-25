@@ -48,7 +48,11 @@ func (this *LocalCache) Get(key string) (value []byte, err error) {
 }
 
 func (this *LocalCache) Set(key string, value []byte) {
-	err := this.l1.Set([]byte(key), value, this.expiration)
+	this.setFor(key, value, this.expiration)
+}
+
+func (this *LocalCache) setFor(key string, value []byte, expirationInSec int) {
+	err := this.l1.Set([]byte(key), value, expirationInSec)
 	if err != nil {
 		log.Logger.Warn("err in LocalCache::l1.Set()", attributes.ErrorKey, err)
 	}
@@ -56,9 +60,14 @@ func (this *LocalCache) Set(key string, value []byte) {
 }
 
 // UseLocal returns the value cached under key. On a miss it calls getter, stores the
-// JSON encoding of its result and returns the getter's value as is. Errors from getter
-// are returned and not cached.
+// JSON encoding of its result for the expiration of the cache and returns the getter's
+// value as is. Errors from getter are returned and not cached.
 func UseLocal[T any](c *LocalCache, key string, getter func() (T, error)) (T, error) {
+	return UseLocalFor(c, key, getter, func(T) int { return c.expiration })
+}
+
+// UseLocalFor is UseLocal with an expiration in seconds chosen per result.
+func UseLocalFor[T any](c *LocalCache, key string, getter func() (T, error), expirationInSec func(T) int) (T, error) {
 	var result T
 	value, err := c.Get(key)
 	if err == nil {
@@ -77,6 +86,6 @@ func UseLocal[T any](c *LocalCache, key string, getter func() (T, error)) (T, er
 		var zero T
 		return zero, err
 	}
-	c.Set(key, value)
+	c.setFor(key, value, expirationInSec(result))
 	return result, nil
 }
