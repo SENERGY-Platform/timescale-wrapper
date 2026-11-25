@@ -103,6 +103,15 @@ func TestBuildOutput(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// a negative index passed the upper bound check and panicked on l[i]
+			name: "negative list index is an error",
+			cv: models.ContentVariable{Name: "list", Type: models.List, SubContentVariables: []models.ContentVariable{
+				{Name: "-1", Type: models.Float},
+			}},
+			values:  map[string]interface{}{},
+			wantErr: true,
+		},
+		{
 			name:   "missing value yields nil without error",
 			cv:     models.ContentVariable{Name: "temp", Type: models.Float},
 			values: map[string]interface{}{},

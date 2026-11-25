@@ -110,8 +110,8 @@ func buildOutput(cv models.ContentVariable, jsonValues map[string]interface{}, p
 			if err != nil {
 				return nil, err
 			}
-			if i > len(l)-1 {
-				return nil, fmt.Errorf("index too large %d", i)
+			if i < 0 || i > len(l)-1 {
+				return nil, fmt.Errorf("index out of range %d", i)
 			}
 			subMap, err := buildOutput(sub, jsonValues, path)
 			if err != nil {
