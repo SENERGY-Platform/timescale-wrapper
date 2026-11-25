@@ -18,7 +18,6 @@ package timescale
 
 import (
 	"context"
-	"sync"
 
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tracing"
@@ -26,8 +25,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/errgroup"
 )
 
+// ExecuteQueries runs the queries in parallel and returns their rows in the order of queries.
+//
+// At most as many queries run at once as the pool has connections; more would only wait for a
+// connection. The first error cancels the queries still running and is returned.
 func (wrapper *Wrapper) ExecuteQueries(ctx context.Context, queries []string) (res [][][]interface{}, err error) {
 	res = make([][][]interface{}, len(queries))
 	// otelpgx traces every query and every pool acquire, which is one span pair
@@ -35,31 +39,25 @@ func (wrapper *Wrapper) ExecuteQueries(ctx context.Context, queries []string) (r
 	// instead.
 	trace.SpanFromContext(ctx).SetAttributes(attribute.Int("db.queries", len(queries)))
 	ctx = tracing.SuppressChildren(ctx, wrapper.config.DetailedTracing)
-	wg := sync.WaitGroup{} // handle multiple queries in parallel
-	mux := sync.Mutex{}    // prevent overwriting error in case of multiple queries
+	group, ctx := errgroup.WithContext(ctx)
+	group.SetLimit(int(MaxConns(wrapper.config)))
 	for i, query := range queries {
-		wg.Add(1)
-		i := i         // make thread safe
-		query := query // make thread safe
-		go func() {
+		group.Go(func() error {
 			if wrapper.config.Debug {
 				log.Logger.DebugContext(ctx, "Query", "index", i, "query", query)
 			}
-			resS, errS := wrapper.ExecuteQuery(ctx, query)
-			if errS != nil { // Prevents overwriting with nil
-				mux.Lock()
-				err = errS
-				mux.Unlock()
-			} else {
-				mux.Lock()
-				res[i] = resS
-				mux.Unlock()
+			rows, err := wrapper.ExecuteQuery(ctx, query)
+			if err != nil {
+				return err
 			}
-			wg.Done()
-		}()
+			res[i] = rows // each goroutine writes its own index
+			return nil
+		})
 	}
-	wg.Wait()
-	return
+	if err = group.Wait(); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // ExecuteQuery runs query on the read connection.
