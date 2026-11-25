@@ -18,6 +18,7 @@ package timescale
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -148,5 +149,91 @@ func TestTableNameCachesTheContinuousAggregateLookup(t *testing.T) {
 		if got != noViewTable {
 			t.Fatalf("call %d without a view: tableName = %q, want the base table %q", i+1, got, noViewTable)
 		}
+	}
+}
+
+// TestContinuousAggregateAnswersLikeTheRawTable reads daily max, min, sum and last from an hourly
+// continuous aggregate and compares them with the same query on the raw table. Aggregates with
+// one argument were never found before, because the lookup expected a "time" argument in them.
+// Skipped when TEST_POSTGRES_DSN is unset.
+func TestContinuousAggregateAnswersLikeTheRawTable(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	const viewName = "ts_wrapper_ca_answers_test_view"
+	view := sqlliteral.QuoteIdentifier(viewName)
+	if _, err := pool.Exec(ctx, "DROP MATERIALIZED VIEW IF EXISTS "+view); err != nil {
+		t.Fatal(err)
+	}
+	deviceId, serviceId := "urn:infai:ses:device:3e4f5a6b-7c8d-4e9f-a0b1-c2d3e4f5a6b7", caLookupTestServiceId
+	table := caLookupTestTable(ctx, t, pool, deviceId, serviceId)
+	quoted := sqlliteral.QuoteIdentifier(table)
+	// a reading every 10 minutes over three days, with values that differ per hour and per day
+	if _, err := pool.Exec(ctx, "INSERT INTO "+quoted+" SELECT t, extract(epoch FROM t)::bigint % 997 FROM generate_series('2026-01-10T00:05:00+01:00'::timestamptz, '2026-01-12T23:55:00+01:00', interval '10 minutes') t"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "CREATE MATERIALIZED VIEW "+view+" WITH (timescaledb.continuous) AS "+
+		"SELECT time_bucket('1 hour'::interval, \"time\", '"+dbTestTimezone+"') AS \"time\", "+
+		"max(value) AS value, min(value) AS value_min, sum(value) AS value_sum, last(value, \"time\") AS value_last "+
+		"FROM "+quoted+" GROUP BY 1 WITH NO DATA"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), "DROP MATERIALIZED VIEW IF EXISTS "+view); err != nil {
+			t.Log("could not drop test view:", err)
+		}
+	})
+	if _, err := pool.Exec(ctx, "CALL refresh_continuous_aggregate("+sqlliteral.QuoteString(viewName)+", NULL, NULL)"); err != nil {
+		t.Fatal(err)
+	}
+
+	start, end := "2026-01-10T00:00:00+01:00", "2026-01-13T00:00:00+01:00"
+	query := func(t *testing.T, wrapper *Wrapper, groupType string) [][]interface{} {
+		t.Helper()
+		groupTime := "1d"
+		element := model.QueriesRequestElement{
+			DeviceId: &deviceId, ServiceId: &serviceId, GroupTime: &groupTime,
+			Time:    &model.QueriesRequestElementTime{Start: &start, End: &end},
+			Columns: []model.QueriesRequestElementColumn{{Name: "value", GroupType: &groupType}},
+		}
+		queries, err := wrapper.GenerateQueries(ctx, []model.QueriesRequestElement{element}, "", []string{""}, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, err := executeQuery(ctx, pool, queries[0])
+		if err != nil {
+			t.Fatal(queries[0], err)
+		}
+		return rows
+	}
+	viaView := &Wrapper{config: &configuration.ConfigStruct{DefaultTimezone: dbTestTimezone}, readPool: pool}
+	raw := &Wrapper{config: viaView.config} // no read pool: no lookup, always the raw table
+	groupTime := "1d"
+	element := func(groupType string) model.QueriesRequestElement {
+		return model.QueriesRequestElement{DeviceId: &deviceId, ServiceId: &serviceId, GroupTime: &groupTime,
+			Columns: []model.QueriesRequestElementColumn{{Name: "value", GroupType: &groupType}}}
+	}
+
+	// max(value) AS value is in the view: it is read from there and answers like the raw table
+	if got, err := viaView.tableName(ctx, element("max"), "", dbTestTimezone); err != nil || got != viewName {
+		t.Fatalf("max: tableName = %q, %v, want the view %q", got, err, viewName)
+	}
+	want, got := query(t, raw, "max"), query(t, viaView, "max")
+	if len(want) != 3 || fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("max via the view %v, raw %v", got, want)
+	}
+
+	// the view has last(value, "time") only as value_last, whose name starts with value: the lookup
+	// used to take that for the column value and read the max from it
+	if got, err := viaView.tableName(ctx, element("last"), "", dbTestTimezone); err != nil || got != table {
+		t.Fatalf("last: tableName = %q, %v, want the raw table %q", got, err, table)
 	}
 }

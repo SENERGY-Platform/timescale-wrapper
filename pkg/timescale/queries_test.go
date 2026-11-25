@@ -612,8 +612,8 @@ func TestQueries(t *testing.T) {
 			t.Error(err)
 		}
 		expected := "SELECT view_name FROM (SELECT view_name, substring(view_definition, 'time_bucket\\((.*?)::interval, \"time\", ''Europe/Berlin''')::interval as bucket FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = 'table' " +
-			"AND view_definition LIKE '%first(test1, \"time\") AS test1%'" +
-			"AND view_definition LIKE '%last(\"test.2\", \"time\") AS \"test.2\"%'" +
+			"AND view_definition LIKE ANY (ARRAY['%first(test1, \"time\") AS test1,%', '%first(test1, \"time\") AS test1' || chr(10) || '%']) " +
+			"AND view_definition LIKE ANY (ARRAY['%last(\"test.2\", \"time\") AS \"test.2\",%', '%last(\"test.2\", \"time\") AS \"test.2\"' || chr(10) || '%']) " +
 			") sub WHERE bucket <= '1d'::interval ORDER BY bucket DESC LIMIT 1;"
 		if actual != expected {
 			t.Error("Expected/Actual\n", expected, "\n", actual)

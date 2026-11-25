@@ -73,7 +73,8 @@ type ContinuousAggregateColumn struct {
 // ContinuousAggregateQuery returns the SQL that looks up, in
 // timescaledb_information.continuous_aggregates, a continuous aggregate view on table whose
 // bucket size is at most bucketInterval and whose view definition aggregates every one of
-// columns with its given function.
+// columns with its given function. Which aggregations a view can answer: see
+// continuousAggregateCall.
 func ContinuousAggregateQuery(table string, bucketInterval string, timezone string, columns []ContinuousAggregateColumn) (string, error) {
 	// timezone, table and column names are embedded in string literals, so single quotes have
 	// to be doubled
@@ -83,30 +84,66 @@ func ContinuousAggregateQuery(table string, bucketInterval string, timezone stri
 		if column.GroupType == "" {
 			return "", errors.New("expected all columns to contain GroupType")
 		}
-		if column.GroupType == "mean" {
-			// not implemented
-			return "", errors.New("")
+		call, err := continuousAggregateCall(column)
+		if err != nil {
+			return "", err
 		}
-		escapedName := sqlliteral.EscapeString(column.Name)
-		query += "AND view_definition LIKE '%" + strings.ReplaceAll(sqlliteral.FunctionName(column.GroupType), "'", "''")
-		containsDot := strings.Contains(column.Name, ".")
-		if containsDot {
-			query += "\"" + escapedName + "\""
-		} else {
-			query += escapedName
-		}
-		query += ", \"time\") AS "
-		if containsDot {
-			query += "\"" + escapedName + "\""
-		} else {
-			query += escapedName
-		}
-		query += "%'"
+		// PostgreSQL prints one select item per line: the item ends with a comma, or with the line
+		// break before FROM. Matching the end keeps "AS value" from matching "AS value_last".
+		pattern := sqlliteral.EscapeString(likeEscape(call))
+		query += "AND view_definition LIKE ANY (ARRAY['%" + pattern + ",%', '%" + pattern + "' || chr(10) || '%']) "
 	}
 	query += ") sub WHERE bucket <= " + sqlliteral.QuoteString(bucketInterval) + "::interval ORDER BY bucket DESC"
 	query += " LIMIT 1;"
 
 	return query, nil
+}
+
+// continuousAggregateCall renders the aggregate of column as PostgreSQL prints it in the
+// definition of a continuous aggregate, e.g. last(value, "time") AS value or max("a.b") AS "a.b".
+//
+// The caller buckets the rows of the view again with the same function, so a view only answers
+// aggregations that give the same result over pre-aggregated buckets as over the raw rows: first,
+// last, min, max and sum, and their difference-* forms. mean, median and count do not (a mean of
+// means, a count of buckets), and time-weighted means need the raw points.
+func continuousAggregateCall(column ContinuousAggregateColumn) (string, error) {
+	function := column.GroupType
+	if base, found := strings.CutPrefix(function, "difference-"); found {
+		function = base
+	}
+	name := viewDefinitionIdentifier(column.Name)
+	switch function {
+	case "first", "last":
+		return function + "(" + name + ", \"time\") AS " + name, nil
+	case "min", "max", "sum":
+		return function + "(" + name + ") AS " + name, nil
+	default:
+		return "", errors.New("group type " + column.GroupType + " can not be read from a continuous aggregate")
+	}
+}
+
+// likeEscape escapes the wildcards of LIKE, with the default escape character backslash, so that
+// s matches only itself: "_" in a column name would otherwise match any character.
+func likeEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+// viewDefinitionIdentifier renders name as PostgreSQL prints an identifier in a view definition:
+// unquoted if it consists of lower case letters, digits and underscores and does not start with a
+// digit, quoted otherwise. Reserved words, which PostgreSQL quotes as well, are not handled; no
+// column of a device table is named like one.
+func viewDefinitionIdentifier(name string) string {
+	plain := name != ""
+	for i, r := range name {
+		if !(r >= 'a' && r <= 'z' || r == '_' || i > 0 && r >= '0' && r <= '9') {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return name
+	}
+	return "\"" + strings.ReplaceAll(name, "\"", "\"\"") + "\""
 }
 
 // EscapeSQLString escapes s for use inside a single quoted SQL string literal, without adding the

@@ -57,8 +57,8 @@ func TestContinuousAggregateQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := "SELECT view_name FROM (SELECT view_name, substring(view_definition, 'time_bucket\\((.*?)::interval, \"time\", ''Europe/Berlin''')::interval as bucket FROM timescaledb_information.continuous_aggregates WHERE hypertable_name = 'table' " +
-		"AND view_definition LIKE '%first(test1, \"time\") AS test1%'" +
-		"AND view_definition LIKE '%last(\"test.2\", \"time\") AS \"test.2\"%'" +
+		"AND view_definition LIKE ANY (ARRAY['%first(test1, \"time\") AS test1,%', '%first(test1, \"time\") AS test1' || chr(10) || '%']) " +
+		"AND view_definition LIKE ANY (ARRAY['%last(\"test.2\", \"time\") AS \"test.2\",%', '%last(\"test.2\", \"time\") AS \"test.2\"' || chr(10) || '%']) " +
 		") sub WHERE bucket <= '1d'::interval ORDER BY bucket DESC LIMIT 1;"
 	if actual != expected {
 		t.Error("Expected/Actual\n", expected, "\n", actual)
@@ -76,5 +76,36 @@ func TestContinuousAggregateQueryRejectsMean(t *testing.T) {
 	_, err := ContinuousAggregateQuery("table", "1d", "Europe/Berlin", []ContinuousAggregateColumn{{Name: "test1", GroupType: "mean"}})
 	if err == nil {
 		t.Error("expected an error for GroupType mean")
+	}
+}
+
+// TestContinuousAggregateCall pins the aggregate a view definition has to contain. Aggregates with
+// one argument used to be searched with a "time" argument they never have, so a view could only
+// ever be found for first and last.
+func TestContinuousAggregateCall(t *testing.T) {
+	for _, tc := range []struct {
+		column ContinuousAggregateColumn
+		want   string
+	}{
+		{ContinuousAggregateColumn{Name: "value", GroupType: "last"}, `last(value, "time") AS value`},
+		{ContinuousAggregateColumn{Name: "value", GroupType: "difference-first"}, `first(value, "time") AS value`},
+		{ContinuousAggregateColumn{Name: "value", GroupType: "max"}, `max(value) AS value`},
+		{ContinuousAggregateColumn{Name: "value", GroupType: "min"}, `min(value) AS value`},
+		{ContinuousAggregateColumn{Name: "value", GroupType: "sum"}, `sum(value) AS value`},
+		{ContinuousAggregateColumn{Name: "value", GroupType: "difference-max"}, `max(value) AS value`},
+		{ContinuousAggregateColumn{Name: "sensor.ENERGY.Total", GroupType: "max"}, `max("sensor.ENERGY.Total") AS "sensor.ENERGY.Total"`},
+		{ContinuousAggregateColumn{Name: "Value", GroupType: "max"}, `max("Value") AS "Value"`},
+		{ContinuousAggregateColumn{Name: "v_1", GroupType: "max"}, `max(v_1) AS v_1`},
+		{ContinuousAggregateColumn{Name: "1v", GroupType: "max"}, `max("1v") AS "1v"`},
+	} {
+		got, err := continuousAggregateCall(tc.column)
+		if err != nil || got != tc.want {
+			t.Errorf("%+v: got %q, %v, want %q", tc.column, got, err, tc.want)
+		}
+	}
+	for _, groupType := range []string{"mean", "median", "count", "difference-mean", "difference-count", "time-weighted-mean-locf", "time-weighted-mean-linear"} {
+		if _, err := continuousAggregateCall(ContinuousAggregateColumn{Name: "value", GroupType: groupType}); err == nil {
+			t.Errorf("%s: expected an error, re-aggregating its buckets gives a different result", groupType)
+		}
 	}
 }
