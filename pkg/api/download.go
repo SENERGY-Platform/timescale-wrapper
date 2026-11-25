@@ -245,16 +245,10 @@ func resolveRelativeDownloadTime(t *model.QueriesRequestElementTime, now time.Ti
 	if t.Start != nil {
 		return nil
 	}
-	from, to := now, now
-	var err error
-	switch {
-	case t.Last != nil:
-		from, err = model.AddTimeInterval(now, *t.Last, -1)
-	case t.Ahead != nil:
-		to, err = model.AddTimeInterval(now, *t.Ahead, 1)
-	default:
+	if t.Last == nil && t.Ahead == nil {
 		return nil
 	}
+	from, to, err := t.Bounds(now)
 	if err != nil {
 		return err
 	}

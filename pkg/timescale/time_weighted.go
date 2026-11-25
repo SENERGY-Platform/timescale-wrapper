@@ -56,22 +56,15 @@ func timeWeightedQuery(element model.QueriesRequestElement, groupType string, va
 	tz := sqlliteral.QuoteString(timezone)
 	width := sqlliteral.QuoteString(*element.GroupTime) + "::interval"
 
-	window, err := timeWeightedWindow(element, time.Now())
+	if element.Time == nil {
+		return "", errors.Join(errors.New("time-weighted group types need a time window"), model.ErrBadRequest)
+	}
+	windowStart, windowEnd, err := element.Time.Bounds(time.Now())
 	if err != nil {
 		return "", err
 	}
-	var start, end string
-	switch {
-	case element.Time.Last != nil:
-		start = "now() - interval " + sqlliteral.QuoteString(*element.Time.Last)
-		end = "now()"
-	case element.Time.Ahead != nil:
-		start = "now()"
-		end = "now() + interval " + sqlliteral.QuoteString(*element.Time.Ahead)
-	default:
-		start = sqlliteral.QuoteString(*element.Time.Start) + "::timestamptz"
-		end = sqlliteral.QuoteString(*element.Time.End) + "::timestamptz"
-	}
+	window := [2]time.Time{windowStart, windowEnd}
+	start, end := sqlBounds(element.Time)
 	if err := timeWeightedBucketsAllowed(window, *element.GroupTime); err != nil {
 		return "", err
 	}
@@ -171,31 +164,6 @@ const maxTimeWeightedBuckets = 100000
 // maxTimeWeightedDays bounds the days in the window of a time-weighted column: the changes of the
 // offset to UTC are searched day by day whatever the group time, see timeWeightedQuery.
 const maxTimeWeightedDays = 100000
-
-// timeWeightedWindow returns the start and end of the element's time window as of now.
-func timeWeightedWindow(element model.QueriesRequestElement, now time.Time) (window [2]time.Time, err error) {
-	if element.Time == nil {
-		return window, errors.Join(errors.New("time-weighted group types need a time window"), model.ErrBadRequest)
-	}
-	switch {
-	case element.Time.Last != nil:
-		start, err := model.AddTimeInterval(now, *element.Time.Last, -1)
-		return [2]time.Time{start, now}, errors.Join(err)
-	case element.Time.Ahead != nil:
-		end, err := model.AddTimeInterval(now, *element.Time.Ahead, 1)
-		return [2]time.Time{now, end}, errors.Join(err)
-	case element.Time.Start != nil && element.Time.End != nil:
-		if window[0], err = time.Parse(time.RFC3339, *element.Time.Start); err != nil {
-			return window, errors.Join(err, model.ErrBadRequest)
-		}
-		if window[1], err = time.Parse(time.RFC3339, *element.Time.End); err != nil {
-			return window, errors.Join(err, model.ErrBadRequest)
-		}
-		return window, nil
-	default:
-		return window, errors.Join(errors.New("incomplete time window"), model.ErrBadRequest)
-	}
-}
 
 // timeWeightedBucketsAllowed rejects a window holding more than maxTimeWeightedBuckets buckets of
 // groupTime or more than maxTimeWeightedDays days. Calendar units count with the length they have

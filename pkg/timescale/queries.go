@@ -434,13 +434,7 @@ func getWhereString(element model.QueriesRequestElement) (string, error) {
 		return "", err
 	}
 	if element.Time != nil {
-		if element.Time.Last != nil {
-			conditions = append(conditions, "\"time\" > now() - interval "+sqlliteral.QuoteString(*element.Time.Last))
-		} else if element.Time.Ahead != nil {
-			conditions = append(conditions, "\"time\" > now() AND \"time\" < now() + interval "+sqlliteral.QuoteString(*element.Time.Ahead))
-		} else {
-			conditions = append(conditions, "\"time\" > "+sqlliteral.QuoteString(*element.Time.Start)+" AND \"time\" < "+sqlliteral.QuoteString(*element.Time.End))
-		}
+		conditions = append(conditions, timeCondition(element.Time))
 	}
 	if len(conditions) == 0 {
 		return "", nil

@@ -24,47 +24,6 @@ import (
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
-func TestTimeWeightedWindow(t *testing.T) {
-	now := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
-	last, ahead := "1h", "2h"
-	cases := []struct {
-		name     string
-		time     *model.QueriesRequestElementTime
-		want     [2]time.Time
-		rejected bool
-	}{
-		{name: "no time window", rejected: true},
-		{name: "last hour", time: &model.QueriesRequestElementTime{Last: &last}, want: [2]time.Time{now.Add(-time.Hour), now}},
-		{name: "ahead two hours", time: &model.QueriesRequestElementTime{Ahead: &ahead}, want: [2]time.Time{now, now.Add(2 * time.Hour)}},
-		{
-			name: "start and end",
-			time: &model.QueriesRequestElementTime{Start: strPtr("2024-01-01T00:00:00Z"), End: strPtr("2024-01-15T06:00:00Z")},
-			want: [2]time.Time{time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2024, 1, 15, 6, 0, 0, 0, time.UTC)},
-		},
-		{name: "start not RFC3339", time: &model.QueriesRequestElementTime{Start: strPtr("2024-01-01"), End: strPtr("2024-01-15T06:00:00Z")}, rejected: true},
-		{name: "end not RFC3339", time: &model.QueriesRequestElementTime{Start: strPtr("2024-01-01T00:00:00Z"), End: strPtr("2024-01-15")}, rejected: true},
-		{name: "only start", time: &model.QueriesRequestElementTime{Start: strPtr("2024-01-01T00:00:00Z")}, rejected: true},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			element := model.QueriesRequestElement{Time: c.time}
-			got, err := timeWeightedWindow(element, now)
-			if c.rejected {
-				if !errors.Is(err, model.ErrBadRequest) {
-					t.Errorf("expected a bad request, got %v", err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-			if !got[0].Equal(c.want[0]) || !got[1].Equal(c.want[1]) {
-				t.Errorf("expected window %v, got %v", c.want, got)
-			}
-		})
-	}
-}
-
 func TestTimeWeightedBucketsAllowedErrors(t *testing.T) {
 	start := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	cases := []struct {
