@@ -18,7 +18,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -82,18 +81,10 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			return
 		}
 
-		var requestElements []model.QueriesRequestElement
-		err = json.NewDecoder(request.Body).Decode(&requestElements)
+		requestElements, err := decodeElements(request)
 		if err != nil {
-			c.Error(errors.Join(err, model.ErrBadRequest))
+			c.Error(err)
 			return
-		}
-
-		for i := range requestElements {
-			if !requestElements[i].Valid() {
-				c.Error(errors.Join(errors.New("Invalid request body"), model.ErrBadRequest))
-				return
-			}
 		}
 
 		verifyCtx, verifySpan := tracer.Start(c.Request.Context(), "verification")

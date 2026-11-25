@@ -1,10 +1,8 @@
 package api
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
@@ -40,7 +38,7 @@ func init() {
 // @Failure      500
 // @Router       /raw-value [GET]
 func RawValueEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, lastValueCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
-	handler := lastValueHandler(config, wrapper, verifier, lastValueCache, converter)
+	p := newPipeline(config, wrapper, verifier, lastValueCache, converter)
 	router.GET("/raw-value", func(c *gin.Context) {
 		writer := c.Writer
 		request := c.Request
@@ -79,17 +77,12 @@ func RawValueEndpoint(router gin.IRouter, config configuration.Config, wrapper *
 			elem.ConceptId = &conceptId
 		}
 
-		b, err := json.Marshal([]model.LastValuesRequestElement{elem})
-		if err != nil {
-			c.Error(errors.Join(err, model.ErrInternalServerError))
-			return
-		}
-		request.Body = io.NopCloser(bytes.NewBuffer(b))
-		resp, code, err := handler(c.Request.Context(), request)
+		resp, code, err := p.lastValues(c.Request.Context(), request, []model.LastValuesRequestElement{elem})
 		if err != nil {
 			c.Error(classify(err, model.GetError(code)))
 			return
 		}
+		var b []byte
 		v := resp[0].Value
 		switch v := v.(type) {
 		case string:

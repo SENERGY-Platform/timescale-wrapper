@@ -22,25 +22,18 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
-	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/timescale"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tracing"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/verification"
 	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 func init() {
@@ -81,146 +74,89 @@ func LastValuesEndpoint(router gin.IRouter, config configuration.Config, wrapper
 }
 
 func lastValueHandler(config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter) func(ctx context.Context, request *http.Request) ([]model.LastValuesResponseElement, int, error) {
+	p := newPipeline(config, wrapper, verifier, remoteCache, converter)
 	return func(ctx context.Context, request *http.Request) ([]model.LastValuesResponseElement, int, error) {
-		tracer := otel.Tracer("api/last-values.go:LastValuesEndpoint")
-		precision, err := parsePrecision(request)
-		if err != nil {
-			return nil, http.StatusBadRequest, err
-		}
 		var requestElements []model.LastValuesRequestElement
-		err = json.NewDecoder(request.Body).Decode(&requestElements)
+		err := json.NewDecoder(request.Body).Decode(&requestElements)
 		if err != nil {
 			return nil, http.StatusBadRequest, err
 		}
-
-		fullRequestElements, outputIndexToInputIndex, err := buildLastValuesElements(requestElements)
-		if err != nil {
-			return nil, http.StatusBadRequest, err
-		}
-		verifyCtx, verifySpan := tracer.Start(ctx, "verify access")
-		userId, ownerUserIds, err := verifyRequest(verifyCtx, request, verifier, fullRequestElements)
-		verifySpan.End()
-		if err != nil {
-			return nil, model.GetStatusCode(err), err
-		}
-
-		// before the cache, so that cache and database reject the same requests
-		err = resolveJSONPaths(ctx, remoteCache, fullRequestElements)
-		if err != nil {
-			err = classify(err, model.ErrInternalServerError)
-			return nil, model.GetStatusCode(err), err
-		}
-
-		dbRequestElements := []model.QueriesRequestElement{}
-		dbRequestIndices := []int{}
-
-		raw := make([][][]interface{}, len(fullRequestElements))
-
-		cacheCtx, cacheSpan := tracer.Start(ctx, "fetch from cache")
-		elementCtx := tracing.SuppressChildren(cacheCtx, config.DetailedTracing)
-		m := sync.Mutex{}
-		wg := sync.WaitGroup{}
-		wg.Add(len(fullRequestElements))
-		for i := range fullRequestElements {
-			i := i
-			go func() {
-				// err is local: the goroutines used to share the outer one
-				var err error
-				raw[i], err = remoteCache.GetLastValuesFromCache(elementCtx, fullRequestElements[i], nil)
-				if err != nil {
-					m.Lock()
-					defer m.Unlock()
-					dbRequestElements = append(dbRequestElements, fullRequestElements[i])
-					dbRequestIndices = append(dbRequestIndices, i)
-					if !errors.Is(err, cache.NotCachableError) {
-						log.Logger.WarnContext(ctx, "Could not get data from cache", attributes.ErrorKey, err)
-					}
-				}
-				wg.Done()
-			}()
-		}
-		wg.Wait()
-		cacheSpan.SetAttributes(
-			attribute.Int("request.elements", len(fullRequestElements)),
-			attribute.Int("cache.hits", len(fullRequestElements)-len(dbRequestIndices)),
-			attribute.Int("cache.misses", len(dbRequestIndices)),
-		)
-		cacheSpan.End()
-		if config.Debug {
-			log.Logger.DebugContext(ctx, "Got "+strconv.Itoa(len(fullRequestElements)-len(dbRequestIndices))+" from cache, requesting "+strconv.Itoa(len(dbRequestIndices))+" from db")
-		}
-
-		queriesCtx, queriesSpan := tracer.Start(ctx, "generate queries")
-		queries, err := wrapper.GenerateQueries(queriesCtx, dbRequestElements, userId, ownersOfIndices(ownerUserIds, dbRequestIndices), "", []models.Device{})
-		queriesSpan.End()
-		if err != nil {
-			err = classify(err, model.ErrInternalServerError)
-			return nil, model.GetStatusCode(err), err
-		}
-
-		querySpanCtx, querySpan := tracer.Start(ctx, "fetch from db")
-		data, err := wrapper.ExecuteQueries(querySpanCtx, queries)
-		querySpan.End()
-		if err != nil {
-			err = classifyDB(err)
-			return nil, model.GetStatusCode(err), err
-		}
-		// merge DB results with cache results
-		for i := range data {
-			raw[dbRequestIndices[i]] = data[i]
-		}
-
-		ppCtx, ppSpan := tracer.Start(ctx, "postprocess")
-		defer ppSpan.End()
-		timeFormat := request.URL.Query().Get("time_format")
-		if timeFormat == "" {
-			timeFormat = time.RFC3339Nano
-		}
-
-		responseRawData, err := formatResponse(tracing.SuppressChildren(ppCtx, config.DetailedTracing), remoteCache, model.PerQuery, fullRequestElements, raw, 0, model.Desc, timeFormat, converter)
-		if err != nil {
-			err = classify(err, model.ErrInternalServerError)
-			return nil, model.GetStatusCode(err), err
-		}
-
-		responseData, ok := responseRawData.([][][]interface{})
-		if !ok {
-			return nil, http.StatusInternalServerError, errors.New("could not cast response")
-		}
-
-		responseElements := make([]model.LastValuesResponseElement, len(requestElements))
-		inserted := 0
-		for i := range responseData {
-			if len(responseData[i]) == 0 {
-				inserted += len(fullRequestElements[i].Columns)
-				continue
-			}
-			t := ""
-			for j := range responseData[i][0] {
-				if j == 0 {
-					if responseData[i][0][0] != nil {
-						t, ok = responseData[i][0][0].(string)
-						if !ok {
-							return nil, http.StatusInternalServerError, fmt.Errorf("unexpected time %v", responseData[i][0][0])
-						}
-					}
-				} else {
-					// use known order to insert result at correct location
-					var tP *string
-					if responseData[i][0][0] != nil {
-						tP = &t
-					}
-					responseElements[outputIndexToInputIndex[inserted]] = model.LastValuesResponseElement{
-						Time:  tP,
-						Value: roundOptional(responseData[i][0][j], precision),
-					}
-					inserted++
-				}
-			}
-		}
-
-		return responseElements, http.StatusOK, nil
+		return p.lastValues(ctx, request, requestElements)
 	}
+}
+
+// lastValues answers the last value of each requested element. The precision and the time format come from the
+// query of the request.
+func (p *pipeline) lastValues(ctx context.Context, request *http.Request, requestElements []model.LastValuesRequestElement) ([]model.LastValuesResponseElement, int, error) {
+	fail := func(err error) ([]model.LastValuesResponseElement, int, error) {
+		return nil, model.GetStatusCode(err), err
+	}
+	precision, err := parsePrecision(request)
+	if err != nil {
+		return nil, http.StatusBadRequest, err
+	}
+	fullRequestElements, outputIndexToInputIndex, err := buildLastValuesElements(requestElements)
+	if err != nil {
+		return nil, http.StatusBadRequest, err
+	}
+	userId, ownerUserIds, err := p.verify(ctx, request, fullRequestElements)
+	if err != nil {
+		return fail(err)
+	}
+	if err = p.resolvePaths(ctx, fullRequestElements); err != nil {
+		return fail(err)
+	}
+	raw, err := p.fetch(ctx, fullRequestElements, userId, ownerUserIds, nil, []models.Device{})
+	if err != nil {
+		return fail(err)
+	}
+
+	ppCtx, ppSpan := p.tracer().Start(ctx, "postprocess")
+	defer ppSpan.End()
+	timeFormat := request.URL.Query().Get("time_format")
+	if timeFormat == "" {
+		timeFormat = time.RFC3339Nano
+	}
+	responseRawData, err := p.format(ppCtx, model.PerQuery, fullRequestElements, raw, 0, model.Desc, timeFormat)
+	if err != nil {
+		return fail(err)
+	}
+	responseData, ok := responseRawData.([][][]interface{})
+	if !ok {
+		return nil, http.StatusInternalServerError, errors.New("could not cast response")
+	}
+
+	responseElements := make([]model.LastValuesResponseElement, len(requestElements))
+	inserted := 0
+	for i := range responseData {
+		if len(responseData[i]) == 0 {
+			inserted += len(fullRequestElements[i].Columns)
+			continue
+		}
+		t := ""
+		for j := range responseData[i][0] {
+			if j == 0 {
+				if responseData[i][0][0] != nil {
+					t, ok = responseData[i][0][0].(string)
+					if !ok {
+						return nil, http.StatusInternalServerError, fmt.Errorf("unexpected time %v", responseData[i][0][0])
+					}
+				}
+			} else {
+				// use known order to insert result at correct location
+				var tP *string
+				if responseData[i][0][0] != nil {
+					tP = &t
+				}
+				responseElements[outputIndexToInputIndex[inserted]] = model.LastValuesResponseElement{
+					Time:  tP,
+					Value: roundOptional(responseData[i][0][j], precision),
+				}
+				inserted++
+			}
+		}
+	}
+	return responseElements, http.StatusOK, nil
 }
 
 // buildLastValuesElements groups the requested values by export or device and service into one
@@ -289,16 +225,6 @@ func buildLastValuesElements(requestElements []model.LastValuesRequestElement) (
 		elementsIndex++
 	}
 	return elements, outputIndexToInputIndex, nil
-}
-
-// ownersOfIndices selects the owners of the elements that are left after the cache, given their
-// indices in the full list of elements that the owners are indexed by.
-func ownersOfIndices(owners []string, indices []int) []string {
-	selected := make([]string, len(indices))
-	for i, index := range indices {
-		selected[i] = owners[index]
-	}
-	return selected
 }
 
 // notNullFilters returns the not_null filters of the given columns, or nil if there are none.

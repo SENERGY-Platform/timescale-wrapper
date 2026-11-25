@@ -19,7 +19,6 @@ package api
 import (
 	"context"
 	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -65,8 +64,8 @@ func init() {
 // @Failure      500
 // @Router       /queries [POST]
 func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
+	p := newPipeline(config, wrapper, verifier, remoteCache, converter)
 	router.POST("/queries", func(c *gin.Context) {
-		tracer := otel.Tracer("api/queries.go:QueriesEndpoint")
 		writer := c.Writer
 		request := c.Request
 		requestedFormat, orderColumnIndex, orderDirection, err := queriesParseQueryparams(request)
@@ -80,72 +79,37 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 			return
 		}
 
-		var requestElements []model.QueriesRequestElement
-		err = json.NewDecoder(request.Body).Decode(&requestElements)
-		if err != nil {
-			c.Error(errors.Join(err, model.ErrBadRequest))
-			return
+		requestElements, err := decodeElements(request)
+		if err == nil {
+			err = rejectDeviceGroups(requestElements)
 		}
-
-		for i := range requestElements {
-			if !requestElements[i].Valid() {
-				c.Error(errors.Join(errors.New("Invalid request body"), model.ErrBadRequest))
-				return
-			}
-			if requestElements[i].DeviceGroupId != nil {
-				c.Error(errors.Join(errors.New("Setting DeviceGroupId is invalid for /queries, use /queries/v2"), model.ErrBadRequest))
-				return
-			}
-		}
-		verifyCtx, verifySpan := tracer.Start(c.Request.Context(), "verify access")
-		userId, ownerUserIdsBefore, err := verifyRequest(verifyCtx, request, verifier, requestElements)
-		verifySpan.End()
 		if err != nil {
 			c.Error(err)
 			return
 		}
 
-		// before the cache, so that cache and database reject the same requests
-		err = resolveJSONPaths(c.Request.Context(), remoteCache, requestElements)
+		userId, ownerUserIds, err := p.verify(request.Context(), request, requestElements)
 		if err != nil {
-			c.Error(classify(err, model.ErrInternalServerError))
+			c.Error(err)
+			return
+		}
+		err = p.resolvePaths(request.Context(), requestElements)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+		raw, err := p.fetch(request.Context(), requestElements, userId, ownerUserIds, nil, []models.Device{})
+		if err != nil {
+			c.Error(err)
 			return
 		}
 
-		cacheCtx, cacheSpan := tracer.Start(c.Request.Context(), "fetch from cache")
-		raw, dbRequestElements, dbRequestIndices := queriesGetFromCache(cacheCtx, requestElements, remoteCache, config, nil)
-		cacheSpan.End()
-
-		queriesCtx, queriesSpan := tracer.Start(c.Request.Context(), "generate queries")
-		ownerUserIds := []string{}
-		for i := range dbRequestElements {
-			ownerUserIds = append(ownerUserIds, ownerUserIdsBefore[dbRequestIndices[i]])
-		}
-		queries, err := wrapper.GenerateQueries(queriesCtx, dbRequestElements, userId, ownerUserIds, "", []models.Device{})
-		queriesSpan.End()
-		if err != nil {
-			c.Error(classify(err, model.ErrInternalServerError))
-			return
-		}
-
-		queryCtx, querySpan := tracer.Start(c.Request.Context(), "execute queries")
-		data, err := wrapper.ExecuteQueries(queryCtx, queries)
-		querySpan.End()
-		if err != nil {
-			c.Error(classifyDB(err))
-			return
-		}
-
-		// merge DB results with remoteCache results
-		for i := range data {
-			raw[dbRequestIndices[i]] = data[i]
-		}
-		ppCtx, ppSpan := tracer.Start(c.Request.Context(), "postprocess results")
+		ppCtx, ppSpan := p.tracer().Start(request.Context(), "postprocess results")
 		defer ppSpan.End()
 		timeFormat := request.URL.Query().Get("time_format")
-		response, err := formatResponse(tracing.SuppressChildren(ppCtx, config.DetailedTracing), remoteCache, requestedFormat, requestElements, raw, orderColumnIndex, orderDirection, timeFormat, converter)
+		response, err := p.format(ppCtx, requestedFormat, requestElements, raw, orderColumnIndex, orderDirection, timeFormat)
 		if err != nil {
-			c.Error(classify(err, model.ErrInternalServerError))
+			c.Error(err)
 			return
 		}
 		roundResponse(response, precision)
@@ -171,7 +135,6 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 			writeJSON(c, response)
 		}
 	})
-
 }
 
 func queriesParseQueryparams(request *http.Request) (requestedFormat model.Format, orderColumnIndex int, orderDirection model.Direction, err error) {
@@ -196,7 +159,7 @@ func queriesParseQueryparams(request *http.Request) (requestedFormat model.Forma
 	return
 }
 
-func queriesGetFromCache(ctx context.Context, requestElements []model.QueriesRequestElement, remoteCache *cache.RemoteCache, config configuration.Config, forceTz *string) (raw [][][]interface{}, dbRequestElements []model.QueriesRequestElement, dbRequestIndices []int) {
+func queriesGetFromCache(ctx context.Context, requestElements []model.QueriesRequestElement, remoteCache lastValuesCache, config configuration.Config, forceTz *string) (raw [][][]interface{}, dbRequestElements []model.QueriesRequestElement, dbRequestIndices []int) {
 	tracer := otel.Tracer("api/queries.go:queriesGetFromCache")
 	c, span := tracer.Start(ctx, "queriesGetFromCache")
 	defer span.End()
@@ -206,27 +169,28 @@ func queriesGetFromCache(ctx context.Context, requestElements []model.QueriesReq
 	raw = make([][][]interface{}, len(requestElements))
 
 	elementCtx := tracing.SuppressChildren(c, config.DetailedTracing)
-	m := sync.Mutex{}
+	missed := make([]bool, len(requestElements)) // each goroutine writes its own index
 	wg := sync.WaitGroup{}
-	wg.Add(len(requestElements))
 	for i := range requestElements {
-		i := i
-		go func() {
+		wg.Go(func() {
 			var err error
 			raw[i], err = remoteCache.GetLastValuesFromCache(elementCtx, requestElements[i], forceTz)
 			if err != nil {
-				m.Lock()
-				defer m.Unlock()
-				dbRequestElements = append(dbRequestElements, requestElements[i])
-				dbRequestIndices = append(dbRequestIndices, i)
+				missed[i] = true
 				if !errors.Is(err, cache.NotCachableError) {
 					log.Logger.WarnContext(c, "Could not get data from remoteCache", attributes.ErrorKey, err)
 				}
 			}
-			wg.Done()
-		}()
+		})
 	}
 	wg.Wait()
+	// in request order, so that the queries and their results keep a stable order
+	for i := range requestElements {
+		if missed[i] {
+			dbRequestElements = append(dbRequestElements, requestElements[i])
+			dbRequestIndices = append(dbRequestIndices, i)
+		}
+	}
 	span.SetAttributes(
 		attribute.Int("request.elements", len(requestElements)),
 		attribute.Int("cache.hits", len(requestElements)-len(dbRequestIndices)),
