@@ -47,27 +47,64 @@ func (wrapper *Wrapper) GetDataAvailability(ctx context.Context, deviceId string
 	if err != nil {
 		return nil, err
 	}
+	// The short id is base64url and may contain '_', a wildcard in LIKE. starts_with compares
+	// literally, and the prefix is passed as a parameter.
 	tablePrefix := "device:" + shortDeviceId + "_"
-	rows, err := wrapper.readPool.Query(ctx, "SELECT view_name, view_definition FROM timescaledb_information.continuous_aggregates WHERE hypertable_name LIKE '"+tablePrefix+"%';")
+
+	// Both listings are read completely before the first goroutine starts, so that no path
+	// returns while a goroutine is still running.
+	type source struct {
+		name        string
+		description *string
+	}
+	var sources []source
+
+	rows, err := wrapper.readPool.Query(ctx, "SELECT view_name, view_definition FROM timescaledb_information.continuous_aggregates WHERE starts_with(hypertable_name::text, $1::text);", tablePrefix)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	for rows.Next() {
+		var viewName, viewDescription string
+		if err = rows.Scan(&viewName, &viewDescription); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		sources = append(sources, source{name: viewName, description: &viewDescription})
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	// a service table is <prefix>service:<22 characters>
+	rows, err = wrapper.readPool.Query(ctx, "SELECT table_name FROM information_schema.tables WHERE starts_with(table_name::text, $1::text) AND length(table_name::text) = length($1::text) + 22;", tablePrefix+"service:")
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var tableName string
+		if err = rows.Scan(&tableName); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		sources = append(sources, source{name: tableName})
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+
 	mtx := sync.Mutex{}
 	wg := sync.WaitGroup{}
 	var anyErr error
 	res = []model.DataAvailabilityResponseElement{}
-	for rows.Next() {
-		var viewName, viewDescription string
-		err = rows.Scan(&viewName, &viewDescription)
-		if err != nil {
-			return nil, err
-		}
+	for _, src := range sources {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
-			elem, err := wrapper.parseDataAvailability(ctx, viewName, &viewDescription)
+			elem, err := wrapper.parseDataAvailability(ctx, src.name, src.description)
 			mtx.Lock()
 			defer mtx.Unlock()
 			if err != nil {
@@ -78,46 +115,12 @@ func (wrapper *Wrapper) GetDataAvailability(ctx context.Context, deviceId string
 			}
 			res = append(res, *elem)
 		}()
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	rows.Close()
-
-	rows, err = wrapper.readPool.Query(ctx, "SELECT table_name FROM information_schema.tables WHERE table_name ~ '"+tablePrefix+"service:.{22}$';")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var tableName string
-		err = rows.Scan(&tableName)
-		if err != nil {
-			return nil, err
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			elem, err := wrapper.parseDataAvailability(ctx, tableName, nil)
-			mtx.Lock()
-			defer mtx.Unlock()
-			if err != nil {
-				if anyErr == nil {
-					anyErr = err
-				}
-				return
-			}
-			res = append(res, *elem)
-		}()
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
 	}
 	wg.Wait()
 	if anyErr != nil {
 		return nil, anyErr
 	}
-	return
+	return res, nil
 }
 
 func (wrapper *Wrapper) parseDataAvailability(ctx context.Context, viewTableName string, viewDescription *string) (*model.DataAvailabilityResponseElement, error) {
