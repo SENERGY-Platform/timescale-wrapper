@@ -20,6 +20,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -122,6 +123,31 @@ func TestLastValuesRejectsBadRequests(t *testing.T) {
 			}
 			if err == nil {
 				t.Error("expected an error")
+			}
+		})
+	}
+}
+
+func TestPrepareDownloadRejectsBadQueries(t *testing.T) {
+	t.Parallel()
+	router := gin.New()
+	router.Use(gin_mw.ErrorHandler(model.GetStatusCode, ", "))
+	PrepareDownloadEndpoints(router, nil, nil, nil, nil, nil, nil)
+
+	cases := []struct {
+		name  string
+		query string
+	}{
+		// the handler must not add an error of its own after the 400, the last status wins
+		{"invalid element returns 400", "{}"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/prepare-download?query="+url.QueryEscape(c.query), nil)
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest {
+				t.Errorf("expected 400, got %d: %s", recorder.Code, recorder.Body.String())
 			}
 		})
 	}

@@ -131,8 +131,7 @@ func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, _
 		marshalledQuery := request.URL.Query().Get("query")
 		prepared, ok := prepareQueriesRequestElement(c, request, verifier, marshalledQuery)
 		if !ok {
-			c.Error(model.ErrInternalServerError)
-			return
+			return // prepareQueriesRequestElement has set the error
 		}
 
 		handleSecretGeneration(c, prepared)
@@ -147,8 +146,7 @@ func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, _
 		}
 		prepared, ok := prepareQueriesRequestElement(c, request, verifier, marshalledQuery)
 		if !ok {
-			c.Error(model.ErrInternalServerError)
-			return
+			return // prepareQueriesRequestElement has set the error
 		}
 
 		handleSecretGeneration(c, prepared)
