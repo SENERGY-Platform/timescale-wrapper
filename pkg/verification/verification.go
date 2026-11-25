@@ -59,11 +59,14 @@ func (verifier *Verifier) VerifyAccess(ctx context.Context, elements []model.Que
 	ok = true
 	userIds = make([]string, len(elements))
 	wg := &sync.WaitGroup{}
+	mux := sync.Mutex{}
 	for i := range elements {
 		i := i // thread safe
 		wg.Add(1)
 		go func() {
 			result, errS := verifier.VerifyAccessOnce(ctx, elements[i], token, userId)
+			mux.Lock()
+			defer mux.Unlock()
 			if errS != nil {
 				err = errS
 				ok = false

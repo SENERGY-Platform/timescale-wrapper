@@ -19,6 +19,7 @@ package verification
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -248,5 +249,29 @@ func TestVerifyAccessCachesPerUser(t *testing.T) {
 	}
 	if len(fake.ids) != 2 {
 		t.Errorf("other user: %d permission calls, want 2", len(fake.ids))
+	}
+}
+
+// VerifyAccess checks the elements concurrently. Run with -race: the goroutines
+// share ok and err and have to synchronise their writes.
+func TestVerifyAccessRace(t *testing.T) {
+	str := func(s string) *string { return &s }
+	const n = 50
+	access := map[string]bool{}
+	elements := make([]model.QueriesRequestElement, n)
+	for i := range elements {
+		id := fmt.Sprintf("dev-%d", i)
+		elements[i] = model.QueriesRequestElement{DeviceId: str(id)}
+		access[id] = i%2 == 0
+	}
+	fake := &fakePermClient{access: access}
+	v := &Verifier{c: cache.NewLocal(), permClient: fake}
+
+	ok, _, err := v.VerifyAccess(context.Background(), elements, "token", "user")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Errorf("ok = true, want false (half of the elements are denied)")
 	}
 }
