@@ -209,23 +209,40 @@ func findImportTypeContentVariable(content importModel.ContentVariable, find fin
 
 // setupMaterializedRefreshJob creates the materialized view of tableName and the job that refreshes
 // it daily. The job's procedure is created by Migrate, which runs before the API serves requests.
+//
+// It runs on demand from a request, possibly in several replicas or requests at once, so both
+// statements run in one transaction under an advisory lock of the view: the second caller waits
+// for the first, finds the view (IF NOT EXISTS) and the job, and does nothing. A crash between the
+// statements rolls both back; a view without its job, left by an earlier version, gets its job
+// here as well. The lock key carries a prefix so that it does not collide with the one of
+// migrateMaterializedRefreshJobs.
 func (wrapper *Wrapper) setupMaterializedRefreshJob(ctx context.Context, identifierPathTs, latPathTs, lonPathTs, tableName string) error {
-	_, err := wrapper.writePool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW %v AS SELECT DISTINCT %v, %v, %v FROM %v",
-		quoteIdentifier(locate.ViewName(tableName)), quoteIdentifier(identifierPathTs),
-		quoteIdentifier(latPathTs), quoteIdentifier(lonPathTs), quoteIdentifier(tableName)))
+	viewName := locate.ViewName(tableName)
+	config, err := json.Marshal(viewName) // the job config is a jsonb string
 	if err != nil {
 		return err
 	}
-	config, err := json.Marshal(locate.ViewName(tableName)) // the job config is a jsonb string
-	if err != nil {
+	return pgx.BeginFunc(ctx, wrapper.writePool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", "ts_wrapper_setup_mat_view:"+viewName)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW IF NOT EXISTS %v AS SELECT DISTINCT %v, %v, %v FROM %v",
+			quoteIdentifier(viewName), quoteIdentifier(identifierPathTs),
+			quoteIdentifier(latPathTs), quoteIdentifier(lonPathTs), quoteIdentifier(tableName)))
+		if err != nil {
+			return err
+		}
+		var hasJob bool
+		err = tx.QueryRow(ctx, "SELECT EXISTS (SELECT FROM timescaledb_information.jobs WHERE proc_name = $1 AND config #>> '{}' = $2)",
+			wrapperMaterializedViewProcedureName, viewName).Scan(&hasJob)
+		if err != nil || hasJob {
+			return err
+		}
+		_, err = tx.Exec(ctx, fmt.Sprintf("SELECT add_job('%v', '1day', config => %v);",
+			wrapperMaterializedViewProcedureName, quoteSQLString(string(config))))
 		return err
-	}
-	_, err = wrapper.writePool.Exec(ctx, fmt.Sprintf("SELECT add_job('%v', '1day', config => %v);",
-		wrapperMaterializedViewProcedureName, quoteSQLString(string(config))))
-	if err != nil {
-		return err
-	}
-	return nil
+	})
 }
 
 // refreshViewProcedure creates the procedure of the refresh jobs. A job's config is the name of
