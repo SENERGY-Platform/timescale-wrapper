@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/SENERGY-Platform/gin-middleware/otelx"
 )
@@ -47,6 +48,15 @@ type Client interface {
 	GetQueriesV2Context(ctx context.Context, token string, requestElements []QueriesRequestElement, options *QueriesV2Options) (result []QueriesV2ResponseElement, code int, err error)
 }
 
+// httpClient sends the calls of this package. Unlike http.DefaultClient it has
+// a timeout, and it does not share its settings with the rest of the process.
+//
+// 30 seconds is the WriteTimeout of the authenticated API server (pkg/api/api.go),
+// which cuts off a response after that long, so this timeout never ends a call
+// the server would still answer. A shorter one would end calls the server
+// answers in time.
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
 type impl struct {
 	baseUrl string
 }
@@ -63,7 +73,7 @@ func NewClient(baseUrl string) Client {
 // otelx.InjectContextToRequest writes the traceparent and baggage headers but
 // calls req.WithContext on a copy of its own, so the context has to be put on
 // the request here. Without this, a caller's timeout bounds nothing and
-// whatever http.DefaultClient does is the only limit - and it has no timeout.
+// the client's own timeout is the only limit besides the caller's context.
 func newRequest(ctx context.Context, method string, url string, token string, body []byte) (*http.Request, error) {
 	var payload io.Reader
 	if body != nil {
@@ -81,7 +91,7 @@ func newRequest(ctx context.Context, method string, url string, token string, bo
 }
 
 func do[T any](req *http.Request) (result T, code int, err error) {
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return result, http.StatusInternalServerError, err
 	}

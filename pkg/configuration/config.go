@@ -86,6 +86,7 @@ func Load(location string) (config Config, err error) {
 		log.Println("error on config load: ", err)
 		return config, err
 	}
+	defer file.Close()
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&config)
 	if err != nil {
@@ -117,6 +118,7 @@ func fieldNameToEnvName(s string) string {
 // preparations for docker
 //
 // A value that does not parse as the type of its field is an error rather than a silent zero.
+// Field kinds without an environment mapping are left untouched.
 func HandleEnvironmentVars(config Config) error {
 	configValue := reflect.Indirect(reflect.ValueOf(config))
 	configType := configValue.Type()
@@ -125,58 +127,40 @@ func HandleEnvironmentVars(config Config) error {
 		fieldConfig := configType.Field(index).Tag.Get("config")
 		envName := fieldNameToEnvName(fieldName)
 		envValue := os.Getenv(envName)
-		if envValue != "" {
-			if !strings.Contains(fieldConfig, "secret") {
-				fmt.Println("use environment variable: ", envName, " = ", envValue)
+		if envValue == "" {
+			continue
+		}
+		if !strings.Contains(fieldConfig, "secret") {
+			fmt.Println("use environment variable: ", envName, " = ", envValue)
+		}
+		field := configValue.Field(index)
+		switch field.Kind() {
+		case reflect.Int64:
+			i, err := strconv.ParseInt(envValue, 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid value for %s: %w", envName, err)
 			}
-			if configValue.FieldByName(fieldName).Kind() == reflect.Int64 {
-				i, err := strconv.ParseInt(envValue, 10, 64)
-				if err != nil {
-					return fmt.Errorf("invalid value for %s: %w", envName, err)
-				}
-				configValue.FieldByName(fieldName).SetInt(i)
+			field.SetInt(i)
+		case reflect.Uint16:
+			i, err := strconv.ParseUint(envValue, 10, 16)
+			if err != nil {
+				return fmt.Errorf("invalid value for %s: %w", envName, err)
 			}
-			if configValue.FieldByName(fieldName).Kind() == reflect.Uint16 {
-				i, err := strconv.ParseUint(envValue, 10, 16)
-				if err != nil {
-					return fmt.Errorf("invalid value for %s: %w", envName, err)
-				}
-				configValue.FieldByName(fieldName).SetUint(i)
+			field.SetUint(i)
+		case reflect.String:
+			field.SetString(envValue)
+		case reflect.Bool:
+			b, err := strconv.ParseBool(envValue)
+			if err != nil {
+				return fmt.Errorf("invalid value for %s: %w", envName, err)
 			}
-			if configValue.FieldByName(fieldName).Kind() == reflect.Float64 {
-				f, err := strconv.ParseFloat(envValue, 64)
-				if err != nil {
-					return fmt.Errorf("invalid value for %s: %w", envName, err)
-				}
-				configValue.FieldByName(fieldName).SetFloat(f)
+			field.SetBool(b)
+		case reflect.Slice:
+			val := []string{}
+			for _, element := range strings.Split(envValue, ",") {
+				val = append(val, strings.TrimSpace(element))
 			}
-			if configValue.FieldByName(fieldName).Kind() == reflect.String {
-				configValue.FieldByName(fieldName).SetString(envValue)
-			}
-			if configValue.FieldByName(fieldName).Kind() == reflect.Bool {
-				b, err := strconv.ParseBool(envValue)
-				if err != nil {
-					return fmt.Errorf("invalid value for %s: %w", envName, err)
-				}
-				configValue.FieldByName(fieldName).SetBool(b)
-			}
-			if configValue.FieldByName(fieldName).Kind() == reflect.Slice {
-				val := []string{}
-				for _, element := range strings.Split(envValue, ",") {
-					val = append(val, strings.TrimSpace(element))
-				}
-				configValue.FieldByName(fieldName).Set(reflect.ValueOf(val))
-			}
-			if configValue.FieldByName(fieldName).Kind() == reflect.Map {
-				value := map[string]string{}
-				for _, element := range strings.Split(envValue, ",") {
-					keyVal := strings.Split(element, ":")
-					key := strings.TrimSpace(keyVal[0])
-					val := strings.TrimSpace(keyVal[1])
-					value[key] = val
-				}
-				configValue.FieldByName(fieldName).Set(reflect.ValueOf(value))
-			}
+			field.Set(reflect.ValueOf(val))
 		}
 	}
 	return nil
