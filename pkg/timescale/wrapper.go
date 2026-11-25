@@ -27,6 +27,7 @@ import (
 	serving "github.com/SENERGY-Platform/analytics-serving/client"
 	"github.com/SENERGY-Platform/gin-middleware/otelx"
 	importRepo "github.com/SENERGY-Platform/import-repository/lib/client"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -81,7 +82,7 @@ func NewWrapper(ctx context.Context, wg *sync.WaitGroup, config configuration.Co
 			return nil, err
 		}
 	}
-	return &Wrapper{config: config, writePool: writePool, readPool: readPool, servingClient: servingClient, importRepoClient: importRepoClient}, nil
+	return &Wrapper{config: config, writePool: writePool, readPool: readPool, servingClient: servingClient, importRepoClient: importRepoClient, caViews: cache.NewLocal()}, nil
 }
 
 // newPool opens a pool against host with the port, database and pool size of config, and closes

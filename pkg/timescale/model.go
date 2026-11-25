@@ -19,6 +19,7 @@ package timescale
 import (
 	serving "github.com/SENERGY-Platform/analytics-serving/client"
 	importRepo "github.com/SENERGY-Platform/import-repository/lib/client"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -38,4 +39,8 @@ type Wrapper struct {
 	readPool         *pgxpool.Pool
 	importRepoClient importRepo.Interface
 	servingClient    *serving.Client
+	// caViews caches the outcome of the continuous-aggregate lookup in tableName, keyed by the
+	// lookup query text: the view name, or "" for no view. Nil (a Wrapper built as a struct
+	// literal in tests) disables the cache.
+	caViews *cache.LocalCache
 }

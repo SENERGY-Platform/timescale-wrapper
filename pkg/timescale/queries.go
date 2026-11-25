@@ -21,12 +21,15 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
 	"github.com/SENERGY-Platform/models/go/models"
 	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/sqlliteral"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tablenames"
+	"github.com/jackc/pgx/v5"
 )
 
 // quoteColumnName renders a column name as the table worker names the column: hashed if it is too
@@ -418,19 +421,39 @@ func (wrapper *Wrapper) tableName(ctx context.Context, element model.QueriesRequ
 			return table, nil
 		}
 
-		var caTable string
 		if wrapper.config.Debug {
 			log.Logger.DebugContext(ctx, "Checking for CA View with: "+query)
 		}
-		err = wrapper.readPool.QueryRow(ctx, query).Scan(&caTable)
-		if err == nil {
-			return caTable, nil
-		} else {
+		caTable, err := wrapper.lookupCAView(ctx, query)
+		if err != nil {
+			log.Logger.WarnContext(ctx, "CA view lookup failed, using the base table", attributes.ErrorKey, err)
 			return table, nil
+		}
+		if caTable != "" {
+			return caTable, nil
 		}
 	}
 	return table, nil
 
+}
+
+// lookupCAView runs the continuous-aggregate lookup query and returns the name of the view, or ""
+// if there is none. The outcome is cached per query text for the default expiration of the local
+// cache. A view dropped or created within that time is not seen until the entry expires. Database
+// errors are returned and not cached. A Wrapper without a cache (a struct literal) looks up every time.
+func (wrapper *Wrapper) lookupCAView(ctx context.Context, query string) (string, error) {
+	lookup := func() (string, error) {
+		var caTable string
+		err := wrapper.readPool.QueryRow(ctx, query).Scan(&caTable)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return caTable, err
+	}
+	if wrapper.caViews == nil {
+		return lookup()
+	}
+	return cache.UseLocal(wrapper.caViews, query, lookup)
 }
 
 // getCAQuery adapts an element's columns to tablenames.ContinuousAggregateColumn and delegates to
