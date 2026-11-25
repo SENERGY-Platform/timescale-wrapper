@@ -17,53 +17,82 @@
 package api
 
 import (
+	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/SENERGY-Platform/models/go/models"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt"
 )
 
-// runDownload runs handleCSVDownload against a stand-in for /queries that answers the i-th request with the rows
-// respond returns, and gives back the request elements sent and the CSV written.
+// windowWrapper stands in for the database: the i-th read of a download is answered with the rows respond returns,
+// every read from failFrom on fails. It records the element of every read.
+type windowWrapper struct {
+	mux      sync.Mutex
+	sent     []model.QueriesRequestElement
+	respond  func(i int) [][]interface{}
+	failFrom int // 0: never
+}
+
+func (w *windowWrapper) GenerateQueries(_ context.Context, elements []model.QueriesRequestElement, _ string, _ []string, _ string, _ []models.Device) ([]string, error) {
+	w.mux.Lock()
+	defer w.mux.Unlock()
+	queries := make([]string, len(elements))
+	for i := range elements {
+		queries[i] = strconv.Itoa(len(w.sent))
+		w.sent = append(w.sent, elements[i])
+	}
+	return queries, nil
+}
+
+func (w *windowWrapper) ExecuteQueries(_ context.Context, queries []string) ([][][]interface{}, error) {
+	data := make([][][]interface{}, len(queries))
+	for i, q := range queries {
+		n, _ := strconv.Atoi(q)
+		if w.failFrom > 0 && n+1 >= w.failFrom {
+			return nil, errors.New("boom")
+		}
+		data[i] = w.respond(n)
+	}
+	return data, nil
+}
+
+// noCache answers no element from the cache.
+type noCache struct{}
+
+func (noCache) GetLastValuesFromCache(context.Context, model.QueriesRequestElement, *string) ([][]interface{}, error) {
+	return nil, cache.NotCachableError
+}
+
+func downloadPipeline(w queryWrapper) *pipeline {
+	return &pipeline{config: &configuration.ConfigStruct{}, wrapper: w, lookup: noCache{}}
+}
+
+// runDownload runs handleCSVDownload over a pipeline whose database answers the i-th read with the rows respond
+// returns, and gives back the elements read and the CSV written.
 func runDownload(t *testing.T, element model.QueriesRequestElement, respond func(i int) [][]interface{}) (sent []model.QueriesRequestElement, csv string) {
 	t.Helper()
-	var mux sync.Mutex
-	queries := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var elements []model.QueriesRequestElement
-		if err := json.NewDecoder(r.Body).Decode(&elements); err != nil || len(elements) != 1 {
-			t.Errorf("unexpected request body: %v", err)
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		mux.Lock()
-		i := len(sent)
-		sent = append(sent, elements[0])
-		mux.Unlock()
-		_ = json.NewEncoder(w).Encode(respond(i))
-	}))
-	defer queries.Close()
-	queriesURL, err := url.Parse(queries.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	w := &windowWrapper{respond: respond}
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodGet, "/download", nil)
-	handleCSVDownload(c, element, "", nil, "Bearer token", c.Writer, &configuration.ConfigStruct{ApiPort: queriesURL.Port()})
-	return sent, recorder.Body.String()
+	handleCSVDownload(c, element, downloadPipeline(w).downloadSource("user", []string{"user"}, "", nil), c.Writer)
+	return w.sent, recorder.Body.String()
 }
 
 func rawElement(start, end string) model.QueriesRequestElement {
@@ -73,10 +102,15 @@ func rawElement(start, end string) model.QueriesRequestElement {
 	}
 }
 
+// rows returns n rows of the database at the time at, with the row number as value.
 func rows(n int, at string) [][]interface{} {
+	ts, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		panic(err)
+	}
 	result := make([][]interface{}, n)
 	for i := range result {
-		result[i] = []interface{}{at, i}
+		result[i] = []interface{}{ts, i}
 	}
 	return result
 }
@@ -250,24 +284,7 @@ func writerGoroutines() int {
 
 // An aborted download must not leave its CSV writer goroutine behind.
 func TestCSVDownloadAbortStopsWriter(t *testing.T) {
-	var mux sync.Mutex
-	calls := 0
-	queries := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mux.Lock()
-		calls++
-		i := calls
-		mux.Unlock()
-		if i > 1 {
-			http.Error(w, "boom", http.StatusInternalServerError)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(rows(1, "2025-09-15T20:30:00Z"))
-	}))
-	defer queries.Close()
-	queriesURL, err := url.Parse(queries.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	w := &windowWrapper{failFrom: 2, respond: func(int) [][]interface{} { return rows(1, "2025-09-15T20:30:00Z") }}
 
 	log.InitForTest()
 	before := writerGoroutines()
@@ -281,7 +298,7 @@ func TestCSVDownloadAbortStopsWriter(t *testing.T) {
 				t.Fatalf("expected panic(http.ErrAbortHandler), got %v", r)
 			}
 		}()
-		handleCSVDownload(c, rawElement("2025-09-15T20:00:00Z", "2025-09-16T20:00:00Z"), "", nil, "Bearer token", c.Writer, &configuration.ConfigStruct{ApiPort: queriesURL.Port()})
+		handleCSVDownload(c, rawElement("2025-09-15T20:00:00Z", "2025-09-16T20:00:00Z"), downloadPipeline(w).downloadSource("user", []string{"user"}, "", nil), c.Writer)
 	}()
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -303,14 +320,7 @@ func (w *failingResponseWriter) Flush()                    {}
 
 // When the writer fails, the download aborts without waiting for a writer result it has already taken.
 func TestCSVDownloadWriterErrorAborts(t *testing.T) {
-	queries := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(rows(1, "2025-09-15T20:30:00Z"))
-	}))
-	defer queries.Close()
-	queriesURL, err := url.Parse(queries.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	w := &windowWrapper{respond: func(int) [][]interface{} { return rows(1, "2025-09-15T20:30:00Z") }}
 
 	log.InitForTest()
 	gin.SetMode(gin.TestMode)
@@ -319,7 +329,7 @@ func TestCSVDownloadWriterErrorAborts(t *testing.T) {
 	done := make(chan interface{})
 	go func() {
 		defer func() { done <- recover() }()
-		handleCSVDownload(c, rawElement("2025-09-15T20:00:00Z", "2025-09-25T20:00:00Z"), "", nil, "Bearer token", &failingResponseWriter{header: http.Header{}}, &configuration.ConfigStruct{ApiPort: queriesURL.Port()})
+		handleCSVDownload(c, rawElement("2025-09-15T20:00:00Z", "2025-09-25T20:00:00Z"), downloadPipeline(w).downloadSource("user", []string{"user"}, "", nil), &failingResponseWriter{header: http.Header{}})
 	}()
 	select {
 	case r := <-done:
@@ -328,5 +338,178 @@ func TestCSVDownloadWriterErrorAborts(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("download did not return after the writer failed")
+	}
+}
+
+// What is refused before the first byte is an error with a status, not a cut-off response.
+func TestCSVDownloadRefusesBeforeHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/download", nil)
+	element := rawElement("2025-09-15T20:00:00Z", "not a time")
+	handleCSVDownload(c, element, func(context.Context, model.QueriesRequestElement) ([][]interface{}, error) {
+		t.Error("source must not be called")
+		return nil, nil
+	}, c.Writer)
+	if len(c.Errors) != 1 || model.GetStatusCode(c.Errors[0].Err) != http.StatusBadRequest {
+		t.Errorf("expected one bad request, got %v", c.Errors)
+	}
+	if recorder.Body.Len() != 0 || recorder.Header().Get("Content-Type") != "" {
+		t.Errorf("expected nothing written, got %q", recorder.Body.String())
+	}
+}
+
+func TestPrepareQueriesRequestElement(t *testing.T) {
+	t.Parallel()
+	token := "Bearer " + helperToken(t, jwt.MapClaims{"sub": "user-1"})
+	valid := `{"deviceId":"d","serviceId":"` + badRequestServiceId + `","columns":[{"name":"a"}],"time":{"start":"2025-09-15T20:00:00Z","end":"2025-09-15T21:00:00Z"}}`
+	request := func(query string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/prepare-download?"+query, nil)
+		r.Header.Set("Authorization", token)
+		return r
+	}
+	for _, tc := range []struct {
+		name    string
+		query   string
+		wantErr string
+	}{
+		{name: "not JSON", query: "{", wantErr: "unexpected end of JSON input"},
+		{name: "wrong type", query: `{"columns":5}`, wantErr: "cannot unmarshal"},
+		{name: "no columns", query: `{"deviceId":"d"}`, wantErr: "invalid query"},
+		{name: "device group", query: `{"deviceGroupId":"g","columns":[{"name":"a"}],"time":{"last":"1h"}}`, wantErr: "DeviceGroupId"},
+		{name: "no time", query: `{"deviceId":"d","serviceId":"` + badRequestServiceId + `","columns":[{"name":"a"}]}`, wantErr: "need time element"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, _, err := prepareQueriesRequestElement(request(""), &fakeVerifier{ok: true, owners: []string{"o"}}, tc.query)
+			if err == nil || model.GetStatusCode(err) != http.StatusBadRequest || countClasses(err) != 1 || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("expected one bad request containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+	t.Run("valid", func(t *testing.T) {
+		verifier := &fakeVerifier{ok: true, owners: []string{"owner-1"}}
+		prepared, userId, owners, err := prepareQueriesRequestElement(request("time_format=x&precision=2"), verifier, valid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if userId != "user-1" || len(owners) != 1 || owners[0] != "owner-1" || prepared.Token != token ||
+			prepared.TimeFormat != "x" || prepared.Precision == nil || *prepared.Precision != 2 {
+			t.Errorf("unexpected result %+v %q %v", prepared, userId, owners)
+		}
+	})
+}
+
+// The CSV of a download is the one the rows had when they were read over HTTP from /queries: formatted as a table
+// and rounded there, encoded as JSON, decoded, and encoded again by writeCsv. This builds that path from the same
+// steps and compares it to the direct read.
+func TestDownloadSourceCSVIdenticalToHTTPPath(t *testing.T) {
+	t.Parallel()
+	ts := func(s string) time.Time {
+		v, err := time.Parse(time.RFC3339Nano, s)
+		if err != nil {
+			panic(err)
+		}
+		return v
+	}
+	cet := time.FixedZone("CET", 3600)
+	fixture := func() [][]interface{} {
+		return [][]interface{}{
+			{ts("2025-09-15T20:00:00Z"), int64(5), 1.5},
+			{ts("2025-09-15T20:00:01.123456789Z"), int64(-7), 0.1 + 0.2},
+			{ts("2025-09-15T20:00:02Z").In(cet), nil, 2.675},
+			{ts("2025-09-15T20:00:03Z"), int64(1<<53 - 1), 1e21},
+			{ts("2025-09-15T20:00:04Z"), int64(-(1<<53 - 1)), 1e-7},
+			{ts("2025-09-15T20:00:05Z"), 7, float64(5)},
+			{ts("2025-09-15T20:00:06Z"), int32(-3), -0.0000012345},
+			{ts("2025-09-15T20:00:07Z"), `a "quoted" <b> & c,d`, true},
+			{ts("2025-09-15T20:00:08Z"), map[string]interface{}{"z": 1, "a": []interface{}{int64(2), 3.5, nil}}, "line\nbreak"},
+			{ts("2025-09-15T20:00:09Z"), []interface{}{int64(1 << 60), "x"}, float32(0.1)},
+			{ts("2025-09-15T20:00:10Z"), nil, nil},
+			{ts("2025-09-15T20:00:11Z"), uint8(200), 123456789.123456789},
+		}
+	}
+	element := model.QueriesRequestElement{
+		Columns: []model.QueriesRequestElementColumn{{Name: "a"}, {Name: "b"}},
+		Time:    &model.QueriesRequestElementTime{Start: strPtr("2025-09-15T20:00:00Z"), End: strPtr("2025-09-15T21:00:00Z")},
+	}
+	two, zero := 2, 0
+	for _, tc := range []struct {
+		name       string
+		timeFormat string
+		precision  *int
+	}{
+		{name: "plain"},
+		{name: "time format", timeFormat: "2006-01-02 15:04:05.000-07:00"},
+		{name: "precision", precision: &two},
+		{name: "precision 0 and time format", timeFormat: "Mon Jan 2 15:04:05 2006", precision: &zero},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := downloadPipeline(&windowWrapper{respond: func(int) [][]interface{} { return fixture() }})
+			ctx := context.Background()
+
+			// the path of the HTTP request: what /queries does for these params, then the CSV of the download
+			elements := []model.QueriesRequestElement{element}
+			raw, err := p.fetch(ctx, elements, "user", []string{"user"}, nil, []models.Device{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			table, err := p.formatTable(ctx, p.newLookups(), elements, raw, 0, model.Asc, tc.timeFormat)
+			if err != nil {
+				t.Fatal(err)
+			}
+			roundResponse(table, tc.precision)
+			body, err := json.Marshal(table) // writeJSON of /queries
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded [][]interface{}
+			if err = json.Unmarshal(body, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			var want strings.Builder
+			if err = writeCsv(decoded, csv.NewWriter(&want)); err != nil {
+				t.Fatal(err)
+			}
+
+			direct, err := p.downloadSource("user", []string{"user"}, tc.timeFormat, tc.precision)(ctx, element)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got strings.Builder
+			if err = writeCsv(direct, csv.NewWriter(&got)); err != nil {
+				t.Fatal(err)
+			}
+			if got.String() != want.String() {
+				t.Errorf("csv differs\ndirect:\n%s\nover http:\n%s", got.String(), want.String())
+			}
+			if strings.Count(want.String(), "\n") < 10 {
+				t.Errorf("fixture produced too few rows: %q", want.String())
+			}
+		})
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+// Integers are written exactly, also beyond 2^53, where the JSON round trip of the HTTP path cut digits off.
+func TestDownloadSourceLargeIntegersExact(t *testing.T) {
+	t.Parallel()
+	row := []interface{}{time.Date(2025, 9, 15, 20, 0, 0, 0, time.UTC), int64(1<<53 + 1), int64(1 << 60), int64(-(1<<62 + 1))}
+	p := downloadPipeline(&windowWrapper{respond: func(int) [][]interface{} {
+		return [][]interface{}{append([]interface{}(nil), row...)}
+	}})
+	element := rawElement("2025-09-15T20:00:00Z", "2025-09-15T21:00:00Z")
+	element.Columns = append(element.Columns, model.QueriesRequestElementColumn{Name: "b"}, model.QueriesRequestElementColumn{Name: "c"})
+	rows, err := p.downloadSource("user", []string{"user"}, "", nil)(context.Background(), element)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err = writeCsv(rows, csv.NewWriter(&out)); err != nil {
+		t.Fatal(err)
+	}
+	if want := "2025-09-15T20:00:00Z,9007199254740993,1152921504606846976,-4611686018427387905\n"; out.String() != want {
+		t.Errorf("got %q, want %q", out.String(), want)
 	}
 }

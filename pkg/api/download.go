@@ -17,20 +17,19 @@
 package api
 
 import (
-	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"io"
+	"fmt"
 	"net/http"
-	"net/url"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	deviceSelection "github.com/SENERGY-Platform/device-selection/pkg/client"
 	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
+	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/configuration"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/log"
@@ -100,57 +99,48 @@ func GetPrepareDownload() {} // for doc generation
 // @Router       /prepare-download [POST]
 func PostPrepareDownload() {} // for doc generation
 
-func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, _ *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, _ *converter.Converter, _ deviceSelection.Client) {
+func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, conv *converter.Converter, _ deviceSelection.Client) {
+	p := newPipeline(config, wrapper, verifier, remoteCache, conv)
+
 	router.GET("/download", func(c *gin.Context) {
-		writer := c.Writer
-		request := c.Request
-		marshalledQuery := request.URL.Query().Get("query")
-		prepared, ok := prepareQueriesRequestElement(c, request, verifier, marshalledQuery)
-		if !ok {
+		prepared, userId, ownerUserIds, err := prepareQueriesRequestElement(c.Request, verifier, c.Request.URL.Query().Get("query"))
+		if err != nil {
+			c.Error(err)
 			return
 		}
-		handleCSVDownload(c, prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Precision, prepared.Token, writer, config)
+		serveDownload(c, p, prepared, userId, ownerUserIds)
 	})
 
-	handleSecretGeneration := func(c *gin.Context, prepared model.PreparedQueriesRequestElement) {
-		writer := c.Writer
+	// prepareSecret verifies the query, stores it and answers with the secret of its download.
+	prepareSecret := func(c *gin.Context, marshalledQuery string) {
+		prepared, _, _, err := prepareQueriesRequestElement(c.Request, verifier, marshalledQuery)
+		if err != nil {
+			c.Error(err)
+			return
+		}
 		secret, err := remoteCache.StoreSecretQuery(c.Request.Context(), prepared)
 		if err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
-		writer.Header().Set("Content-Type", "text/plain")
-		_, err = writer.Write([]byte(secret))
-		if err != nil {
+		c.Writer.Header().Set("Content-Type", "text/plain")
+		if _, err = c.Writer.Write([]byte(secret)); err != nil {
 			c.Error(errors.Join(err, model.ErrInternalServerError))
 			return
 		}
 	}
 
 	router.GET("/prepare-download", func(c *gin.Context) {
-		request := c.Request
-		marshalledQuery := request.URL.Query().Get("query")
-		prepared, ok := prepareQueriesRequestElement(c, request, verifier, marshalledQuery)
-		if !ok {
-			return // prepareQueriesRequestElement has set the error
-		}
-
-		handleSecretGeneration(c, prepared)
+		prepareSecret(c, c.Request.URL.Query().Get("query"))
 	})
 
 	router.POST("/prepare-download", func(c *gin.Context) {
-		request := c.Request
 		var marshalledQuery string
 		if err := c.ShouldBindPlain(&marshalledQuery); err != nil {
 			c.Error(errors.Join(err, model.ErrBadRequest))
 			return
 		}
-		prepared, ok := prepareQueriesRequestElement(c, request, verifier, marshalledQuery)
-		if !ok {
-			return // prepareQueriesRequestElement has set the error
-		}
-
-		handleSecretGeneration(c, prepared)
+		prepareSecret(c, marshalledQuery)
 	})
 }
 
@@ -166,9 +156,9 @@ func PrepareDownloadEndpoints(router gin.IRouter, config configuration.Config, _
 // @Failure      404
 // @Failure      500
 // @Router       /download/{secret} [GET]
-func DownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, converter *converter.Converter, _ deviceSelection.Client) {
+func DownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper *timescale.Wrapper, verifier *verification.Verifier, remoteCache *cache.RemoteCache, conv *converter.Converter, _ deviceSelection.Client) {
+	p := newPipeline(config, wrapper, verifier, remoteCache, conv)
 	router.GET("/download/:secret", func(c *gin.Context) {
-		writer := c.Writer
 		prepared, err := remoteCache.GetSecretQuery(c.Request.Context(), c.Param("secret"))
 		if err != nil {
 			if errors.Is(err, memcache.ErrCacheMiss) {
@@ -178,48 +168,64 @@ func DownloadEndpoints(router gin.IRouter, config configuration.Config, wrapper 
 			}
 			return
 		}
-
-		handleCSVDownload(c, prepared.QueriesRequestElement, prepared.TimeFormat, prepared.Precision, prepared.Token, writer, config)
+		// The download reads the data with the rights of the user who prepared it. The user and the owners of the
+		// element are not part of the stored query, so access is checked once more here, once per download and
+		// before the first byte is sent.
+		tokenRequest, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, "/", nil)
+		if err != nil {
+			c.Error(classify(err, model.ErrInternalServerError))
+			return
+		}
+		tokenRequest.Header.Set("Authorization", prepared.Token)
+		userId, ownerUserIds, err := verifyRequest(c.Request.Context(), tokenRequest, verifier, []model.QueriesRequestElement{prepared.QueriesRequestElement})
+		if err != nil {
+			c.Error(err)
+			return
+		}
+		serveDownload(c, p, prepared, userId, ownerUserIds)
 	})
 }
 
-func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifier *verification.Verifier, marshalledQuery string) (elem model.PreparedQueriesRequestElement, ok bool) {
-	elem = model.PreparedQueriesRequestElement{}
+// prepareQueriesRequestElement reads and checks the query of a download. The errors it returns carry one status
+// class. userId and ownerUserIds are the result of the access check, see verifyRequest.
+func prepareQueriesRequestElement(request *http.Request, verifier accessVerifier, marshalledQuery string) (elem model.PreparedQueriesRequestElement, userId string, ownerUserIds []string, err error) {
 	timeFormat := request.URL.Query().Get("time_format")
 	precision, err := parsePrecision(request)
 	if err != nil {
-		c.Error(errors.Join(err, model.ErrBadRequest))
-		return elem, false
+		return elem, "", nil, errors.Join(err, model.ErrBadRequest)
 	}
 
 	var requestElement model.QueriesRequestElement
 	err = json.Unmarshal([]byte(marshalledQuery), &requestElement)
+	if err != nil {
+		return elem, "", nil, errors.Join(fmt.Errorf("invalid query: %w", err), model.ErrBadRequest)
+	}
 	if !requestElement.Valid() {
-		c.Error(errors.Join(errors.New("invalid query"), model.ErrBadRequest))
-		return elem, false
+		return elem, "", nil, errors.Join(errors.New("invalid query"), model.ErrBadRequest)
+	}
+	// the download reads through the pipeline of /queries, which has no device groups either
+	if err = rejectDeviceGroups([]model.QueriesRequestElement{requestElement}); err != nil {
+		return elem, "", nil, err
 	}
 	zero := 0
 	requestElement.OrderColumnIndex = &zero
 	asc := model.Asc
 	requestElement.OrderDirection = &asc
 	if requestElement.Time == nil {
-		c.Error(errors.Join(errors.New("need time element"), model.ErrBadRequest))
-		return elem, false
+		return elem, "", nil, errors.Join(errors.New("need time element"), model.ErrBadRequest)
 	}
 
 	if requestElement.GroupTime == nil {
 		// raw values are read window by window, which takes a start and an end
 		err = resolveRelativeDownloadTime(requestElement.Time, time.Now())
 		if err != nil {
-			c.Error(errors.Join(err, model.ErrBadRequest))
-			return elem, false
+			return elem, "", nil, errors.Join(err, model.ErrBadRequest)
 		}
 	}
 
-	_, _, err = verifyRequest(c.Request.Context(), request, verifier, []model.QueriesRequestElement{requestElement})
+	userId, ownerUserIds, err = verifyRequest(request.Context(), request, verifier, []model.QueriesRequestElement{requestElement})
 	if err != nil {
-		c.Error(err)
-		return elem, false
+		return elem, "", nil, err
 	}
 
 	return model.PreparedQueriesRequestElement{
@@ -227,7 +233,7 @@ func prepareQueriesRequestElement(c *gin.Context, request *http.Request, verifie
 		Token:                 getToken(request),
 		TimeFormat:            timeFormat,
 		Precision:             precision,
-	}, true
+	}, userId, ownerUserIds, nil
 }
 
 // resolveRelativeDownloadTime replaces last or ahead by the start and end they mean at now: /queries refuses an
@@ -249,25 +255,11 @@ func resolveRelativeDownloadTime(t *model.QueriesRequestElementTime, now time.Ti
 	return nil
 }
 
-// downloadQueryParams builds the query string of the /queries requests a download is made of.
-// time_format is user input and needs escaping: a "+" or a space in it broke the request.
-func downloadQueryParams(timeFormat string, precision *int) string {
-	params := url.Values{}
-	params.Set("format", "table")
-	params.Set("order_column_index", "0")
-	params.Set("order_direction", "asc")
-	params.Set("time_format", timeFormat)
-	if precision != nil {
-		params.Set("precision", strconv.Itoa(*precision))
-	}
-	return params.Encode()
-}
-
-// The windows of the /queries requests of a download of raw values follow the density of the data. The first window
+// The windows a download of raw values is read in follow the density of the data. The first window
 // is an hour long; a window that returned fewer than half of downloadWindowRows rows is followed by one twice as
 // long, one that returned more by one half as long, within downloadWindowMin and downloadWindowMax. Sparse data
-// takes few requests (with windows of an hour, two years took 17520 requests, longer than the gateway waits for a
-// byte), dense data keeps a request small.
+// takes few reads (with windows of an hour, two years took 17520 requests, longer than the gateway waits for a
+// byte), dense data keeps a read small.
 const (
 	downloadWindowRows = 10000
 	downloadWindowMin  = time.Minute
@@ -285,15 +277,244 @@ func nextDownloadWindow(size time.Duration, rows int) time.Duration {
 	return size
 }
 
-var httpClient = http.Client{
-	Timeout: 2 * time.Minute,
+// serveDownload resolves the json paths of a verified download and streams it. The user and the owners are those
+// of the access check of the element.
+func serveDownload(c *gin.Context, p *pipeline, prepared model.PreparedQueriesRequestElement, userId string, ownerUserIds []string) {
+	elements := []model.QueriesRequestElement{prepared.QueriesRequestElement}
+	if err := p.resolvePaths(c.Request.Context(), p.newLookups(), elements); err != nil {
+		c.Error(err)
+		return
+	}
+	source := p.downloadSource(userId, ownerUserIds, prepared.TimeFormat, prepared.Precision)
+	handleCSVDownload(c, elements[0], source, c.Writer)
 }
 
-func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElement, timeFormat string, precision *int, token string, writer http.ResponseWriter, config configuration.Config) {
+// windowSource returns the rows of the table of one request element, as the CSV of a download takes them.
+type windowSource func(ctx context.Context, element model.QueriesRequestElement) ([][]interface{}, error)
+
+// downloadSource reads a window of a download through the steps of /queries with format=table, ascending by time:
+// cache, database, table, time format and precision. The access check is not repeated per window, see
+// prepareQueriesRequestElement.
+func (p *pipeline) downloadSource(userId string, ownerUserIds []string, timeFormat string, precision *int) windowSource {
+	return func(ctx context.Context, element model.QueriesRequestElement) ([][]interface{}, error) {
+		elements := []model.QueriesRequestElement{element}
+		raw, err := p.fetch(ctx, elements, userId, ownerUserIds, nil, []models.Device{})
+		if err != nil {
+			return nil, err
+		}
+		rows, err := p.formatTable(ctx, p.newLookups(), elements, raw, 0, model.Asc, timeFormat)
+		if err != nil {
+			return nil, err
+		}
+		if precision != nil {
+			roundRows(rows, *precision)
+		}
+		for _, row := range rows {
+			for i := range row {
+				row[i] = csvCell(row[i])
+			}
+		}
+		return rows, nil
+	}
+}
+
+// csvCell gives a cell the value it had when the rows of a download passed through JSON, as they did when /queries
+// answered over HTTP: writeCsv encodes a cell as JSON, and a number that went through JSON was a float64. Simple
+// values encode the same before and after that round trip and are returned as they are. Integers are written
+// exactly, also beyond 2^53, where the round trip had cut digits off. Values that are neither (maps, lists,
+// structs) may change their keys or their numbers, so those take the round trip and keep its float64 numbers.
+func csvCell(value interface{}) interface{} {
+	switch value.(type) {
+	case nil, string, bool, float64, time.Time, int, int8, int16, int32, int64, uint8, uint16, uint32:
+		return value
+	}
+	b, err := json.Marshal(value)
+	if err != nil {
+		return value // writeCsv reports it
+	}
+	var decoded interface{}
+	if err = json.Unmarshal(b, &decoded); err != nil {
+		return value
+	}
+	return decoded
+}
+
+// downloadWindows hands out the requests a download is made of and keeps their bookkeeping. A download of raw
+// values is read window by window, see nextDownloadWindow; a grouped download is one window. next returns the
+// element of the next window, record takes the number of rows it returned.
+type downloadWindows struct {
+	element model.QueriesRequestElement
+	grouped bool
+	started bool
+
+	start, end time.Time
+	from       time.Time
+	size       time.Duration
+	// remaining is the number of rows the limit still allows, -1 without a limit. /queries drops rows whose columns
+	// are all null after its LIMIT, so the download may hold rows from beyond the first limit rows of the table.
+	remaining int
+}
+
+// newDownloadWindows returns the windows of element. An element of raw values needs a start and an end.
+func newDownloadWindows(element model.QueriesRequestElement) (*downloadWindows, error) {
+	w := &downloadWindows{element: element, size: time.Hour, remaining: -1}
+	if element.GroupTime != nil {
+		w.grouped = true
+		return w, nil
+	}
+	if element.Time == nil || element.Time.Start == nil || element.Time.End == nil {
+		return nil, errors.Join(errors.New("need start and end time"), model.ErrBadRequest)
+	}
+	var err error
+	if w.end, err = time.Parse(time.RFC3339, *element.Time.End); err != nil {
+		return nil, errors.Join(fmt.Errorf("invalid end time: %w", err), model.ErrBadRequest)
+	}
+	if w.start, err = time.Parse(time.RFC3339, *element.Time.Start); err != nil {
+		return nil, errors.Join(fmt.Errorf("invalid start time: %w", err), model.ErrBadRequest)
+	}
+	w.from = w.start
+	if element.Limit != nil && *element.Limit >= 0 {
+		w.remaining = *element.Limit
+	}
+	return w, nil
+}
+
+// next returns the element of the next window, or false when the download is complete.
+func (w *downloadWindows) next() (model.QueriesRequestElement, bool) {
+	if w.grouped {
+		// One request over the whole window: a bucket split between two requests came out once per request, and
+		// the limit of a grouped query counts the buckets of the whole window.
+		if w.started {
+			return model.QueriesRequestElement{}, false
+		}
+		w.started = true
+		return w.element, true
+	}
+	if !w.from.Before(w.end) || w.remaining == 0 {
+		return model.QueriesRequestElement{}, false
+	}
+	to := w.from.Add(w.size)
+	if to.After(w.end) {
+		to = w.end
+	}
+	// /queries leaves out both ends of its window, so every window after the first starts one microsecond,
+	// the precision of timestamptz, before the end of the previous one: a point on the boundary of two
+	// windows falls into the later one only.
+	queryStart := w.from
+	if !w.from.Equal(w.start) {
+		queryStart = w.from.Add(-time.Microsecond)
+	}
+	start := queryStart.UTC().Format(time.RFC3339Nano)
+	end := to.UTC().Format(time.RFC3339Nano)
+	element := w.element
+	window := *w.element.Time
+	window.Start, window.End = &start, &end
+	element.Time = &window
+	if w.remaining > 0 {
+		limit := w.remaining
+		element.Limit = &limit
+	}
+	w.from = to
+	return element, true
+}
+
+// record takes the number of rows the window handed out last returned.
+func (w *downloadWindows) record(rows int) {
+	if w.grouped {
+		return
+	}
+	if w.remaining > 0 {
+		w.remaining = max(w.remaining-rows, 0)
+	}
+	w.size = nextDownloadWindow(w.size, rows)
+}
+
+// csvStream writes chunks of rows to a CSV writer on a goroutine of its own, so that the next window can be read
+// while the previous one is written. The goroutine ends only when the chunks are closed: finish and abort, the
+// only ways out, close them and take the one result of the writer. Nothing is left running, and nothing writes to
+// the response after the handler returned.
+type csvStream struct {
+	chunks   chan [][]interface{}
+	writeErr chan error
+	once     sync.Once
+	result   error
+}
+
+func newCSVStream(csvWriter *csv.Writer) *csvStream {
+	s := &csvStream{chunks: make(chan [][]interface{}, 1), writeErr: make(chan error, 1)}
+	go writeCSVChunks(s.chunks, csvWriter, s.writeErr)
+	return s
+}
+
+// send hands rows to the writer. It fails if the writer has ended, which it has done on its own only when a write
+// failed.
+func (s *csvStream) send(rows [][]interface{}) error {
+	select {
+	case err := <-s.writeErr:
+		// the writer has ended and its one result is taken here, so finish must not wait for it
+		s.once.Do(func() {
+			close(s.chunks)
+			s.result = err
+		})
+		if err == nil {
+			err = errors.New("csv writer stopped unexpectedly")
+		}
+		return fmt.Errorf("failed to write csv: %w", err)
+	case s.chunks <- rows:
+		return nil
+	}
+}
+
+// finish waits until everything sent is written and returns the error of the writer. It is safe to call it again
+// and after send failed.
+func (s *csvStream) finish() error {
+	s.once.Do(func() {
+		close(s.chunks)
+		s.result = <-s.writeErr
+	})
+	if s.result != nil {
+		return fmt.Errorf("failed to write csv: %w", s.result)
+	}
+	return nil
+}
+
+// streamCSV reads the windows from source and writes their rows as CSV. It returns the first error and no longer
+// has the writer goroutine running when it does. It does not panic itself, but a panic of source still ends the
+// writer.
+func streamCSV(ctx context.Context, windows *downloadWindows, source windowSource, csvWriter *csv.Writer) error {
+	stream := newCSVStream(csvWriter)
+	defer stream.finish() //nolint:errcheck // the error is returned below on the regular path
+	for {
+		element, ok := windows.next()
+		if !ok {
+			break
+		}
+		rows, err := source(ctx, element)
+		if err != nil {
+			return fmt.Errorf("failed to read window: %w", err)
+		}
+		if err = stream.send(rows); err != nil {
+			return err
+		}
+		windows.record(len(rows))
+	}
+	return stream.finish()
+}
+
+// handleCSVDownload answers with the CSV of requestElement, the rows of which source returns. Everything that can
+// be refused is refused before the headers are sent, as an error of c. From then on the status is 200 and a
+// failure can only cut the response off: panic(http.ErrAbortHandler) below is the one place that does it, so that
+// the client sees a broken download instead of a short file that looks complete.
+func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElement, source windowSource, writer http.ResponseWriter) {
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
 		log.Logger.ErrorContext(c, "not a flusher")
 		c.Error(errors.Join(errors.New("not a flusher"), model.ErrInternalServerError))
+		return
+	}
+	windows, err := newDownloadWindows(requestElement)
+	if err != nil {
+		c.Error(err)
 		return
 	}
 	writer.Header().Set("Content-Type", "application/csv")
@@ -303,156 +524,15 @@ func handleCSVDownload(c *gin.Context, requestElement model.QueriesRequestElemen
 	for j := range requestElement.Columns {
 		headers = append(headers, requestElement.Columns[j].Name)
 	}
-	err := csvWriter.Write(headers)
+	err = csvWriter.Write(headers)
 	if err != nil {
 		c.Error(errors.Join(err, model.ErrInternalServerError))
 		return
 	}
-	flusher.Flush() // no http.Error from now on! Use panic(http.ErrAbortHandler)
+	flusher.Flush() // no http.Error from now on!
 
-	/* channel setup:
-
-	chunks: for sending query results to the csv writer goroutine. the main routine will query the db and writes result to the channel, the csv writer goroutine will read from the channel and write to the response. this allows to query the next chunk while the previous one is still being written to the response, which can improve performance for large downloads.
-
-	writeErr: for receiving errors from the csv writer goroutine. if an error is received, the main goroutine will stop processing and return an error response. if nil is received, the main goroutine will stop processing and finish the request successfully. the csv writer goroutine will send nil if the chunks channel is closed and all chunks have been written successfully, signalling completion.
-	*/
-	chunks := make(chan [][]interface{}, 1)
-	writeErr := make(chan error, 1)
-	// The writer goroutine ends only when chunks is closed. Every exit of this function, the panics of query and
-	// send included, closes it and waits for the writer's one result; the deferred call runs before a panic
-	// propagates. Waiting keeps the writer from writing to the response after the handler returned.
-	var stopWriter sync.Once
-	var writerResult error
-	stop := func() {
-		stopWriter.Do(func() {
-			close(chunks)
-			writerResult = <-writeErr
-		})
-	}
-	defer stop()
-	go writeCSVChunks(chunks, csvWriter, writeErr)
-
-	// query runs one /queries request for requestElement as it is at the call and returns its rows.
-	query := func() [][]interface{} {
-		// post /queries
-		b, err := json.Marshal([]model.QueriesRequestElement{requestElement})
-		if err != nil {
-			log.Logger.ErrorContext(c, "failed to marshal query request", attributes.ErrorKey, err)
-			panic(http.ErrAbortHandler)
-		}
-		req, err := http.NewRequest(http.MethodPost, "http://localhost:"+config.ApiPort+"/queries?"+downloadQueryParams(timeFormat, precision), bytes.NewBuffer(b))
-		if err != nil {
-			log.Logger.ErrorContext(c, "failed to create query request", attributes.ErrorKey, err)
-			panic(http.ErrAbortHandler)
-		}
-		req.Header.Set("Authorization", token)
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			log.Logger.ErrorContext(c, "failed to execute query request", attributes.ErrorKey, err)
-			panic(http.ErrAbortHandler)
-		}
-		if resp.StatusCode != 200 {
-			reason, err := io.ReadAll(resp.Body)
-			closeErr := resp.Body.Close()
-			if closeErr != nil {
-				log.Logger.ErrorContext(c, "failed to close query error response body", attributes.ErrorKey, closeErr)
-				panic(http.ErrAbortHandler)
-			}
-			if err != nil {
-				log.Logger.ErrorContext(c, "failed to read query error response", attributes.ErrorKey, err)
-				panic(http.ErrAbortHandler)
-			}
-			log.Logger.ErrorContext(c, "query request returned non-200 status", attributes.ErrorKey, string(reason))
-			panic(http.ErrAbortHandler)
-		}
-		var respData [][]interface{}
-		err = json.NewDecoder(resp.Body).Decode(&respData)
-		closeErr := resp.Body.Close()
-		if closeErr != nil {
-			log.Logger.ErrorContext(c, "failed to close query response body", attributes.ErrorKey, closeErr)
-			panic(http.ErrAbortHandler)
-		}
-		if err != nil {
-			log.Logger.ErrorContext(c, "failed to decode query response", attributes.ErrorKey, err)
-			panic(http.ErrAbortHandler)
-		}
-
-		return respData
-	}
-	send := func(rows [][]interface{}) {
-		select {
-		case err := <-writeErr:
-			// the writer has ended and its one result is taken here, so stop must not wait for it
-			stopWriter.Do(func() {
-				close(chunks)
-				writerResult = err
-			})
-			if err != nil {
-				log.Logger.ErrorContext(c, "failed to write csv", attributes.ErrorKey, err)
-			} else {
-				log.Logger.ErrorContext(c, "csv writer stopped unexpectedly")
-			}
-			panic(http.ErrAbortHandler)
-		case chunks <- rows:
-		}
-	}
-
-	if requestElement.GroupTime != nil {
-		// One request over the whole window: a bucket split between two requests came out once per request, and
-		// the limit of a grouped query counts the buckets of the whole window.
-		send(query())
-	} else {
-		endTime, err := time.Parse(time.RFC3339, *requestElement.Time.End)
-		if err != nil {
-			log.Logger.ErrorContext(c, "failed to parse end time", attributes.ErrorKey, err)
-			panic(http.ErrAbortHandler)
-		}
-		startTime, err := time.Parse(time.RFC3339, *requestElement.Time.Start)
-		if err != nil {
-			log.Logger.ErrorContext(c, "failed to parse start time", attributes.ErrorKey, err)
-			panic(http.ErrAbortHandler)
-		}
-		// rows the limit still allows, -1 without a limit. /queries drops rows whose columns are all null after its
-		// LIMIT, so the download may hold rows from beyond the first limit rows of the table.
-		remaining := -1
-		if requestElement.Limit != nil && *requestElement.Limit >= 0 {
-			remaining = *requestElement.Limit
-		}
-		size := time.Hour
-		for from := startTime; from.Before(endTime) && remaining != 0; {
-			to := from.Add(size)
-			if to.After(endTime) {
-				to = endTime
-			}
-			// /queries leaves out both ends of its window, so every window after the first starts one microsecond,
-			// the precision of timestamptz, before the end of the previous one: a point on the boundary of two
-			// windows falls into the later one only.
-			queryStart := from
-			if !from.Equal(startTime) {
-				queryStart = from.Add(-time.Microsecond)
-			}
-			start := queryStart.UTC().Format(time.RFC3339Nano)
-			requestElement.Time.Start = &start
-			end := to.UTC().Format(time.RFC3339Nano)
-			requestElement.Time.End = &end
-			if remaining > 0 {
-				limit := remaining
-				requestElement.Limit = &limit
-			}
-			rows := query()
-			send(rows)
-			if remaining > 0 {
-				remaining = max(remaining-len(rows), 0)
-			}
-			from = to
-			size = nextDownloadWindow(size, len(rows))
-		}
-	}
-
-	stop()
-	err = writerResult
-	if err != nil {
-		log.Logger.ErrorContext(c, "failed to write csv", attributes.ErrorKey, err)
+	if err = streamCSV(c.Request.Context(), windows, source, csvWriter); err != nil {
+		log.Logger.ErrorContext(c, "download aborted", attributes.ErrorKey, err)
 		panic(http.ErrAbortHandler)
 	}
 }

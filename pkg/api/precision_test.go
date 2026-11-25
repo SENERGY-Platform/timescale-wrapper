@@ -110,19 +110,3 @@ func TestRoundResponse(t *testing.T) {
 		t.Error("expected no rounding without precision")
 	}
 }
-
-func TestDownloadQueryParams(t *testing.T) {
-	t.Parallel()
-	two := 2
-	params, err := url.ParseQuery(downloadQueryParams("2006-01-02 15:04:05.000-07:00", &two))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if params.Get("time_format") != "2006-01-02 15:04:05.000-07:00" || params.Get("precision") != "2" || params.Get("format") != "table" {
-		t.Errorf("unexpected params %v", params)
-	}
-	params, _ = url.ParseQuery(downloadQueryParams("", nil))
-	if params.Has("precision") {
-		t.Errorf("unexpected precision in %v", params)
-	}
-}
