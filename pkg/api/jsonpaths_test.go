@@ -108,7 +108,7 @@ func TestResolveJSONPaths(t *testing.T) {
 			},
 			Filters: &[]model.QueriesRequestElementFilter{{Column: "root.list.1.result", Type: "!=", Value: nil}, {Column: "root.list.0.errorcode", Type: "=", Value: 1}},
 		}}
-		if err := resolveJSONPaths(context.Background(), remoteCache, elements); err != nil {
+		if err := resolveJSONPaths(context.Background(), newRequestLookups(remoteCache), elements); err != nil {
 			t.Fatal(err)
 		}
 		expected := map[string]model.JSONPath{
@@ -127,7 +127,7 @@ func TestResolveJSONPaths(t *testing.T) {
 			ServiceId: &service,
 			Columns:   []model.QueriesRequestElementColumn{{Name: "root.level"}, {Name: "root.fixed.0"}},
 		}}
-		if err := resolveJSONPaths(context.Background(), remoteCache, elements); err != nil {
+		if err := resolveJSONPaths(context.Background(), newRequestLookups(remoteCache), elements); err != nil {
 			t.Fatal(err)
 		}
 		if elements[0].JSONPaths != nil {
@@ -143,7 +143,7 @@ func TestResolveJSONPaths(t *testing.T) {
 				Columns:   []model.QueriesRequestElementColumn{{Name: name}},
 			}}
 			// names without an index or wildcard are not looked up, see listPathNames
-			err := resolveJSONPaths(context.Background(), remoteCache, elements)
+			err := resolveJSONPaths(context.Background(), newRequestLookups(remoteCache), elements)
 			if name == "root.list.result" {
 				if err != nil {
 					t.Errorf("%s: unexpected error %v", name, err)
@@ -165,14 +165,14 @@ func TestResolveJSONPaths(t *testing.T) {
 			"time weighted":             {Name: "root.list.*.result", GroupType: &twmean},
 		} {
 			elements := []model.QueriesRequestElement{{DeviceId: &device, ServiceId: &service, GroupTime: &group, Columns: []model.QueriesRequestElementColumn{column}}}
-			err := resolveJSONPaths(context.Background(), remoteCache, elements)
+			err := resolveJSONPaths(context.Background(), newRequestLookups(remoteCache), elements)
 			if err == nil || model.GetStatusCode(err) != 400 {
 				t.Errorf("%s: expected a bad request, got %v", name, err)
 			}
 		}
 		elements := []model.QueriesRequestElement{{DeviceId: &device, ServiceId: &service, GroupTime: &group,
 			Columns: []model.QueriesRequestElementColumn{{Name: "root.list.*.result", GroupType: &sum, Math: &plus, TargetCharacteristicId: &target, ConceptId: &concept}}}}
-		if err := resolveJSONPaths(context.Background(), remoteCache, elements); err != nil {
+		if err := resolveJSONPaths(context.Background(), newRequestLookups(remoteCache), elements); err != nil {
 			t.Errorf("aggregated wildcard column: %v", err)
 		}
 	})
@@ -187,7 +187,7 @@ func TestResolveJSONPaths(t *testing.T) {
 			ServiceId: &unknown,
 			Columns:   []model.QueriesRequestElementColumn{{Name: "root.fixed.0"}, {Name: "root.list.0.errorcode"}},
 		}}
-		if err := resolveJSONPaths(context.Background(), remoteCache, elements); err != nil {
+		if err := resolveJSONPaths(context.Background(), newRequestLookups(remoteCache), elements); err != nil {
 			t.Errorf("index paths without service: %v", err)
 		}
 		if elements[0].JSONPaths != nil {
@@ -200,7 +200,7 @@ func TestResolveJSONPaths(t *testing.T) {
 			GroupTime: &group,
 			Columns:   []model.QueriesRequestElementColumn{{Name: "root.fixed.0", GroupType: &sum}, {Name: "root.list.*.result", GroupType: &sum}},
 		}}
-		err := resolveJSONPaths(context.Background(), remoteCache, elements)
+		err := resolveJSONPaths(context.Background(), newRequestLookups(remoteCache), elements)
 		if err == nil || model.GetStatusCode(err) != 500 {
 			t.Errorf("wildcard without service: expected an internal server error, got %v", err)
 		}
@@ -211,7 +211,7 @@ func TestResolveJSONPaths(t *testing.T) {
 			ExportId: &export,
 			Columns:  []model.QueriesRequestElementColumn{{Name: "root.list.*.result", GroupType: &sum}},
 		}}
-		err := resolveJSONPaths(context.Background(), remoteCache, elements)
+		err := resolveJSONPaths(context.Background(), newRequestLookups(remoteCache), elements)
 		if err == nil || model.GetStatusCode(err) != 400 {
 			t.Errorf("expected a bad request, got %v", err)
 		}
@@ -222,7 +222,7 @@ func TestResolveJSONPaths(t *testing.T) {
 			ExportId: &export,
 			Columns:  []model.QueriesRequestElementColumn{{Name: "values.0"}},
 		}}
-		if err := resolveJSONPaths(context.Background(), remoteCache, elements); err != nil {
+		if err := resolveJSONPaths(context.Background(), newRequestLookups(remoteCache), elements); err != nil {
 			t.Fatal(err)
 		}
 		if elements[0].JSONPaths != nil {
@@ -247,7 +247,7 @@ func TestPostProcessingListElementConversion(t *testing.T) {
 				ServiceId: &service,
 				Columns:   []model.QueriesRequestElementColumn{{Name: name, GroupType: &groupType, TargetCharacteristicId: &target, ConceptId: &concept}},
 			}}
-			response, err := formatResponse(context.Background(), remoteCache, model.PerQuery, request, [][][]interface{}{{{ts, 3}}}, 0, model.Asc, "", conv)
+			response, err := formatPerQuery(context.Background(), newRequestLookups(remoteCache), request, [][][]interface{}{{{ts, 3}}}, 0, model.Asc, "", conv)
 			if err != nil {
 				t.Fatal(err)
 			}

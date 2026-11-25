@@ -104,9 +104,10 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 			forceTzp = &forceTz
 		}
 
+		lookups := h.newLookups()
 		queryCacheCtx, queryCacheSpan := tracer.Start(c.Request.Context(), "fetch from cache")
 		raw, dbRequestElementsBefore, dbRequestIndices := queriesGetFromCache(queryCacheCtx, requestElements, remoteCache, config, forceTzp)
-		response, err := formatCachedV2Responses(queryCacheCtx, remoteCache, requestElements, raw, timeFormat, converter)
+		response, err := formatCachedV2Responses(queryCacheCtx, lookups, converter, requestElements, raw, timeFormat)
 		queryCacheSpan.End()
 		if err != nil {
 			c.Error(classify(err, model.ErrInternalServerError))
@@ -137,7 +138,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 		// repository, device selection and database once per element, so its
 		// spans are suppressed and this one span covers the whole fan-out.
 		elementCtx := tracing.SuppressChildren(queryGenCtx, config.DetailedTracing)
-		params := v2Params{userId: userId, token: getToken(request), forceTz: forceTz, timeFormat: timeFormat}
+		params := v2Params{userId: userId, token: getToken(request), forceTz: forceTz, timeFormat: timeFormat, lookups: lookups}
 		if len(locateLat) > 0 && len(locateLon) > 0 {
 			params.locate = &[2]float64{locateLatFloat, locateLonFloat}
 		}
@@ -204,7 +205,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 // its own and files the series of column i at data[i] through mergeQueriesV2Series, so a cached
 // row is split the same way, and every series gets the same post-processing, characteristic
 // conversion and time_format included.
-func formatCachedV2Responses(ctx context.Context, remoteCache *cache.RemoteCache, requestElements []model.QueriesRequestElement, raw [][][]interface{}, timeFormat string, conv *converter.Converter) ([]model.QueriesV2ResponseElement, error) {
+func formatCachedV2Responses(ctx context.Context, lookups *requestLookups, conv *converter.Converter, requestElements []model.QueriesRequestElement, raw [][][]interface{}, timeFormat string) ([]model.QueriesV2ResponseElement, error) {
 	response := []model.QueriesV2ResponseElement{}
 	for i, r := range raw {
 		if len(r) == 0 {
@@ -221,13 +222,9 @@ func formatCachedV2Responses(ctx context.Context, remoteCache *cache.RemoteCache
 				}
 				rows = append(rows, []interface{}{row[0], row[colIdx+1]})
 			}
-			formatted, err := formatResponse(ctx, remoteCache, model.PerQuery, []model.QueriesRequestElement{single}, [][][]interface{}{rows}, orderColumnIndex, orderDirection, timeFormat, conv)
+			series, err := formatPerQuery(ctx, lookups, []model.QueriesRequestElement{single}, [][][]interface{}{rows}, orderColumnIndex, orderDirection, timeFormat, conv)
 			if err != nil {
 				return nil, err
-			}
-			series, ok := formatted.([][][]interface{})
-			if !ok || len(series) != 1 {
-				return nil, errors.New("could not cast cached response")
 			}
 			response = mergeQueriesV2Series(response, i, &single, colIdx, series[0])
 		}

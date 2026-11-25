@@ -93,7 +93,8 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 			c.Error(err)
 			return
 		}
-		err = p.resolvePaths(request.Context(), requestElements)
+		lookups := p.newLookups()
+		err = p.resolvePaths(request.Context(), lookups, requestElements)
 		if err != nil {
 			c.Error(err)
 			return
@@ -107,7 +108,13 @@ func QueriesEndpoint(router gin.IRouter, config configuration.Config, wrapper *t
 		ppCtx, ppSpan := p.tracer().Start(request.Context(), "postprocess results")
 		defer ppSpan.End()
 		timeFormat := request.URL.Query().Get("time_format")
-		response, err := p.format(ppCtx, requestedFormat, requestElements, raw, orderColumnIndex, orderDirection, timeFormat)
+		var response interface{}
+		switch requestedFormat {
+		case model.Table:
+			response, err = p.formatTable(ppCtx, lookups, requestElements, raw, orderColumnIndex, orderDirection, timeFormat)
+		default:
+			response, err = p.formatPerQuery(ppCtx, lookups, requestElements, raw, orderColumnIndex, orderDirection, timeFormat)
+		}
 		if err != nil {
 			c.Error(err)
 			return

@@ -27,130 +27,168 @@ import (
 
 	"github.com/SENERGY-Platform/converter/lib/converter"
 	"github.com/SENERGY-Platform/models/go/models"
-	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/meta"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 )
 
-func formatResponse(ctx context.Context, remoteCache *cache.RemoteCache, f model.Format, request []model.QueriesRequestElement, results [][][]interface{},
-	orderColumnIndex int, orderDirection model.Direction, timeFormat string, conv *converter.Converter) (data interface{}, err error) {
+// columnConverter converts the values of the columns of a request element list from the characteristic of the
+// source to the target characteristic of the column.
+type columnConverter struct {
+	request    []model.QueriesRequestElement
+	conv       *converter.Converter
+	sources    map[int]map[int]*string                     // seriesIndex to seriesColumnIndex to sourceCharacteristicId
+	extensions map[int]map[int][]models.ConverterExtension // seriesIndex to seriesColumnIndex to ConverterExtensions
+}
 
-	sourceCharacteristicIds := map[int]map[int]*string{}        // seriesIndex to seriesColumnIndex to sourceCharacteristicId
-	extensions := map[int]map[int][]models.ConverterExtension{} // seriesIndex to seriesColumnIndex to ConverterExtensions
+// newColumnConverter looks up the source characteristic and the concept extensions of every column with a
+// target characteristic. The source is the one of the column, or else the one of the variable of the service
+// output the column name addresses.
+func newColumnConverter(ctx context.Context, lookups *requestLookups, request []model.QueriesRequestElement, conv *converter.Converter) (*columnConverter, error) {
+	c := &columnConverter{
+		request:    request,
+		conv:       conv,
+		sources:    map[int]map[int]*string{},
+		extensions: map[int]map[int][]models.ConverterExtension{},
+	}
 	for seriesIndex := range request {
-		sourceCharacteristicIds[seriesIndex] = make(map[int]*string)
-		extensions[seriesIndex] = make(map[int][]models.ConverterExtension)
-		for seriesColumnIndex := range request[seriesIndex].Columns {
-			if request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId != nil {
-				sourceCharId := request[seriesIndex].Columns[seriesColumnIndex].SourceCharacteristicId
-				if sourceCharId == nil {
-					serviceId := request[seriesIndex].ServiceId
-					if serviceId == nil {
-						return nil, errors.New("service id cant be nil")
-					}
-					service, err := remoteCache.GetService(ctx, *serviceId)
-					if err != nil {
-						return nil, err
-					}
-					if len(service.Outputs) != 1 {
-						return nil, errors.New("service doesnt have exactly one output")
-					}
-					pathParts := strings.Split(request[seriesIndex].Columns[seriesColumnIndex].Name, ".")
-					if len(pathParts) > 1 {
-						pathParts = pathParts[1:] // skip root
-					}
-					contentVariable := meta.GetDeepContentVariable(service.Outputs[0].ContentVariable, pathParts)
-					if contentVariable == nil {
-						return nil, errors.Join(fmt.Errorf("column %q not found in service output", request[seriesIndex].Columns[seriesColumnIndex].Name), model.ErrBadRequest)
-					}
-					sourceCharId = &contentVariable.CharacteristicId
+		c.sources[seriesIndex] = make(map[int]*string)
+		c.extensions[seriesIndex] = make(map[int][]models.ConverterExtension)
+		for seriesColumnIndex, column := range request[seriesIndex].Columns {
+			if column.TargetCharacteristicId == nil {
+				continue
+			}
+			sourceCharId := column.SourceCharacteristicId
+			if sourceCharId == nil {
+				serviceId := request[seriesIndex].ServiceId
+				if serviceId == nil {
+					return nil, errors.New("service id cant be nil")
 				}
-				sourceCharacteristicIds[seriesIndex][seriesColumnIndex] = sourceCharId
-				if request[seriesIndex].Columns[seriesColumnIndex].ConceptId == nil {
-					return nil, errors.New("concept id cant be nil")
-				}
-				concept, err := remoteCache.GetConcept(ctx, *request[seriesIndex].Columns[seriesColumnIndex].ConceptId)
+				service, err := lookups.GetService(ctx, *serviceId)
 				if err != nil {
 					return nil, err
 				}
-				extensions[seriesIndex][seriesColumnIndex] = concept.Conversions
+				if len(service.Outputs) != 1 {
+					return nil, errors.New("service doesnt have exactly one output")
+				}
+				pathParts := strings.Split(column.Name, ".")
+				if len(pathParts) > 1 {
+					pathParts = pathParts[1:] // skip root
+				}
+				contentVariable := meta.GetDeepContentVariable(service.Outputs[0].ContentVariable, pathParts)
+				if contentVariable == nil {
+					return nil, errors.Join(fmt.Errorf("column %q not found in service output", column.Name), model.ErrBadRequest)
+				}
+				sourceCharId = &contentVariable.CharacteristicId
 			}
-		}
-	}
-
-	switch f {
-	case model.Table:
-		formatted, err := formatResponseAsTable(request, results, orderColumnIndex, orderDirection, conv, sourceCharacteristicIds, extensions)
-		if err != nil {
-			return nil, err
-		}
-		if len(timeFormat) > 0 {
-			formatTime2D(formatted, timeFormat)
-		}
-		for len(formatted) > 0 && isRowEmpty(formatted[len(formatted)-1]) {
-			formatted = formatted[:len(formatted)-1]
-		}
-		return formatted, nil
-	default:
-		for seriesIndex := range results {
-			for len(results[seriesIndex]) > 0 && isRowEmpty(results[seriesIndex][len(results[seriesIndex])-1]) {
-				results[seriesIndex] = results[seriesIndex][:len(results[seriesIndex])-1]
+			c.sources[seriesIndex][seriesColumnIndex] = sourceCharId
+			if column.ConceptId == nil {
+				return nil, errors.New("concept id cant be nil")
 			}
-			err = model.Sort2D(results[seriesIndex], orderColumnIndex, orderDirection)
+			concept, err := lookups.GetConcept(ctx, *column.ConceptId)
 			if err != nil {
 				return nil, err
 			}
-			if request[seriesIndex].Time != nil && request[seriesIndex].Time.End != nil {
-				// if tables do not contain enough data, LIMIT clauses miss their intention.
-				// therefore, result are filtered in this post-processing step again. The rows at or
-				// after the end can be anywhere in the sorted series, and the filter has to run
-				// before the limit, or it would remove rows the limit counted.
-				ts, err := time.Parse(time.RFC3339, *request[seriesIndex].Time.End)
+			c.extensions[seriesIndex][seriesColumnIndex] = concept.Conversions
+		}
+	}
+	return c, nil
+}
+
+// convert returns the point of the column unchanged if it has no target characteristic, no known source or
+// the same characteristic as target.
+func (c *columnConverter) convert(seriesIndex int, seriesColumnIndex int, point interface{}) (interface{}, error) {
+	column := c.request[seriesIndex].Columns[seriesColumnIndex]
+	source := c.sources[seriesIndex][seriesColumnIndex]
+	if column.TargetCharacteristicId == nil || source == nil || *source == *column.TargetCharacteristicId {
+		return point, nil
+	}
+	return c.conv.CastWithExtension(point, *source, *column.TargetCharacteristicId, c.extensions[seriesIndex][seriesColumnIndex])
+}
+
+// formatPerQuery brings the rows of each element into their final form: trailing rows without a value are
+// removed, the rows are sorted, cut at the end of the time range and at the limit, characteristics are converted
+// and the time is formatted. The results are changed in place.
+func formatPerQuery(ctx context.Context, lookups *requestLookups, request []model.QueriesRequestElement, results [][][]interface{},
+	orderColumnIndex int, orderDirection model.Direction, timeFormat string, conv *converter.Converter) ([][][]interface{}, error) {
+
+	columns, err := newColumnConverter(ctx, lookups, request, conv)
+	if err != nil {
+		return nil, err
+	}
+	for seriesIndex := range results {
+		for len(results[seriesIndex]) > 0 && isRowEmpty(results[seriesIndex][len(results[seriesIndex])-1]) {
+			results[seriesIndex] = results[seriesIndex][:len(results[seriesIndex])-1]
+		}
+		err = model.Sort2D(results[seriesIndex], orderColumnIndex, orderDirection)
+		if err != nil {
+			return nil, err
+		}
+		if request[seriesIndex].Time != nil && request[seriesIndex].Time.End != nil {
+			// if tables do not contain enough data, LIMIT clauses miss their intention.
+			// therefore, result are filtered in this post-processing step again. The rows at or
+			// after the end can be anywhere in the sorted series, and the filter has to run
+			// before the limit, or it would remove rows the limit counted.
+			ts, err := time.Parse(time.RFC3339, *request[seriesIndex].Time.End)
+			if err != nil {
+				return nil, err
+			}
+			kept := results[seriesIndex][:0]
+			for _, row := range results[seriesIndex] {
+				if len(row) > 0 {
+					if t, ok := row[0].(time.Time); ok && !t.Before(ts) {
+						continue
+					}
+				}
+				kept = append(kept, row)
+			}
+			results[seriesIndex] = kept
+		}
+		if limit := request[seriesIndex].Limit; limit != nil && *limit >= 0 && len(results[seriesIndex]) > *limit {
+			results[seriesIndex] = results[seriesIndex][:*limit]
+		}
+		for rowIndex := range results[seriesIndex] {
+			for j := range results[seriesIndex][rowIndex] {
+				if j == 0 {
+					continue // time column
+				}
+				results[seriesIndex][rowIndex][j], err = columns.convert(seriesIndex, j-1, results[seriesIndex][rowIndex][j])
 				if err != nil {
 					return nil, err
 				}
-				kept := results[seriesIndex][:0]
-				for _, row := range results[seriesIndex] {
-					if len(row) > 0 {
-						if t, ok := row[0].(time.Time); ok && !t.Before(ts) {
-							continue
-						}
-					}
-					kept = append(kept, row)
-				}
-				results[seriesIndex] = kept
-			}
-			if limit := request[seriesIndex].Limit; limit != nil && *limit >= 0 && len(results[seriesIndex]) > *limit {
-				results[seriesIndex] = results[seriesIndex][:*limit]
-			}
-			for rowIndex := range results[seriesIndex] {
-				for j := range results[seriesIndex][rowIndex] {
-					if j == 0 {
-						continue // time column
-					}
-					seriesColumnIndex := j - 1
-					if request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId != nil &&
-						sourceCharacteristicIds[seriesIndex][seriesColumnIndex] != nil &&
-						*sourceCharacteristicIds[seriesIndex][seriesColumnIndex] != *request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId {
-
-						results[seriesIndex][rowIndex][j], err = conv.CastWithExtension(results[seriesIndex][rowIndex][j], *sourceCharacteristicIds[seriesIndex][seriesColumnIndex], *request[seriesIndex].Columns[seriesColumnIndex].TargetCharacteristicId, extensions[seriesIndex][seriesColumnIndex])
-						if err != nil {
-							return nil, err
-						}
-					}
-				}
 			}
 		}
-		if len(timeFormat) > 0 {
-			for i := range results {
-				formatTime2D(results[i], timeFormat)
-			}
-		}
-		return results, nil
 	}
+	if len(timeFormat) > 0 {
+		for i := range results {
+			formatTime2D(results[i], timeFormat)
+		}
+	}
+	return results, nil
 }
 
-// formatResponseAsTable joins the series into one table with a row per timestamp: column 0 is the
+// formatTable joins the series into one table, see joinSeriesAsTable, formats the time and removes trailing rows
+// without a value.
+func formatTable(ctx context.Context, lookups *requestLookups, request []model.QueriesRequestElement, results [][][]interface{},
+	orderColumnIndex int, orderDirection model.Direction, timeFormat string, conv *converter.Converter) ([][]interface{}, error) {
+
+	columns, err := newColumnConverter(ctx, lookups, request, conv)
+	if err != nil {
+		return nil, err
+	}
+	formatted, err := joinSeriesAsTable(request, results, orderColumnIndex, orderDirection, columns)
+	if err != nil {
+		return nil, err
+	}
+	if len(timeFormat) > 0 {
+		formatTime2D(formatted, timeFormat)
+	}
+	for len(formatted) > 0 && isRowEmpty(formatted[len(formatted)-1]) {
+		formatted = formatted[:len(formatted)-1]
+	}
+	return formatted, nil
+}
+
+// joinSeriesAsTable joins the series into one table with a row per timestamp: column 0 is the
 // time, then the columns of every request element in order. A row of an earlier series takes the
 // first row of each later series with the same timestamp, rows with the same timestamp within a
 // series pair up in their order. Rows without any value are dropped.
@@ -158,21 +196,12 @@ func formatResponse(ctx context.Context, remoteCache *cache.RemoteCache, f model
 // The rows of the later series are looked up in a map per series instead of by binary search
 // with a re-sort after every match, which made the join quadratic in the number of rows and let
 // requests over a few days run into the gateway timeout (SNRGY-1722).
-func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]interface{}, orderColumnIndex int, orderDirection model.Direction, conv *converter.Converter, sourceCharacteristicIds map[int]map[int]*string, extensions map[int]map[int][]models.ConverterExtension) (formatted [][]interface{}, err error) {
+func joinSeriesAsTable(request []model.QueriesRequestElement, data [][][]interface{}, orderColumnIndex int, orderDirection model.Direction, columns *columnConverter) (formatted [][]interface{}, err error) {
 	totalColumns := 1
 	baseIndex := map[int]int{}
 	for requestIndex, element := range request {
 		baseIndex[requestIndex] = totalColumns
 		totalColumns += len(element.Columns)
-	}
-
-	convert := func(seriesIndex int, seriesColumnIndex int, point interface{}) (interface{}, error) {
-		column := request[seriesIndex].Columns[seriesColumnIndex]
-		source := sourceCharacteristicIds[seriesIndex][seriesColumnIndex]
-		if column.TargetCharacteristicId == nil || source == nil || *source == *column.TargetCharacteristicId {
-			return point, nil
-		}
-		return conv.CastWithExtension(point, *source, *column.TargetCharacteristicId, extensions[seriesIndex][seriesColumnIndex])
 	}
 
 	// row indices per timestamp of every series, in row order; consumed tracks rows that were
@@ -202,7 +231,7 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 			}
 			anyData := false
 			for seriesColumnIndex := range request[seriesIndex].Columns {
-				point, err := convert(seriesIndex, seriesColumnIndex, data[seriesIndex][rowIndex][seriesColumnIndex+1])
+				point, err := columns.convert(seriesIndex, seriesColumnIndex, data[seriesIndex][rowIndex][seriesColumnIndex+1])
 				if err != nil {
 					return nil, err
 				}
@@ -226,7 +255,7 @@ func formatResponseAsTable(request []model.QueriesRequestElement, data [][][]int
 					subRowIndex := candidates[0]
 					consumed[subSeriesIndex][subRowIndex] = true
 					for subSeriesColumnIndex := range request[subSeriesIndex].Columns {
-						point, err := convert(subSeriesIndex, subSeriesColumnIndex, data[subSeriesIndex][subRowIndex][subSeriesColumnIndex+1])
+						point, err := columns.convert(subSeriesIndex, subSeriesColumnIndex, data[subSeriesIndex][subRowIndex][subSeriesColumnIndex+1])
 						if err != nil {
 							return nil, err
 						}
@@ -269,46 +298,40 @@ func isRowEmpty(data []interface{}) bool {
 	return true
 }
 
+// writeCsv writes a table (2D) or the series of a per query response (3D) as csv rows.
 func writeCsv(data interface{}, writer *csv.Writer) (err error) {
-	data3D, ok := data.([][][]interface{})
-	if ok {
-		for i := range data3D {
-			for j := range data3D[i] {
-				vals := make([]string, len(data3D[i][j]))
-				for k := range data3D[i][j] {
-					b, err := json.Marshal(data3D[i][j][k])
-					if err != nil {
-						return err
-					}
-					vals[k] = strings.Replace(string(b), "\"", "", -1)
-				}
-				err = writer.Write(vals)
-				if err != nil {
-					return err
-				}
+	switch d := data.(type) {
+	case [][][]interface{}:
+		for i := range d {
+			if err = writeCsvRows(d[i], writer); err != nil {
+				return err
 			}
 		}
-		writer.Flush()
-		return nil
-	}
-	data2D, ok := data.([][]interface{})
-	if !ok {
+	case [][]interface{}:
+		if err = writeCsvRows(d, writer); err != nil {
+			return err
+		}
+	default:
 		return errors.New("data is not 2d or 3d")
 	}
-	for i := range data2D {
-		vals := make([]string, len(data2D[i]))
-		for j := range data2D[i] {
-			b, err := json.Marshal(data2D[i][j])
+	writer.Flush()
+	return nil
+}
+
+// writeCsvRows writes each row as a csv row of its json encoded cells without quotes.
+func writeCsvRows(rows [][]interface{}, writer *csv.Writer) error {
+	for _, row := range rows {
+		vals := make([]string, len(row))
+		for k := range row {
+			b, err := json.Marshal(row[k])
 			if err != nil {
 				return err
 			}
-			vals[j] = strings.Replace(string(b), "\"", "", -1)
+			vals[k] = strings.Replace(string(b), "\"", "", -1)
 		}
-		err = writer.Write(vals)
-		if err != nil {
+		if err := writer.Write(vals); err != nil {
 			return err
 		}
 	}
-	writer.Flush()
 	return nil
 }

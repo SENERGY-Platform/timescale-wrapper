@@ -96,7 +96,7 @@ func TestFormatResponsePerQueryLimitAndEnd(t *testing.T) {
 			element := tc.element
 			element.OrderDirection = &asc
 			request := []model.QueriesRequestElement{element}
-			response, err := formatResponse(context.Background(), nil, model.PerQuery, request, [][][]interface{}{tc.rows}, 0, model.Asc, tc.timeFormat, nil)
+			response, err := formatPerQuery(context.Background(), newRequestLookups(nil), request, [][][]interface{}{tc.rows}, 0, model.Asc, tc.timeFormat, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -123,7 +123,7 @@ func TestFormatResponsePerQueryEndDesc(t *testing.T) {
 		Time:           &model.QueriesRequestElementTime{End: str("2022-12-06T12:00:00Z")},
 	}}
 	rows := [][]interface{}{row(10, 1), row(11, 2), row(12, 3), row(13, 4)}
-	response, err := formatResponse(context.Background(), nil, model.PerQuery, request, [][][]interface{}{rows}, 0, model.Desc, "", nil)
+	response, err := formatPerQuery(context.Background(), newRequestLookups(nil), request, [][][]interface{}{rows}, 0, model.Desc, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestFormatResponsePerQueryEndDesc(t *testing.T) {
 	limit := 2
 	request[0].Limit = &limit
 	rows = [][]interface{}{row(10, 1), row(11, 2), row(12, 3), row(13, 4)}
-	response, err = formatResponse(context.Background(), nil, model.PerQuery, request, [][][]interface{}{rows}, 0, model.Desc, "", nil)
+	response, err = formatPerQuery(context.Background(), newRequestLookups(nil), request, [][][]interface{}{rows}, 0, model.Desc, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestFormatResponseMissingIds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// both errors are returned before the cache or the converter is used
-			_, err := formatResponse(context.Background(), nil, model.PerQuery, []model.QueriesRequestElement{tc.element}, nil, 0, model.Asc, "", nil)
+			_, err := formatPerQuery(context.Background(), newRequestLookups(nil), []model.QueriesRequestElement{tc.element}, nil, 0, model.Asc, "", nil)
 			if err == nil {
 				t.Fatal("expected an error")
 			}

@@ -59,6 +59,8 @@ type v2Params struct {
 	timeFormat string
 	// locate is set if the request has locate_lat and locate_lon, as {lat, lon}.
 	locate *[2]float64
+	// lookups answers the service and concept lookups of all elements of the request. querySubs creates its own if nil.
+	lookups *requestLookups
 }
 
 // v2Handler holds what the steps of /queries/v2 call. Generation, execution and formatting come from the pipeline.
@@ -242,7 +244,11 @@ func (h *v2Handler) querySubs(ctx context.Context, params v2Params, requestEleme
 	for i := range subs {
 		elements[i] = subs[i].element
 	}
-	err := h.resolvePaths(ctx, elements)
+	lookups := params.lookups
+	if lookups == nil {
+		lookups = h.newLookups()
+	}
+	err := h.resolvePaths(ctx, lookups, elements)
 	if err != nil {
 		return nil, err
 	}
@@ -259,15 +265,11 @@ func (h *v2Handler) querySubs(ctx context.Context, params v2Params, requestEleme
 	var series []v2Series
 	for i, sub := range subs {
 		single := func(element model.QueriesRequestElement, columnIndex int, rows [][]interface{}) error {
-			formatted, err := h.format(ctx, model.PerQuery, []model.QueriesRequestElement{element}, [][][]interface{}{rows}, orderColumnIndex, orderDirection, params.timeFormat)
+			formatted, err := h.formatPerQuery(ctx, lookups, []model.QueriesRequestElement{element}, [][][]interface{}{rows}, orderColumnIndex, orderDirection, params.timeFormat)
 			if err != nil {
 				return err
 			}
-			casted, ok := formatted.([][][]interface{})
-			if !ok || len(casted) != 1 {
-				return errors.Join(errors.New("could not cast subresponse"), model.ErrInternalServerError)
-			}
-			series = append(series, v2Series{requestIndex: sub.requestIndex, element: element, columnIndex: columnIndex, rows: casted[0]})
+			series = append(series, v2Series{requestIndex: sub.requestIndex, element: element, columnIndex: columnIndex, rows: formatted[0]})
 			return nil
 		}
 		if !sub.allColumns {

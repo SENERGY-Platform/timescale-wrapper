@@ -165,7 +165,7 @@ func TestFormatCachedV2Responses(t *testing.T) {
 		{},               // element 0 was not in the cache
 		{{ts, 1.5, 7.0}}, // element 1 was
 	}
-	response, err := formatCachedV2Responses(context.Background(), remoteCache, requestElements, raw, "2006-01-02", conv)
+	response, err := formatCachedV2Responses(context.Background(), newRequestLookups(remoteCache), conv, requestElements, raw, "2006-01-02")
 	if err != nil {
 		t.Fatal(err)
 	}

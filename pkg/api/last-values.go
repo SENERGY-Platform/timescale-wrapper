@@ -103,7 +103,8 @@ func (p *pipeline) lastValues(ctx context.Context, request *http.Request, reques
 	if err != nil {
 		return fail(err)
 	}
-	if err = p.resolvePaths(ctx, fullRequestElements); err != nil {
+	lookups := p.newLookups()
+	if err = p.resolvePaths(ctx, lookups, fullRequestElements); err != nil {
 		return fail(err)
 	}
 	raw, err := p.fetch(ctx, fullRequestElements, userId, ownerUserIds, nil, []models.Device{})
@@ -117,14 +118,11 @@ func (p *pipeline) lastValues(ctx context.Context, request *http.Request, reques
 	if timeFormat == "" {
 		timeFormat = time.RFC3339Nano
 	}
-	responseRawData, err := p.format(ppCtx, model.PerQuery, fullRequestElements, raw, 0, model.Desc, timeFormat)
+	responseData, err := p.formatPerQuery(ppCtx, lookups, fullRequestElements, raw, 0, model.Desc, timeFormat)
 	if err != nil {
 		return fail(err)
 	}
-	responseData, ok := responseRawData.([][][]interface{})
-	if !ok {
-		return nil, http.StatusInternalServerError, errors.New("could not cast response")
-	}
+	var ok bool
 
 	responseElements := make([]model.LastValuesResponseElement, len(requestElements))
 	inserted := 0

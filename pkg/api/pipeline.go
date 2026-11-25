@@ -116,8 +116,8 @@ func (p *pipeline) verify(ctx context.Context, request *http.Request, elements [
 
 // resolvePaths replaces the json paths of the elements, before the cache, so that cache and database reject the
 // same requests.
-func (p *pipeline) resolvePaths(ctx context.Context, elements []model.QueriesRequestElement) error {
-	return classify(resolveJSONPaths(ctx, p.remoteCache, elements), model.ErrInternalServerError)
+func (p *pipeline) resolvePaths(ctx context.Context, lookups *requestLookups, elements []model.QueriesRequestElement) error {
+	return classify(resolveJSONPaths(ctx, lookups, elements), model.ErrInternalServerError)
 }
 
 // lookupCache answers what it can from the cache. dbRequestIndices holds the positions of the elements that are
@@ -155,10 +155,24 @@ func (p *pipeline) fetch(ctx context.Context, elements []model.QueriesRequestEle
 	return raw, nil
 }
 
-// format brings the rows into the requested format. ctx should carry the span of the caller; the spans below it
-// follow DetailedTracing.
-func (p *pipeline) format(ctx context.Context, f model.Format, elements []model.QueriesRequestElement, raw [][][]interface{}, orderColumnIndex int, orderDirection model.Direction, timeFormat string) (interface{}, error) {
-	response, err := formatResponse(tracing.SuppressChildren(ctx, p.config.DetailedTracing), p.remoteCache, f, elements, raw, orderColumnIndex, orderDirection, timeFormat, p.converter)
+// newLookups returns the lookups of one request. Every request creates its own, see requestLookups.
+func (p *pipeline) newLookups() *requestLookups {
+	if p.remoteCache == nil {
+		return newRequestLookups(nil) // not a nil *cache.RemoteCache in a non-nil interface
+	}
+	return newRequestLookups(p.remoteCache)
+}
+
+// formatPerQuery brings the rows into one series per element. ctx should carry the span of the caller; the spans
+// below it follow DetailedTracing.
+func (p *pipeline) formatPerQuery(ctx context.Context, lookups *requestLookups, elements []model.QueriesRequestElement, raw [][][]interface{}, orderColumnIndex int, orderDirection model.Direction, timeFormat string) ([][][]interface{}, error) {
+	response, err := formatPerQuery(tracing.SuppressChildren(ctx, p.config.DetailedTracing), lookups, elements, raw, orderColumnIndex, orderDirection, timeFormat, p.converter)
+	return response, classify(err, model.ErrInternalServerError)
+}
+
+// formatTable brings the rows into one table with a row per timestamp, see formatPerQuery for ctx.
+func (p *pipeline) formatTable(ctx context.Context, lookups *requestLookups, elements []model.QueriesRequestElement, raw [][][]interface{}, orderColumnIndex int, orderDirection model.Direction, timeFormat string) ([][]interface{}, error) {
+	response, err := formatTable(tracing.SuppressChildren(ctx, p.config.DetailedTracing), lookups, elements, raw, orderColumnIndex, orderDirection, timeFormat, p.converter)
 	return response, classify(err, model.ErrInternalServerError)
 }
 

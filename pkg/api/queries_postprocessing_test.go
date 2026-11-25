@@ -43,7 +43,7 @@ func TestPostProcessing(t *testing.T) {
 	t2, _ := time.Parse(time.RFC3339, "2022-12-06T07:00:00+01:00")
 	t.Run("Test Format as Table", func(t *testing.T) {
 		t.Parallel()
-		response, err := formatResponse(context.Background(), nil, model.Table, []model.QueriesRequestElement{{
+		response, err := formatTable(context.Background(), newRequestLookups(nil), []model.QueriesRequestElement{{
 			ExportId: &one,
 			Columns:  []model.QueriesRequestElementColumn{{Name: one}},
 		}, {
@@ -79,7 +79,7 @@ func TestPostProcessing(t *testing.T) {
 
 		t.Run("larger than the rows available", func(t *testing.T) {
 			t.Parallel()
-			response, err := formatResponse(context.Background(), nil, model.PerQuery, request(25000), results(), 0, model.Asc, "", nil)
+			response, err := formatPerQuery(context.Background(), newRequestLookups(nil), request(25000), results(), 0, model.Asc, "", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -90,7 +90,7 @@ func TestPostProcessing(t *testing.T) {
 
 		t.Run("smaller than the rows available", func(t *testing.T) {
 			t.Parallel()
-			response, err := formatResponse(context.Background(), nil, model.PerQuery, request(1), results(), 0, model.Asc, "", nil)
+			response, err := formatPerQuery(context.Background(), newRequestLookups(nil), request(1), results(), 0, model.Asc, "", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -134,7 +134,7 @@ func TestPostProcessing(t *testing.T) {
 			ServiceId: &serviceId,
 			Columns:   []model.QueriesRequestElementColumn{{Name: "root.unknown", TargetCharacteristicId: &two, ConceptId: &concept}},
 		}}
-		_, err = formatResponse(context.Background(), remoteCache, model.PerQuery, request, [][][]interface{}{{}}, 0, model.Asc, "", nil)
+		_, err = formatPerQuery(context.Background(), newRequestLookups(remoteCache), request, [][][]interface{}{{}}, 0, model.Asc, "", nil)
 		if err == nil {
 			t.Fatal("expected an error")
 		}
@@ -190,7 +190,7 @@ func TestPostProcessing(t *testing.T) {
 		}}
 		t.Run("as Table", func(t *testing.T) {
 			t.Parallel()
-			response, err := formatResponse(context.Background(), remoteCache, model.Table, request, [][][]interface{}{
+			response, err := formatTable(context.Background(), newRequestLookups(remoteCache), request, [][][]interface{}{
 				{{t1, 1}},
 				{{t2, 2}},
 			}, 0, model.Asc, "", conv)
@@ -204,7 +204,7 @@ func TestPostProcessing(t *testing.T) {
 		})
 		t.Run("per Query", func(t *testing.T) {
 			t.Parallel()
-			response, err := formatResponse(context.Background(), remoteCache, model.PerQuery, request, [][][]interface{}{
+			response, err := formatPerQuery(context.Background(), newRequestLookups(remoteCache), request, [][][]interface{}{
 				{{t1, 1}},
 				{{t2, 2}},
 			}, 0, model.Asc, "", conv)
@@ -238,7 +238,7 @@ func TestFormatResponseAsTableJoin(t *testing.T) {
 			{{at(4), 4}, {at(2), 2}, {at(0), 0}},
 			{{at(4), 104}, {at(3), 103}, {at(2), 102}, {at(1), 101}, {at(0), 100}},
 		}
-		response, err := formatResponse(context.Background(), nil, model.Table, request, data, 0, model.Asc, "", nil)
+		response, err := formatTable(context.Background(), newRequestLookups(nil), request, data, 0, model.Asc, "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -260,7 +260,7 @@ func TestFormatResponseAsTableJoin(t *testing.T) {
 			{{at(0), 1}, {at(0), 2}},
 			{{at(0), 10}, {at(0), 20}, {at(0), 30}},
 		}
-		response, err := formatResponse(context.Background(), nil, model.Table, request, data, 1, model.Asc, "", nil)
+		response, err := formatTable(context.Background(), newRequestLookups(nil), request, data, 1, model.Asc, "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
