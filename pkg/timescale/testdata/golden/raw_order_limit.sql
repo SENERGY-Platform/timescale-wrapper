@@ -1,0 +1,1 @@
+SELECT "time", "sensor.ENERGY.Total" AS "sensor.ENERGY.Total", "sensor.POWER.Current" AS "sensor.POWER.Current" FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE "time" > now() - interval '1d' ORDER BY 2 ASC LIMIT 10

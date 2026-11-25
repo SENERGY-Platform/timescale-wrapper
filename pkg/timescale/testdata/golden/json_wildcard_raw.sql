@@ -1,0 +1,1 @@
+SELECT "time", jsonb_path_query_array("root.List", '$[*]."Value"'::jsonpath) AS "root.List.*.Value" FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE "time" > now() - interval '1d'

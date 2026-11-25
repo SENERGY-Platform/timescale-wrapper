@@ -1,0 +1,1 @@
+SELECT sub0.time AS "time", (sub0.value) AS "sensor.ENERGY.Total" FROM (SELECT time_bucket('1h', "time", 'America/New_York') AS "time", avg("sensor.ENERGY.Total") AS value FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE "time" > now() - interval '1d' GROUP BY 1 ORDER BY 1 ASC) sub0

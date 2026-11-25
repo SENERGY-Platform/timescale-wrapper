@@ -1,0 +1,1 @@
+SELECT "time", "sensor.ENERGY.Total" AS "sensor.ENERGY.Total" FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE "sensor.ENERGY.Total" IS NULL AND "time" > now() - interval '1d'

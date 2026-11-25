@@ -1,0 +1,1 @@
+SELECT "time", (jsonb_path_query_first("root.List", '$[0]."Value"'::jsonpath) #>> '{}')::double precision AS "root.List.0.Value" FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE (jsonb_path_query_first("root.List", '$[0]."Value"'::jsonpath) #>> '{}')::double precision> 10 AND "time" > now() - interval '1d'

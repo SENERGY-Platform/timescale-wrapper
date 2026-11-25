@@ -1,0 +1,1 @@
+SELECT "time", "sensor.ENERGY.Total" AS "sensor.ENERGY.Total", "2a697f637c7bc0af368f56d414fb6eb9c1d1026b1c7260b7baaf4da48e462c" AS "thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed" FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE "time" > now() - interval '7d' ORDER BY 1 DESC LIMIT 10

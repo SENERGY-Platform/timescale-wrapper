@@ -1,0 +1,1 @@
+SELECT "time", "sensor.ENERGY.Total"*2 AS "sensor.ENERGY.Total" FROM "device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA" WHERE "time" > now() - interval '1d'
