@@ -100,30 +100,33 @@ func formatResponse(ctx context.Context, remoteCache *cache.RemoteCache, f model
 			if err != nil {
 				return nil, err
 			}
-			if limit := request[seriesIndex].Limit; limit != nil && *limit >= 0 && len(results[seriesIndex]) > *limit {
-				results[seriesIndex] = results[seriesIndex][:*limit]
-			}
 			if request[seriesIndex].Time != nil && (request[seriesIndex].Time.EndOriginal != nil || request[seriesIndex].Time.End != nil) {
 				// if tables do not contain enough data, LIMIT clauses miss their intention.
-				// therefore, result are filtered in this post-processing step again
+				// therefore, result are filtered in this post-processing step again. The rows at or
+				// after the end can be anywhere in the sorted series, and the filter has to run
+				// before the limit, or it would remove rows the limit counted.
 				var ts time.Time
 				if request[seriesIndex].Time.EndOriginal != nil {
 					ts, err = time.Parse(time.RFC3339, *request[seriesIndex].Time.EndOriginal)
-				} else if request[seriesIndex].Time.End != nil {
+				} else {
 					ts, err = time.Parse(time.RFC3339, *request[seriesIndex].Time.End)
 				}
 				if err != nil {
 					return nil, err
 				}
-				for {
-					if len(results[seriesIndex]) == 0 || len(results[seriesIndex][len(results[seriesIndex])-1]) == 0 || results[seriesIndex][len(results[seriesIndex])-1][0] == nil {
-						break
+				kept := results[seriesIndex][:0]
+				for _, row := range results[seriesIndex] {
+					if len(row) > 0 {
+						if t, ok := row[0].(time.Time); ok && !t.Before(ts) {
+							continue
+						}
 					}
-					if ts.After(results[seriesIndex][len(results[seriesIndex])-1][0].(time.Time)) {
-						break
-					}
-					results[seriesIndex] = results[seriesIndex][:len(results[seriesIndex])-1]
+					kept = append(kept, row)
 				}
+				results[seriesIndex] = kept
+			}
+			if limit := request[seriesIndex].Limit; limit != nil && *limit >= 0 && len(results[seriesIndex]) > *limit {
+				results[seriesIndex] = results[seriesIndex][:*limit]
 			}
 			for rowIndex := range results[seriesIndex] {
 				for j := range results[seriesIndex][rowIndex] {

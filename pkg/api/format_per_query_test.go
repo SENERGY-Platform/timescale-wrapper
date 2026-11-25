@@ -110,6 +110,43 @@ func TestFormatResponsePerQueryLimitAndEnd(t *testing.T) {
 	}
 }
 
+// With descending order the rows at or after End are at the front of the series. They have to be
+// removed there too, and before the limit, which would otherwise count them.
+func TestFormatResponsePerQueryEndDesc(t *testing.T) {
+	t.Parallel()
+
+	ts := func(hour int) time.Time { return time.Date(2022, 12, 6, hour, 0, 0, 0, time.UTC) }
+	row := func(hour int, value interface{}) []interface{} { return []interface{}{ts(hour), value} }
+	str := func(s string) *string { return &s }
+	desc := model.Desc
+
+	request := []model.QueriesRequestElement{{
+		Columns:        []model.QueriesRequestElementColumn{{Name: "value"}},
+		OrderDirection: &desc,
+		Time:           &model.QueriesRequestElementTime{End: str("2022-12-06T12:00:00Z")},
+	}}
+	rows := [][]interface{}{row(10, 1), row(11, 2), row(12, 3), row(13, 4)}
+	response, err := formatResponse(context.Background(), nil, model.PerQuery, request, [][][]interface{}{rows}, 0, model.Desc, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := [][][]interface{}{{row(11, 2), row(10, 1)}}
+	if !reflect.DeepEqual(response, expected) {
+		t.Errorf("unexpected result, want rows before 12:00 in descending order: got %v, want %v", response, expected)
+	}
+
+	limit := 2
+	request[0].Limit = &limit
+	rows = [][]interface{}{row(10, 1), row(11, 2), row(12, 3), row(13, 4)}
+	response, err = formatResponse(context.Background(), nil, model.PerQuery, request, [][][]interface{}{rows}, 0, model.Desc, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(response, expected) {
+		t.Errorf("unexpected result with limit %d: got %v, want %v", limit, response, expected)
+	}
+}
+
 func TestFormatResponseMissingIds(t *testing.T) {
 	t.Parallel()
 
