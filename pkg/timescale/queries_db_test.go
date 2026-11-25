@@ -620,3 +620,255 @@ func TestDifferenceAhead(t *testing.T) {
 		}
 	}
 }
+
+// TestDifferenceWithColumnNamedTime requests a column called "time" next to a difference column.
+// The filter on the first bucket must not read the requested column, and the output has the
+// requested columns and no others. Skipped when TEST_POSTGRES_DSN is unset.
+func TestDifferenceWithColumnNamedTime(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	loc, _ := time.LoadLocation(dbTestTimezone)
+	from := time.Date(2021, 6, 1, 0, 0, 0, 0, loc)
+	dbTestSetup(ctx, t, pool, dbTestMeterReadings(from, from.AddDate(0, 0, 5)))
+
+	startS, endS := from.AddDate(0, 0, 1).Format(time.RFC3339), from.AddDate(0, 0, 4).Format(time.RFC3339)
+	groupTime, dl, last := "1d", "difference-last", "last"
+	rows, query := dbTestRunDifference(ctx, t, pool, model.QueriesRequestElement{
+		Time:      &model.QueriesRequestElementTime{Start: &startS, End: &endS},
+		GroupTime: &groupTime,
+		Columns: []model.QueriesRequestElementColumn{
+			{Name: dbTestEnergy, GroupType: &dl},
+			{Name: "time", GroupType: &last},
+		},
+	})
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 buckets, got %d\n%s", len(rows), query)
+	}
+	for i, row := range rows {
+		if len(row) != 3 {
+			t.Fatalf("row %d has %d columns, expected time and the two requested: %v\n%s", i, len(row), row, query)
+		}
+		if diff, ok := row[1].(float64); !ok || math.Abs(diff-1440) > 1e-9 {
+			t.Errorf("row %d: difference %v, expected 1440", i, row[1])
+		}
+		if _, ok := row[2].(time.Time); !ok {
+			t.Errorf("row %d: column time is %v", i, row[2])
+		}
+	}
+}
+
+// dbTestHourlyReadings is a meter that rises by one per reading, read every step from from until
+// to, on the exact times.
+func dbTestStepReadings(from time.Time, to time.Time, step time.Duration) (readings []dbTestReading) {
+	for i := 0; from.Add(time.Duration(i) * step).Before(to); i++ {
+		readings = append(readings, dbTestReading{time: from.Add(time.Duration(i) * step), energy: 1000 + float64(i), water: float64(i)})
+	}
+	return readings
+}
+
+// TestDifferenceReadingOnBucketStart puts readings exactly on the edges of the buckets, on the raw
+// table and on a continuous aggregate over it, whose rows are labelled with the start of their
+// bucket. A reading on the start of the bucket before the first one belongs to that bucket: with an
+// exclusive start the first first-value was one reading late and the first difference too small,
+// and on the continuous aggregate the whole predecessor row was missing. Skipped when
+// TEST_POSTGRES_DSN is unset.
+func TestDifferenceReadingOnBucketStart(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	loc, _ := time.LoadLocation(dbTestTimezone)
+	from := time.Date(2026, 3, 20, 0, 0, 0, 0, loc)
+	table := dbTestSetup(ctx, t, pool, dbTestStepReadings(from, from.AddDate(0, 0, 14), time.Hour))
+
+	const view = "ts_wrapper_difference_boundary_view"
+	quotedView := sqlliteral.QuoteIdentifier(view)
+	start := time.Date(2026, 3, 27, 10, 0, 0, 0, loc)
+	cases := []struct {
+		name      string
+		groupTime string
+		hours     int
+		// viaView is whether the query has to read the continuous aggregate
+		viaView bool
+	}{
+		{"raw, 3h", "3h", 3, false},
+		{"raw, 1d", "1d", 24, false},
+		{"continuous aggregate, 3h", "3h", 3, true},
+	}
+	run := func(viaView bool) {
+		for _, c := range cases {
+			if c.viaView != viaView {
+				continue
+			}
+			t.Run(c.name, func(t *testing.T) {
+				startS, endS := start.Format(time.RFC3339), start.Add(30*time.Hour).Format(time.RFC3339)
+				df := "difference-first"
+				rows, query := dbTestRunDifference(ctx, t, pool, model.QueriesRequestElement{
+					Time:      &model.QueriesRequestElementTime{Start: &startS, End: &endS},
+					GroupTime: &c.groupTime,
+					Columns:   []model.QueriesRequestElementColumn{{Name: dbTestEnergy, GroupType: &df}},
+				})
+				if strings.Contains(query, quotedView) != c.viaView {
+					t.Fatalf("the query should read the continuous aggregate: %v\n%s", c.viaView, query)
+				}
+				if len(rows) < 2 {
+					t.Fatalf("expected several buckets, got %d\n%s", len(rows), query)
+				}
+				for i, row := range rows {
+					diff, ok := row[1].(float64)
+					if !ok || math.Abs(diff-float64(c.hours)) > 1e-9 {
+						t.Errorf("row %d (%v): difference %v, expected %d, one reading per hour\n%s", i, row[0], row[1], c.hours, query)
+					}
+				}
+			})
+		}
+	}
+	run(false) // before the view exists
+
+	// a view over the table with the hourly buckets, found by the lookup of tableName
+	if _, err := pool.Exec(ctx, "DROP MATERIALIZED VIEW IF EXISTS "+quotedView); err != nil {
+		t.Fatal(err)
+	}
+	// registered before the view, so that the view is dropped first
+	energy := sqlliteral.QuoteIdentifier(dbTestEnergy)
+	if _, err := pool.Exec(ctx, "CREATE MATERIALIZED VIEW "+quotedView+" WITH (timescaledb.continuous) AS SELECT time_bucket('1 hour'::interval, \"time\", '"+dbTestTimezone+
+		"') AS \"time\", first("+energy+", \"time\") AS "+energy+" FROM "+sqlliteral.QuoteIdentifier(table)+" GROUP BY 1 WITH NO DATA"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), "DROP MATERIALIZED VIEW IF EXISTS "+quotedView); err != nil {
+			t.Log("could not drop test view:", err)
+		}
+	})
+	if _, err := pool.Exec(ctx, "CALL refresh_continuous_aggregate("+sqlliteral.QuoteString(quotedView)+", NULL, NULL)"); err != nil {
+		t.Fatal(err)
+	}
+
+	run(true)
+}
+
+// TestDifferencePredecessorAcrossDST checks the bucket before the first one around both changes of
+// the offset of Europe/Berlin and for group times from an hour to a month. The reference groups the
+// whole table by time_bucket and subtracts the previous bucket. The first case is a start in the
+// bucket 03:00 CEST right after the gap of 2026-03-29: the local hour before it, 02:00, does not
+// exist, and the predecessor is the bucket of 01:00 CET. Skipped when TEST_POSTGRES_DSN is unset.
+func TestDifferencePredecessorAcrossDST(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	loc, _ := time.LoadLocation(dbTestTimezone)
+	from := time.Date(2025, 12, 1, 0, 0, 0, 0, loc)
+	table := dbTestSetup(ctx, t, pool, dbTestStepReadings(from, time.Date(2027, 1, 1, 0, 0, 0, 0, loc), 30*time.Minute))
+
+	energy := sqlliteral.QuoteIdentifier(dbTestEnergy)
+	reference := "SELECT t, v - lag(v) OVER (ORDER BY t) AS d FROM (SELECT time_bucket($1::interval, \"time\", $2) AS t, last(" + energy +
+		", \"time\") AS v FROM " + sqlliteral.QuoteIdentifier(table) + " GROUP BY 1) b"
+	filtered := "SELECT t, d FROM (" + reference + ") r WHERE t >= time_bucket($1::interval, $3::timestamptz, $2) AND t < $4::timestamptz ORDER BY t DESC"
+
+	starts := []string{
+		"2026-03-29T03:30:00+02:00", "2026-03-29T00:00:00+01:00", "2026-03-28T12:00:00+01:00",
+		"2026-10-25T02:30:00+02:00", "2026-10-25T03:00:00+01:00", "2026-10-24T12:00:00+02:00",
+		"2026-06-15T09:20:00+02:00",
+	}
+	spans := map[string]int{"1h": 3, "3h": 3, "1d": 10, "1w": 30, "1mon": 100}
+	for groupTime, days := range spans {
+		for _, startS := range starts {
+			t.Run(groupTime+" "+startS, func(t *testing.T) {
+				start, err := time.Parse(time.RFC3339, startS)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// the end is a bucket edge, so that no bucket of the window is cut off
+				var end time.Time
+				if err := pool.QueryRow(ctx, "SELECT time_bucket($1::interval, $2::timestamptz, $3)", groupTime, start.AddDate(0, 0, days), dbTestTimezone).Scan(&end); err != nil {
+					t.Fatal(err)
+				}
+				refRows, err := pool.Query(ctx, filtered, groupTime, dbTestTimezone, start, end)
+				if err != nil {
+					t.Fatal(err)
+				}
+				type bucket struct {
+					t time.Time
+					d *float64
+				}
+				var want []bucket
+				for refRows.Next() {
+					var b bucket
+					if err := refRows.Scan(&b.t, &b.d); err != nil {
+						t.Fatal(err)
+					}
+					want = append(want, b)
+				}
+				refRows.Close()
+				if len(want) == 0 {
+					t.Fatal("empty reference")
+				}
+
+				endS := end.Format(time.RFC3339)
+				dl := "difference-last"
+				rows, query := dbTestRunDifference(ctx, t, pool, model.QueriesRequestElement{
+					Time:      &model.QueriesRequestElementTime{Start: &startS, End: &endS},
+					GroupTime: &groupTime,
+					Columns:   []model.QueriesRequestElementColumn{{Name: dbTestEnergy, GroupType: &dl}},
+				})
+				if len(rows) != len(want) {
+					t.Fatalf("expected %d buckets, got %d\n%s", len(want), len(rows), query)
+				}
+				for i, row := range rows {
+					got, ok := row[1].(float64)
+					if !ts(row[0]).Equal(want[i].t) || !ok || want[i].d == nil || math.Abs(got-*want[i].d) > 1e-9 {
+						t.Errorf("row %d: got %v %v, expected %v %v", i, row[0], row[1], want[i].t, want[i].d)
+					}
+				}
+			})
+		}
+	}
+
+	// hourly readings half an hour off the bucket edges, start in the bucket after the gap
+	t.Run("hourly readings, start after the gap", func(t *testing.T) {
+		start := time.Date(2026, 3, 29, 3, 30, 0, 0, loc)
+		startS, endS := start.Format(time.RFC3339), start.Add(5*time.Hour).Format(time.RFC3339)
+		groupTime, dl := "1h", "difference-last"
+		readings := dbTestStepReadings(time.Date(2026, 3, 28, 12, 30, 0, 0, time.UTC), time.Date(2026, 3, 30, 12, 30, 0, 0, time.UTC), time.Hour)
+		dbTestSetup(ctx, t, pool, readings)
+		rows, query := dbTestRunDifference(ctx, t, pool, model.QueriesRequestElement{
+			Time:      &model.QueriesRequestElementTime{Start: &startS, End: &endS},
+			GroupTime: &groupTime,
+			Columns:   []model.QueriesRequestElementColumn{{Name: dbTestEnergy, GroupType: &dl}},
+		})
+		if len(rows) != 5 {
+			t.Fatalf("expected 5 buckets, got %d\n%s", len(rows), query)
+		}
+		for i, row := range rows {
+			if diff, ok := row[1].(float64); !ok || math.Abs(diff-1) > 1e-9 {
+				t.Errorf("row %d (%v): difference %v, expected 1\n%s", i, row[0], row[1], query)
+			}
+		}
+	})
+}
+
+func ts(value interface{}) time.Time {
+	t, _ := value.(time.Time)
+	return t
+}

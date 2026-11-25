@@ -19,6 +19,7 @@ package timescale
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/SENERGY-Platform/go-service-base/struct-logger/attributes"
@@ -253,7 +254,13 @@ func (q elementQuery) raw() (string, error) {
 // grouped renders the query of an element with group time: one subquery per column that reads the
 // buckets of the column, full outer joined on the bucket time.
 func (q elementQuery) grouped() (string, error) {
-	query := "SELECT " + bucketTime(len(q.columns)) + " AS \"time\", "
+	// A difference element is filtered after lag(), see below, so its columns carry internal names
+	// that a requested column cannot clash with and are given their own names by the outer select.
+	timeAlias := "\"time\""
+	if q.difference != nil {
+		timeAlias = differenceTimeAlias
+	}
+	query := "SELECT " + bucketTime(len(q.columns)) + " AS " + timeAlias + ", "
 	for i, column := range q.columns {
 		if i > 0 {
 			query += ", "
@@ -269,7 +276,11 @@ func (q elementQuery) grouped() (string, error) {
 		if column.math != nil {
 			query += *column.math + " "
 		}
-		query += "AS " + sqlliteral.QuoteIdentifier(column.name)
+		if q.difference != nil {
+			query += "AS " + differenceColumnAlias(i)
+		} else {
+			query += "AS " + sqlliteral.QuoteIdentifier(column.name)
+		}
 	}
 	query += " FROM "
 	for i := range q.columns {
@@ -291,14 +302,28 @@ func (q elementQuery) grouped() (string, error) {
 	}
 	// The window holds the bucket before the first requested one, so that lag() has a predecessor
 	// for it. It is dropped here, after lag(), and the order and limit of the element apply to what is
-	// left: a limit inside would cut buckets before lag() saw them. The inner select may name two
-	// columns alike, which SELECT * passes on.
+	// left: a limit inside would cut buckets before lag() saw them. The outer select lists the
+	// columns by their internal names, so that the output has the requested names, possibly twice or
+	// "time", and no column besides them.
 	order := defaultOrderLimit(q.element)
 	if order.index == -1 {
 		// the newest bucket first, as the query always returned a difference series
 		order.index = 0
 	}
-	return "SELECT * FROM (" + query + ") d WHERE \"time\" >= " + q.difference.firstBucket + order.String(), nil
+	outer := "SELECT " + differenceTimeAlias + " AS \"time\""
+	for i, column := range q.columns {
+		outer += ", " + differenceColumnAlias(i) + " AS " + sqlliteral.QuoteIdentifier(column.name)
+	}
+	return outer + " FROM (" + query + ") d WHERE " + differenceTimeAlias + " >= " + q.difference.firstBucket + order.String(), nil
+}
+
+// differenceTimeAlias and differenceColumnAlias are the names the inner select of a difference
+// element gives its columns. They start with underscores and are quoted, like the aliases of
+// columnValue.
+const differenceTimeAlias = `"__time"`
+
+func differenceColumnAlias(i int) string {
+	return `"__c` + strconv.Itoa(i) + `"`
 }
 
 // bucketSubquery renders the subquery with the buckets of column i, named subAlias(i).

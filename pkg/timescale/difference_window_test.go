@@ -72,7 +72,7 @@ func TestDifferenceWindowFor(t *testing.T) {
 			if query.difference.firstBucket != tc.wantFirst {
 				t.Errorf("firstBucket = %s, want %s", query.difference.firstBucket, tc.wantFirst)
 			}
-			wantStart := "(" + tc.wantFirst + " AT TIME ZONE 'Europe/Berlin' - interval '" + tc.groupTime + "') AT TIME ZONE 'Europe/Berlin'"
+			wantStart := "time_bucket('" + tc.groupTime + "', " + tc.wantFirst + " - interval '1 microsecond', 'Europe/Berlin')"
 			if query.difference.start != wantStart {
 				t.Errorf("start = %s, want %s", query.difference.start, wantStart)
 			}
@@ -81,7 +81,7 @@ func TestDifferenceWindowFor(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.HasPrefix(where, " WHERE \"time\" > "+wantStart) {
+			if !strings.HasPrefix(where, " WHERE \"time\" >= "+wantStart) {
 				t.Errorf("where = %s", where)
 			}
 			if tc.time.Start != nil && !strings.HasSuffix(where, " AND \"time\" < '"+endS+"'") {

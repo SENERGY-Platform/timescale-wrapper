@@ -58,16 +58,18 @@ func timeCondition(elementTime *model.QueriesRequestElementTime) (string, error)
 }
 
 // timeConditionFrom renders the condition like timeCondition, with the SQL expression start as the
-// start of the window instead of the window's own if it is not empty.
+// start of the window instead of the window's own if it is not empty. That start is inclusive: it is
+// the start of a bucket, see differenceWindowFor, and a reading on it belongs to the bucket.
 func timeConditionFrom(elementTime *model.QueriesRequestElementTime, start string) (string, error) {
 	ownStart, end, bounded := sqlWindow(elementTime, "")
 	if ownStart == "" {
 		return "", errors.Join(errors.New("incomplete time window"), model.ErrBadRequest)
 	}
+	comparison := " >= "
 	if start == "" {
-		start = ownStart
+		start, comparison = ownStart, " > "
 	}
-	condition := "\"time\" > " + start
+	condition := "\"time\"" + comparison + start
 	if bounded {
 		condition += " AND \"time\" < " + end
 	}
@@ -92,11 +94,14 @@ type differenceWindow struct {
 // by a group time from the requested start: a start inside a bucket would otherwise leave the
 // predecessor with only part of its rows, which changes every aggregate but last and, for last,
 // still needs data in that part. The predecessor starts where its bucket does, which is
-// time_bucket(start) minus the group time. That subtraction is made on the local time of the
-// element's zone: time_bucket buckets by the local clock, so a day or a multiple of hours is a
-// bucket wide there even on the days the zone changes its offset, which a subtraction on the absolute
-// time (in the session's zone, whatever it is) does not follow. Both expressions are SQL and stay
-// SQL for a window of start and end: a literal computed in Go would need the zone's rules in Go too.
+// the bucket of the instant just before time_bucket(start). That is not time_bucket(start) minus
+// the group time on either clock: on the absolute time, in the session's zone, a day on the days the
+// zone changes its offset is not a bucket wide, and on the local time the result can be a local time
+// that does not exist, which postgres moves forward and thereby into the first bucket. Asking
+// time_bucket for the bucket of the instant before follows its own rules in both cases. Both
+// expressions are SQL and stay SQL for a window of start and end: a literal computed in Go would
+// need the zone's rules in Go too. The start is inclusive, a reading on the start of a bucket
+// belongs to it; the rows of the continuous aggregate of a bucket are labelled with its start.
 func differenceWindowFor(q elementQuery) *differenceWindow {
 	if q.element.Time == nil || q.element.GroupTime == nil {
 		return nil
@@ -113,7 +118,7 @@ func differenceWindowFor(q elementQuery) *differenceWindow {
 	tz := sqlliteral.QuoteString(q.timezone)
 	first := "time_bucket(" + width + ", " + start + ", " + tz + ")"
 	return &differenceWindow{
-		start:       "(" + first + " AT TIME ZONE " + tz + " - interval " + width + ") AT TIME ZONE " + tz,
+		start:       "time_bucket(" + width + ", " + first + " - interval '1 microsecond', " + tz + ")",
 		firstBucket: first,
 	}
 }

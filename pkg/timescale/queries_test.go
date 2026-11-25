@@ -31,9 +31,9 @@ import (
 // that first bucket, see differenceWindowFor.
 const (
 	firstLast7d = "time_bucket('1d', now() - interval '7d', 'Europe/Berlin')"
-	wideLast7d  = "(" + firstLast7d + " AT TIME ZONE 'Europe/Berlin' - interval '1d') AT TIME ZONE 'Europe/Berlin'"
+	wideLast7d  = "time_bucket('1d', " + firstLast7d + " - interval '1 microsecond', 'Europe/Berlin')"
 	firstRange  = "time_bucket('1h', '2021-06-20T00:00:00Z'::timestamptz, 'Europe/Berlin')"
-	wideRange   = "(" + firstRange + " AT TIME ZONE 'Europe/Berlin' - interval '1h') AT TIME ZONE 'Europe/Berlin'"
+	wideRange   = "time_bucket('1h', " + firstRange + " - interval '1 microsecond', 'Europe/Berlin')"
 )
 
 func TestQueries(t *testing.T) {
@@ -240,22 +240,23 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
-		expected := "SELECT * FROM (SELECT COALESCE(sub0.time, sub1.time, sub2.time, sub3.time, sub4.time) AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\"," +
-			" (sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) +5 AS \"sensor.ENERGY.Total\", (sub2.value) AS \"sensor.ENERGY.Total\"," +
-			" (sub3.value) AS \"sensor.ENERGY.Total\", (sub4.value - lag(sub4.value) OVER (ORDER BY sub4.time)) AS \"sensor.ENERGY.Total\" " +
+		expected := "SELECT \"__time\" AS \"time\", \"__c0\" AS \"sensor.ENERGY.Total\", \"__c1\" AS \"sensor.ENERGY.Total\", \"__c2\" AS \"sensor.ENERGY.Total\", \"__c3\" AS \"sensor.ENERGY.Total\", \"__c4\" AS \"sensor.ENERGY.Total\" FROM " +
+			"(SELECT COALESCE(sub0.time, sub1.time, sub2.time, sub3.time, sub4.time) AS \"__time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"__c0\"," +
+			" (sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) +5 AS \"__c1\", (sub2.value) AS \"__c2\"," +
+			" (sub3.value) AS \"__c3\", (sub4.value - lag(sub4.value) OVER (ORDER BY sub4.time)) AS \"__c4\" " +
 			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
-			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > " + wideLast7d + " GROUP BY " +
+			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" >= " + wideLast7d + " GROUP BY " +
 			"1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +
 			"first(\"sensor.ENERGY.Total\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
-			"WHERE \"time\" > " + wideLast7d + " GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time FULL OUTER JOIN " +
+			"WHERE \"time\" >= " + wideLast7d + " GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time FULL OUTER JOIN " +
 			"(SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", first(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
-			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > " + wideLast7d + " GROUP BY " +
+			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" >= " + wideLast7d + " GROUP BY " +
 			"1 ORDER BY 1 ASC) sub2 on COALESCE(sub0.time, sub1.time) = sub2.time FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS" +
 			" \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\"" +
-			" WHERE \"time\" > " + wideLast7d + " GROUP BY 1 ORDER BY 1 ASC) sub3 on COALESCE(sub0.time, sub1.time, sub2.time) = sub3.time FULL OUTER JOIN" +
+			" WHERE \"time\" >= " + wideLast7d + " GROUP BY 1 ORDER BY 1 ASC) sub3 on COALESCE(sub0.time, sub1.time, sub2.time) = sub3.time FULL OUTER JOIN" +
 			" (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", avg(\"sensor.ENERGY.Total\") AS value FROM " +
-			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > " + wideLast7d + " GROUP BY 1" +
-			" ORDER BY 1 ASC) sub4 on COALESCE(sub0.time, sub1.time, sub2.time, sub3.time) = sub4.time) d WHERE \"time\" >= " + firstLast7d + " ORDER BY 1 DESC LIMIT 10"
+			"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" >= " + wideLast7d + " GROUP BY 1" +
+			" ORDER BY 1 ASC) sub4 on COALESCE(sub0.time, sub1.time, sub2.time, sub3.time) = sub4.time) d WHERE \"__time\" >= " + firstLast7d + " ORDER BY 1 DESC LIMIT 10"
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
@@ -280,15 +281,15 @@ func TestQueries(t *testing.T) {
 					{Name: "sensor.ENERGY.Total", GroupType: &dl},
 					{Name: water, GroupType: &dl},
 				},
-				expected: "SELECT * FROM (SELECT COALESCE(sub0.time, sub1.time) AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\", " +
-					"(sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) AS \"sensor.WATER.Total\" FROM " +
+				expected: "SELECT \"__time\" AS \"time\", \"__c0\" AS \"sensor.ENERGY.Total\", \"__c1\" AS \"sensor.WATER.Total\" FROM (SELECT COALESCE(sub0.time, sub1.time) AS \"__time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"__c0\", " +
+					"(sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) AS \"__c1\" FROM " +
 					"(SELECT time_bucket('1h', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
-					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > " + wideRange + " AND " +
+					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" >= " + wideRange + " AND " +
 					"\"time\" < '2021-06-22T00:00:00Z' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN " +
 					"(SELECT time_bucket('1h', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.WATER.Total\", \"time\") AS value FROM " +
-					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > " + wideRange + " AND " +
+					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" >= " + wideRange + " AND " +
 					"\"time\" < '2021-06-22T00:00:00Z' GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time) d " +
-					"WHERE \"time\" >= " + firstRange + " ORDER BY 1 DESC",
+					"WHERE \"__time\" >= " + firstRange + " ORDER BY 1 DESC",
 			},
 			{
 				name: "difference column behind a plain aggregate",
@@ -296,15 +297,15 @@ func TestQueries(t *testing.T) {
 					{Name: "sensor.ENERGY.Total", GroupType: &l},
 					{Name: water, GroupType: &dl},
 				},
-				expected: "SELECT * FROM (SELECT COALESCE(sub0.time, sub1.time) AS \"time\", (sub0.value) AS \"sensor.ENERGY.Total\", " +
-					"(sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) AS \"sensor.WATER.Total\" FROM " +
+				expected: "SELECT \"__time\" AS \"time\", \"__c0\" AS \"sensor.ENERGY.Total\", \"__c1\" AS \"sensor.WATER.Total\" FROM (SELECT COALESCE(sub0.time, sub1.time) AS \"__time\", (sub0.value) AS \"__c0\", " +
+					"(sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) AS \"__c1\" FROM " +
 					"(SELECT time_bucket('1h', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM " +
-					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > " + wideRange + " AND " +
+					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" >= " + wideRange + " AND " +
 					"\"time\" < '2021-06-22T00:00:00Z' GROUP BY 1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN " +
 					"(SELECT time_bucket('1h', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.WATER.Total\", \"time\") AS value FROM " +
-					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > " + wideRange + " AND " +
+					"\"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" >= " + wideRange + " AND " +
 					"\"time\" < '2021-06-22T00:00:00Z' GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time) d " +
-					"WHERE \"time\" >= " + firstRange + " ORDER BY 1 DESC",
+					"WHERE \"__time\" >= " + firstRange + " ORDER BY 1 DESC",
 			},
 		}
 		for _, c := range cases {
@@ -730,13 +731,14 @@ func TestQueries(t *testing.T) {
 		if len(actual) != 1 {
 			t.Error("Unexpected number of queries", len(actual))
 		}
-		expected := "SELECT * FROM (SELECT COALESCE(sub0.time, sub1.time) AS \"time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"sensor.ENERGY.Total\"," +
-			" (sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) +5 AS \"thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed\" " +
+		expected := "SELECT \"__time\" AS \"time\", \"__c0\" AS \"sensor.ENERGY.Total\", \"__c1\" AS \"thisisatestforveryveryveryveryveryverylongfieldnameswhichneedtobehashed\" FROM " +
+			"(SELECT COALESCE(sub0.time, sub1.time) AS \"__time\", (sub0.value - lag(sub0.value) OVER (ORDER BY sub0.time)) AS \"__c0\"," +
+			" (sub1.value - lag(sub1.value) OVER (ORDER BY sub1.time)) +5 AS \"__c1\" " +
 			"FROM (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", last(\"sensor.ENERGY.Total\", \"time\") AS value FROM" +
-			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" > " + wideLast7d + " GROUP BY " +
+			" \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" WHERE \"time\" >= " + wideLast7d + " GROUP BY " +
 			"1 ORDER BY 1 ASC) sub0 FULL OUTER JOIN (SELECT time_bucket('1d', \"time\", 'Europe/Berlin') AS \"time\", " +
 			"first(\"2a697f637c7bc0af368f56d414fb6eb9c1d1026b1c7260b7baaf4da48e462c\", \"time\") AS value FROM \"device:reH7pvpfRwSZl4HcFo9i9A_service:l4BYIMoKRsWdzxbC44awUA\" " +
-			"WHERE \"time\" > " + wideLast7d + " GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time) d WHERE \"time\" >= " + firstLast7d + " ORDER BY 1 DESC LIMIT 10"
+			"WHERE \"time\" >= " + wideLast7d + " GROUP BY 1 ORDER BY 1 ASC) sub1 on sub0.time = sub1.time) d WHERE \"__time\" >= " + firstLast7d + " ORDER BY 1 DESC LIMIT 10"
 
 		if actual[0] != expected {
 			t.Error("Expected/Actual\n\n", expected, "\n\n", actual[0])
