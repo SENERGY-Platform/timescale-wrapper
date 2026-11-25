@@ -249,7 +249,7 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 					for colIdx, col := range dbRequestElement.Columns {
 						f, err := remoteCache.GetFunction(elementCtx, col.Criteria.FunctionId)
 						if err != nil {
-							raiseError(errors.Join(err, model.GetError(code)))
+							raiseError(errors.Join(err, model.ErrInternalServerError))
 							return
 						}
 
