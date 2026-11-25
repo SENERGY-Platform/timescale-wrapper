@@ -128,58 +128,49 @@ func (lv *RemoteCache) GetLastMessageFromCache(ctx context.Context, deviceId str
 	return
 }
 
+const remoteCacheExpiration = 5 * 60 // seconds
+
+// getOrFetch returns the object cached under key. On a miss it calls fetch and stores the result under
+// the same key, so the key used to read and the key used to write cannot differ.
+func getOrFetch[T any](ctx context.Context, cache *RemoteCache, key string, fetch func() (T, error)) (T, error) {
+	cachedItem, err := cache.mcGet(ctx, key)
+	if err == nil {
+		var value T
+		err = json.Unmarshal(cachedItem.Value, &value)
+		return value, err
+	}
+	value, err := fetch()
+	if err != nil {
+		return value, err
+	}
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		return value, err
+	}
+	cache.mcSet(ctx, &memcache.Item{
+		Key:        key,
+		Value:      bytes,
+		Expiration: remoteCacheExpiration,
+	})
+	return value, nil
+}
+
 func (this *RemoteCache) GetService(ctx context.Context, serviceId string) (service models.Service, err error) {
 	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetService")
 	defer span.End()
-	cachedItem, err := this.mcGet(ctx, "service_"+serviceId)
-	if err == nil {
-		err = json.Unmarshal(cachedItem.Value, &service)
-		if err != nil {
-			return service, err
-		}
-	} else {
-		service, err, _ = this.deviceRepo.GetService(serviceId)
-		if err != nil {
-			return service, err
-		}
-		bytes, err := json.Marshal(service)
-		if err != nil {
-			return service, err
-		}
-		this.mcSet(ctx, &memcache.Item{
-			Key:        "service_" + service.Id,
-			Value:      bytes,
-			Expiration: 5 * 60,
-		})
-	}
-	return service, err
+	return getOrFetch(ctx, this, "service_"+serviceId, func() (models.Service, error) {
+		service, err, _ := this.deviceRepo.GetService(serviceId)
+		return service, err
+	})
 }
 
 func (this *RemoteCache) GetConcept(ctx context.Context, conceptId string) (concept models.Concept, err error) {
 	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetConcept")
 	defer span.End()
-	cachedItem, err := this.mcGet(ctx, "concept_"+conceptId)
-	if err == nil {
-		err = json.Unmarshal(cachedItem.Value, &concept)
-		if err != nil {
-			return
-		}
-	} else {
-		concept, err, _ = this.deviceRepo.GetConceptWithoutCharacteristics(conceptId)
-		if err != nil {
-			return
-		}
-		bytes, err := json.Marshal(concept)
-		if err != nil {
-			return concept, err
-		}
-		this.mcSet(ctx, &memcache.Item{
-			Key:        "concept_" + concept.Id,
-			Value:      bytes,
-			Expiration: 5 * 60,
-		})
-	}
-	return
+	return getOrFetch(ctx, this, "concept_"+conceptId, func() (models.Concept, error) {
+		concept, err, _ := this.deviceRepo.GetConceptWithoutCharacteristics(conceptId)
+		return concept, err
+	})
 }
 
 func (this *RemoteCache) StoreSecretQuery(ctx context.Context, query model.PreparedQueriesRequestElement) (secret string, err error) {
@@ -217,109 +208,37 @@ func (this *RemoteCache) GetSecretQuery(ctx context.Context, secret string) (que
 func (this *RemoteCache) GetDeviceGroup(ctx context.Context, deviceGroupId string, token string) (deviceGroup models.DeviceGroup, err error) {
 	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetDeviceGroup")
 	defer span.End()
-	cachedItem, err := this.mcGet(ctx, "device_group_"+deviceGroupId)
-	if err == nil {
-		err = json.Unmarshal(cachedItem.Value, &deviceGroup)
-		if err != nil {
-			return
-		}
-	} else {
-		deviceGroup, err, _ = this.deviceRepo.ReadDeviceGroup(deviceGroupId, token, false)
-		if err != nil {
-			return
-		}
-		bytes, err := json.Marshal(deviceGroup)
-		if err != nil {
-			return deviceGroup, err
-		}
-		this.mcSet(ctx, &memcache.Item{
-			Key:        "device_group_" + deviceGroup.Id,
-			Value:      bytes,
-			Expiration: 5 * 60,
-		})
-	}
-	return
+	return getOrFetch(ctx, this, "device_group_"+deviceGroupId, func() (models.DeviceGroup, error) {
+		deviceGroup, err, _ := this.deviceRepo.ReadDeviceGroup(deviceGroupId, token, false)
+		return deviceGroup, err
+	})
 }
 
 func (this *RemoteCache) GetDevice(ctx context.Context, deviceId string, token string) (device models.Device, err error) {
 	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetDevice")
 	defer span.End()
-	cachedItem, err := this.mcGet(ctx, "device_"+deviceId)
-	if err == nil {
-		err = json.Unmarshal(cachedItem.Value, &device)
-		if err != nil {
-			return device, err
-		}
-	} else {
-		device, err, _ = this.deviceRepo.ReadDevice(deviceId, token, drmodel.READ)
-		if err != nil {
-			return device, err
-		}
-		bytes, err := json.Marshal(device)
-		if err != nil {
-			return device, err
-		}
-		this.mcSet(ctx, &memcache.Item{
-			Key:        "device_" + device.Id,
-			Value:      bytes,
-			Expiration: 5 * 60,
-		})
-	}
-	return device, err
+	return getOrFetch(ctx, this, "device_"+deviceId, func() (models.Device, error) {
+		device, err, _ := this.deviceRepo.ReadDevice(deviceId, token, drmodel.READ)
+		return device, err
+	})
 }
 
 func (this *RemoteCache) GetFunction(ctx context.Context, functionId string) (function models.Function, err error) {
 	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetFunction")
 	defer span.End()
-	cachedItem, err := this.mcGet(ctx, "function_"+functionId)
-	if err == nil {
-		err = json.Unmarshal(cachedItem.Value, &function)
-		if err != nil {
-			return
-		}
-	} else {
-		function, err, _ = this.deviceRepo.GetFunction(functionId)
-		if err != nil {
-			return
-		}
-		bytes, err := json.Marshal(function)
-		if err != nil {
-			return function, err
-		}
-		this.mcSet(ctx, &memcache.Item{
-			Key:        "function_" + function.Id,
-			Value:      bytes,
-			Expiration: 5 * 60,
-		})
-	}
-	return
+	return getOrFetch(ctx, this, "function_"+functionId, func() (models.Function, error) {
+		function, err, _ := this.deviceRepo.GetFunction(functionId)
+		return function, err
+	})
 }
 
 func (this *RemoteCache) GetLocation(ctx context.Context, locationId string, token string) (location models.Location, err error) {
 	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetLocation")
 	defer span.End()
-	cachedItem, err := this.mcGet(ctx, "location_"+locationId)
-	if err == nil {
-		err = json.Unmarshal(cachedItem.Value, &location)
-		if err != nil {
-			return
-		}
-	} else {
-		location, err, _ = this.deviceRepo.GetLocation(locationId, token)
-		if err != nil {
-			return
-		}
-		bytes, err := json.Marshal(location)
-		if err != nil {
-			return location, err
-		}
-		this.mcSet(ctx, &memcache.Item{
-			Key:        "location_" + location.Id,
-			Value:      bytes,
-			Expiration: 5 * 60,
-		})
-	}
-	return
+	return getOrFetch(ctx, this, "location_"+locationId, func() (models.Location, error) {
+		location, err, _ := this.deviceRepo.GetLocation(locationId, token)
+		return location, err
+	})
 }
 
 func (this *RemoteCache) GetSelectables(ctx context.Context, userid string, token string, criteria []models.DeviceGroupFilterCriteria, options *deviceSelection.GetSelectablesOptions) (res []dsmodel.Selectable, code int, err error) {
