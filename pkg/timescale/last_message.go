@@ -29,20 +29,17 @@ import (
 	util "github.com/SENERGY-Platform/timescale-tableworker/pkg/lib/handler"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/cache"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
+	"github.com/SENERGY-Platform/timescale-wrapper/pkg/tablenames"
 	"github.com/jackc/pgx/v5"
 )
 
 func (wrapper *Wrapper) GetLastMessage(ctx context.Context, deviceId string, serviceId string, service models.Service) (entry cache.Entry, err error) {
-	shortDeviceId, err := models.ShortenId(deviceId)
-	if err != nil {
-		return entry, err
-	}
-	shortServiceId, err := models.ShortenId(serviceId)
+	table, err := tablenames.DeviceTableName(deviceId, serviceId)
 	if err != nil {
 		return entry, err
 	}
 	var rawValues string
-	err = wrapper.readPool.QueryRow(ctx, "select to_json(r) from (select * from \"device:"+shortDeviceId+"_service:"+shortServiceId+"\" order by time desc limit 1) r;").Scan(&rawValues)
+	err = wrapper.readPool.QueryRow(ctx, "select to_json(r) from (select * from "+quoteIdentifier(table)+" order by time desc limit 1) r;").Scan(&rawValues)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return entry, model.ErrNoContent

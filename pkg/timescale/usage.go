@@ -19,92 +19,65 @@ package timescale
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/SENERGY-Platform/models/go/models"
 	"github.com/SENERGY-Platform/timescale-wrapper/pkg/model"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// GetDeviceUsage sums the usage of all service tables of each device.
 func (wrapper *Wrapper) GetDeviceUsage(ctx context.Context, deviceIds []string) (res []model.Usage, err error) {
-	res = []model.Usage{}
-	if len(deviceIds) == 0 {
-		return res, err
-	}
-	shortDeviceIds := []string{}
-	for _, deviceId := range deviceIds {
-		shortId, err := models.ShortenId(deviceId)
-		if err != nil {
-			return nil, err
-		}
-		shortDeviceIds = append(shortDeviceIds, "'"+shortId+"'")
-	}
-
-	rows, err := wrapper.readPool.Query(ctx, fmt.Sprintf("SELECT substring(\"table\", 8, 22) as short_device_id, sum(bytes), min(updated_at), sum(bytes_per_day) FROM %v.usage WHERE substring(\"table\", 8, 22) IN (%v) GROUP BY short_device_id", wrapper.config.PostgresUsageSchema, strings.Join(shortDeviceIds, ", ")))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	r := model.Usage{}
-	var bytesPerDay pgtype.Float8
-	for rows.Next() {
-		err = rows.Scan(&r.DeviceId, &r.Bytes, &r.UpdatedAt, &bytesPerDay)
-		if err != nil {
-			return nil, err
-		}
-		r.BytesPerDay = bytesPerDay.Float64
-		r.DeviceId, err = models.LongId(r.DeviceId)
-		if err != nil {
-			return nil, err
-		}
-		r.DeviceId = "urn:infai:ses:device:" + r.DeviceId
-		res = append(res, r)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return res, nil
+	query := fmt.Sprintf("SELECT substring(\"table\", 8, 22) as short_device_id, sum(bytes), min(updated_at), sum(bytes_per_day) FROM %v.usage WHERE substring(\"table\", 8, 22) = ANY($1) GROUP BY short_device_id", wrapper.config.PostgresUsageSchema)
+	return wrapper.queryUsage(ctx, query, deviceIds, func(usage *model.Usage, longId string) {
+		usage.DeviceId = "urn:infai:ses:device:" + longId
+	})
 }
 
+// GetExportUsage returns the usage of the table of each export.
 func (wrapper *Wrapper) GetExportUsage(ctx context.Context, exportIds []string) (res []model.Usage, err error) {
+	query := fmt.Sprintf("SELECT substring(\"table\", 38, 60) as short_export_id, bytes, updated_at, bytes_per_day FROM %v.usage WHERE substring(\"table\", 38, 60) = ANY($1)", wrapper.config.PostgresUsageSchema)
+	return wrapper.queryUsage(ctx, query, exportIds, func(usage *model.Usage, longId string) {
+		usage.ExportId = longId
+	})
+}
+
+// queryUsage runs query with the short forms of ids as its only parameter. Each row is a short id
+// followed by bytes, updated at and bytes per day; setId stores the long form of the id.
+func (wrapper *Wrapper) queryUsage(ctx context.Context, query string, ids []string, setId func(usage *model.Usage, longId string)) (res []model.Usage, err error) {
 	res = []model.Usage{}
-	if len(exportIds) == 0 {
-		return res, err
+	if len(ids) == 0 {
+		return res, nil
 	}
-	shortExportIds := []string{}
-	for _, exportId := range exportIds {
-		shortId, err := models.ShortenId(exportId)
+	shortIds := make([]string, 0, len(ids))
+	for _, id := range ids {
+		shortId, err := models.ShortenId(id)
 		if err != nil {
 			return nil, err
 		}
-		shortExportIds = append(shortExportIds, "'"+shortId+"'")
+		shortIds = append(shortIds, shortId)
 	}
-
-	rows, err := wrapper.readPool.Query(ctx, fmt.Sprintf("SELECT substring(\"table\", 38, 60) as short_export_id, bytes, updated_at, bytes_per_day FROM %v.usage WHERE substring(\"table\", 38, 60) IN (%v)", wrapper.config.PostgresUsageSchema, strings.Join(shortExportIds, ", ")))
+	rows, err := wrapper.readPool.Query(ctx, query, shortIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	r := model.Usage{}
-	var bytesPerDay pgtype.Float8
 	for rows.Next() {
-		err = rows.Scan(&r.ExportId, &r.Bytes, &r.UpdatedAt, &bytesPerDay)
+		var usage model.Usage
+		var shortId string
+		var bytesPerDay pgtype.Float8
+		if err = rows.Scan(&shortId, &usage.Bytes, &usage.UpdatedAt, &bytesPerDay); err != nil {
+			return nil, err
+		}
+		usage.BytesPerDay = bytesPerDay.Float64
+		longId, err := models.LongId(shortId)
 		if err != nil {
 			return nil, err
 		}
-		r.BytesPerDay = bytesPerDay.Float64
-		r.ExportId, err = models.LongId(r.ExportId)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, r)
+		setId(&usage, longId)
+		res = append(res, usage)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-
 	return res, nil
 }
