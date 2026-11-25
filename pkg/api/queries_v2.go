@@ -227,6 +227,14 @@ func QueriesV2Endpoint(router gin.IRouter, config configuration.Config, wrapper 
 							return
 						}
 						deviceIds = append(deviceIds, location.DeviceIds...)
+						err = verifyDerivedDeviceGroups(elementCtx, location.DeviceGroupIds, func(ctx context.Context, id string) (bool, error) {
+							entry, err := verifier.VerifyAccessOnce(ctx, model.QueriesRequestElement{DeviceGroupId: &id}, token, userId)
+							return entry.Ok, err
+						})
+						if err != nil {
+							raiseError(err)
+							return
+						}
 						deviceGroupIds = append(deviceGroupIds, location.DeviceGroupIds...)
 					}
 
@@ -462,4 +470,19 @@ func equalPtr[T comparable](a, b *T) bool {
 		return a == b
 	}
 	return *a == *b
+}
+
+// verifyDerivedDeviceGroups checks read access to device groups that were not requested directly but found in a location.
+// The access check of the request only covers the location itself.
+func verifyDerivedDeviceGroups(ctx context.Context, groupIds []string, verify func(ctx context.Context, groupId string) (bool, error)) error {
+	for _, id := range groupIds {
+		ok, err := verify(ctx, id)
+		if err != nil {
+			return errors.Join(err, model.ErrInternalServerError)
+		}
+		if !ok {
+			return errors.Join(fmt.Errorf("access to device group %v denied", id), model.ErrForbidden)
+		}
+	}
+	return nil
 }

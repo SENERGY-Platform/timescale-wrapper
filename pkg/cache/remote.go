@@ -325,30 +325,11 @@ func (this *RemoteCache) GetLocation(ctx context.Context, locationId string, tok
 func (this *RemoteCache) GetSelectables(ctx context.Context, userid string, token string, criteria []models.DeviceGroupFilterCriteria, options *deviceSelection.GetSelectablesOptions) (res []dsmodel.Selectable, code int, err error) {
 	ctx, span := this.tracer.Start(ctx, "RemoteCache.GetSelectables")
 	defer span.End()
-	hasher := sha256.New()
-	criteriaBytes, err := json.Marshal(criteria)
+	key, err := selectablesCacheKey(userid, criteria, options)
 	if err != nil {
 		code = http.StatusInternalServerError
 		return
 	}
-	_, err = hasher.Write(criteriaBytes)
-	if err != nil {
-		code = http.StatusInternalServerError
-		return
-	}
-
-	optionsBytes, err := json.Marshal(options)
-	if err != nil {
-		code = http.StatusInternalServerError
-		return
-	}
-	_, err = hasher.Write(optionsBytes)
-	if err != nil {
-		code = http.StatusInternalServerError
-		return
-	}
-
-	key := "selectables_" + hex.EncodeToString(hasher.Sum(nil))
 	cachedItem, err := this.mcGet(ctx, key)
 	if err == nil {
 		err = json.Unmarshal(cachedItem.Value, &res)
@@ -465,4 +446,23 @@ func deepEntryMatches(sub interface{}, path []string) []interface{} {
 		}
 	}
 	return matches
+}
+
+// selectablesCacheKey includes the user id, because device-selection filters the devices by the token of the caller.
+// Without it, a user would be served the device list that was loaded for another user.
+func selectablesCacheKey(userId string, criteria []models.DeviceGroupFilterCriteria, options *deviceSelection.GetSelectablesOptions) (string, error) {
+	criteriaBytes, err := json.Marshal(criteria)
+	if err != nil {
+		return "", err
+	}
+	optionsBytes, err := json.Marshal(options)
+	if err != nil {
+		return "", err
+	}
+	hasher := sha256.New()
+	// the length prefix keeps the user id and the criteria from shifting into each other
+	_, _ = hasher.Write([]byte(strconv.Itoa(len(userId)) + ":" + userId))
+	_, _ = hasher.Write(criteriaBytes)
+	_, _ = hasher.Write(optionsBytes)
+	return "selectables_" + hex.EncodeToString(hasher.Sum(nil)), nil
 }
